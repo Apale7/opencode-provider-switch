@@ -20,3 +20,5 @@ If you're using Codex, project-scoped helpers may also live in:
 Keep this managed block so 'trellis update' can refresh the instructions.
 
 <!-- TRELLIS:END -->
+永远用中文与我交流
+默认开启caveman ultra模式
