@@ -1,0 +1,45 @@
+{
+  "id": "04-17-ops-mvp-design",
+  "name": "OPS MVP Design",
+  "description": "Define MVP product and technical design for a Go-based local proxy that failsover OpenCode providers",
+  "status": "completed",
+  "dev_type": "docs",
+  "priority": "P1",
+  "creator": "Apale",
+  "assignee": "Apale",
+  "createdAt": "2026-04-17",
+  "completedAt": "2026-04-17",
+  "commit": null,
+  "subtasks": [
+    {
+      "name": "Define MVP scope and non-goals",
+      "status": "completed"
+    },
+    {
+      "name": "Define Go architecture and SQLite schema",
+      "status": "completed"
+    },
+    {
+      "name": "Document OpenCode migration and proxy behavior",
+      "status": "completed"
+    }
+  ],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-17-ops-mvp-design/prd.md",
+    "examples/opencode.jsonc"
+  ],
+  "notes": "Design-only task completed. Implementation should start from a follow-up task based on this PRD.",
+  "meta": {
+    "stack": [
+      "Go",
+      "SQLite"
+    ],
+    "defaultPort": 9982,
+    "mvpProtocols": [
+      "openai-chat-completions",
+      "openai-responses"
+    ]
+  }
+}
