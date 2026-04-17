@@ -15,6 +15,18 @@ func newProviderCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "provider",
 		Short: "Manage upstream providers",
+		Long: `Provider commands manage upstream OpenAI-compatible endpoints stored in the
+local olpx config file.
+
+Providers are separate from aliases: a provider defines connection details such
+as base URL, API key, and extra headers, while aliases decide failover order by
+binding one or more provider/model targets.
+
+Common workflow: add or import providers first, inspect them with provider list,
+then bind them to aliases with olpx alias bind.`,
+		Example: `  olpx provider add --id su8 --base-url https://cn2.su8.codes/v1 --api-key sk-example
+  olpx provider import-opencode
+  olpx provider list`,
 	}
 	c.AddCommand(
 		newProviderAddCmd(),
@@ -34,6 +46,23 @@ func newProviderAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add or update an upstream provider",
+		Long: `provider add creates or updates one upstream provider entry in local olpx
+config.
+
+It writes only the olpx config file. --base-url must point at an
+OpenAI-compatible /v1 root. The command validates that shape, but it does not
+contact the upstream or test credentials.
+
+When updating an existing provider, omitted mutable fields keep their current
+values: name, api key, headers, and disabled state are preserved unless you
+explicitly pass new values. Repeated --header KEY=VALUE entries replace the
+stored header map for this command invocation.
+
+Typical next step: run olpx provider list or bind the provider to an alias.`,
+		Example: `  olpx provider add --id su8 --base-url https://cn2.su8.codes/v1
+  olpx provider add --id su8 --base-url https://cn2.su8.codes/v1 --api-key sk-example
+  olpx provider add --id relay --base-url https://example.com/v1 --api-key sk-example --header X-Token=abc --header X-Workspace=my-team
+  olpx provider add --id su8 --base-url https://new.example.com/v1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if id == "" || baseURL == "" {
 				return fmt.Errorf("--id and --base-url are required")
@@ -111,6 +140,15 @@ func newProviderListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List configured providers",
+		Long: `provider list prints the providers currently stored in local olpx config.
+
+Output is inspection-oriented: provider ids, enabled state, base URLs, and
+redacted API keys are shown so you can confirm what was saved or imported before
+binding aliases.
+
+This command does not modify config and does not contact upstream providers.`,
+		Example: `  olpx provider list
+  olpx --config /path/to/config.json provider list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -155,6 +193,16 @@ func newProviderStateCmd(use string, disabled bool) *cobra.Command {
 		Use:   use + " <id>",
 		Args:  cobra.ExactArgs(1),
 		Short: strings.Title(action[:len(action)-1]) + " a provider without changing alias target state",
+		Long: fmt.Sprintf(`provider %s flips one provider's disabled state in local olpx config.
+
+It changes routing eligibility for every alias target that references this
+provider, but it does not rewrite alias target enabled flags. This matters when
+the same provider is shared across multiple aliases.
+
+This command writes only the olpx config file and does not test upstream
+reachability. Typical next step: run olpx doctor to confirm routable aliases.`, use),
+		Example: fmt.Sprintf(`  olpx provider %s <id>
+  olpx doctor`, use),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -181,6 +229,16 @@ func newProviderRemoveCmd() *cobra.Command {
 		Use:   "remove <id>",
 		Args:  cobra.ExactArgs(1),
 		Short: "Remove a provider (targets referencing it must be removed first or will fail doctor)",
+		Long: `provider remove deletes one provider from local olpx config.
+
+It does not automatically clean alias target references that still point at the
+removed provider. If aliases still reference it, doctor will report invalid
+config and those aliases will not be routable.
+
+Typical follow-up: inspect aliases, unbind stale targets, then run olpx doctor.`,
+		Example: `  olpx provider remove su8
+  olpx alias list
+  olpx doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -204,6 +262,22 @@ func newProviderImportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import-opencode",
 		Short: "Import @ai-sdk/openai custom providers from an OpenCode config file",
+		Long: `provider import-opencode reads an OpenCode config file and copies supported
+custom providers into local olpx config.
+
+By default it reads the global user OpenCode config resolved in precedence order
+opencode.jsonc > opencode.json > config.json under ~/.config/opencode (XDG
+aware). It does not follow OPENCODE_CONFIG_DIR for this default source; use
+--from when you want a different file.
+
+Only config-defined @ai-sdk/openai custom providers with both baseURL and apiKey
+are imported. Unsupported provider shapes are skipped by design. Existing olpx
+providers are skipped unless --overwrite is given.
+
+Typical next step: run olpx provider list, then create aliases and bindings.`,
+		Example: `  olpx provider import-opencode
+  olpx provider import-opencode --from /path/to/opencode.jsonc
+  olpx provider import-opencode --overwrite`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if srcPath == "" {
 				p, existed := opencode.ResolveGlobalConfigPath()

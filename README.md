@@ -357,6 +357,8 @@ olpx opencode sync --help
 olpx --config /path/to/config.json doctor
 ```
 
+命令级行为、默认值、写入范围与副作用，以对应命令的 `--help` 为准；README 主要保留快速上手与背景说明。
+
 一个最小配置示例：
 
 ```json

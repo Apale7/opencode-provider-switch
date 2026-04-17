@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/anomalyco/opencode-provider-switch/internal/config"
 )
@@ -218,5 +221,71 @@ func TestOpencodeSyncDoesNotPanicOnSliceModelMetadata(t *testing.T) {
 	}
 	if !bytes.Equal(data, seed) {
 		t.Fatalf("sync rewrote unchanged config:\n%s", string(data))
+	}
+}
+
+func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
+	tests := []struct {
+		name        string
+		cmd         *cobra.Command
+		wantLong    []string
+		wantExample []string
+	}{
+		{
+			name:        "root",
+			cmd:         NewRootCmd("test"),
+			wantLong:    []string{"Typical workflow:", "prefer command-local --help over README summaries"},
+			wantExample: []string{"olpx provider add", "olpx serve"},
+		},
+		{
+			name:        "provider add",
+			cmd:         newProviderAddCmd(),
+			wantLong:    []string{"--base-url must point at an", "omitted mutable fields keep their current", "values: name, api key, headers"},
+			wantExample: []string{"olpx provider add --id relay", "--header X-Workspace=my-team"},
+		},
+		{
+			name:        "alias bind",
+			cmd:         newAliasBindCmd(),
+			wantLong:    []string{"auto-creates an enabled alias", "Order matters:"},
+			wantExample: []string{"--provider codex --model GPT-5.4", "--disabled"},
+		},
+		{
+			name:        "opencode sync",
+			cmd:         newOpencodeSyncCmd(),
+			wantLong:    []string{"does not follow", "writes alias", "exposure into provider.olpx.models"},
+			wantExample: []string{"--dry-run", "--set-small-model olpx/gpt-5.4-mini"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.cmd.Long == "" {
+				t.Fatal("Long help is empty")
+			}
+			if tt.cmd.Example == "" {
+				t.Fatal("Example help is empty")
+			}
+			for _, want := range tt.wantLong {
+				if !strings.Contains(tt.cmd.Long, want) {
+					t.Fatalf("Long help missing %q\n%s", want, tt.cmd.Long)
+				}
+			}
+			for _, want := range tt.wantExample {
+				if !strings.Contains(tt.cmd.Example, want) {
+					t.Fatalf("Example help missing %q\n%s", want, tt.cmd.Example)
+				}
+			}
+		})
+	}
+
+	root := NewRootCmd("test")
+	flag := root.PersistentFlags().Lookup("config")
+	if flag == nil {
+		t.Fatal("--config flag not found")
+	}
+	for _, want := range []string{"$OLPX_CONFIG", "$XDG_CONFIG_HOME/olpx/config.json", "~/.config/olpx/config.json"} {
+		if !strings.Contains(flag.Usage, want) {
+			t.Fatalf("config flag usage missing %q: %s", want, flag.Usage)
+		}
 	}
 }

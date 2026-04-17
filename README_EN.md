@@ -91,6 +91,10 @@ interactions when the same provider is shared across multiple aliases.
 
 ## CLI reference
 
+For exact command behavior, defaults, write scope, and side effects, prefer the
+matching `--help` page. This README is the quick-start narrative, while CLI help
+is the authoritative local execution contract.
+
 - `olpx serve` — run the proxy
 - `olpx doctor` — validate config
 - `olpx provider {add,list,enable,disable,remove,import-opencode}`

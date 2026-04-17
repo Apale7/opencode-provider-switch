@@ -14,6 +14,19 @@ func newAliasCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "alias",
 		Short: "Manage logical aliases routed by olpx",
+		Long: `Alias commands manage the user-facing model names that OpenCode sees as
+olpx/<alias>.
+
+Each alias contains an ordered target chain of provider/model pairs. Target
+order is operational: olpx tries targets in order and only fails over before any
+response bytes are sent downstream.
+
+Common workflow: create an alias, bind primary and fallback targets, inspect the
+result with alias list, then run doctor and opencode sync.`,
+		Example: `  olpx alias add --name gpt-5.4 --display-name "GPT 5.4"
+  olpx alias bind --alias gpt-5.4 --provider su8 --model gpt-5.4
+  olpx alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
+  olpx alias list`,
 	}
 	c.AddCommand(newAliasAddCmd(), newAliasListCmd(), newAliasBindCmd(), newAliasUnbindCmd(), newAliasRemoveCmd())
 	return c
@@ -25,6 +38,18 @@ func newAliasAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Create or update an alias (without targets)",
+		Long: `alias add creates or updates alias metadata in local olpx config.
+
+It writes the alias record itself, but it does not add or validate targets.
+Enabled aliases still need at least one routable target before doctor and
+opencode sync will treat them as usable.
+
+When updating an existing alias, omitted display-name preserves the current
+value and existing targets stay attached. Typical next step: add targets with
+olpx alias bind.`,
+		Example: `  olpx alias add --name gpt-5.4 --display-name "GPT 5.4"
+  olpx alias add --name gpt-5.4-mini --disabled
+  olpx alias add --name gpt-5.4 --display-name "GPT 5.4 Reasoning"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return fmt.Errorf("--name is required")
@@ -63,6 +88,16 @@ func newAliasListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List aliases and their target chains",
+		Long: `alias list prints aliases from local olpx config together with their target
+chains.
+
+Output shows alias enabled state, target order, target enabled markers, and a
+note when a referenced provider is missing or disabled. This is the easiest way
+to verify failover order before running doctor or opencode sync.
+
+This command does not modify config and does not contact upstream providers.`,
+		Example: `  olpx alias list
+  olpx --config /path/to/config.json alias list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -107,6 +142,18 @@ func newAliasBindCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bind",
 		Short: "Append a target (provider/model) to an alias in failover order",
+		Long: `alias bind appends one provider/model target to an alias's ordered failover
+chain in local olpx config.
+
+The provider must already exist. If the alias does not exist yet, this command
+auto-creates an enabled alias for convenience. Binding does not test upstream
+health or credentials.
+
+Order matters: the first bound target is tried first, the second is fallback,
+and so on. Typical next step: inspect with alias list, then run doctor.`,
+		Example: `  olpx alias bind --alias gpt-5.4 --provider su8 --model gpt-5.4
+  olpx alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
+  olpx alias bind --alias gpt-5.4 --provider relay --model gpt-5.4 --disabled`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if alias == "" || provider == "" || model == "" {
 				return fmt.Errorf("--alias, --provider and --model are required")
@@ -144,6 +191,17 @@ func newAliasUnbindCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "unbind",
 		Short: "Remove a target from an alias",
+		Long: `alias unbind removes one concrete provider/model target tuple from an alias in
+local olpx config.
+
+It does not delete the alias itself. Removing a target can leave the alias with
+no routable targets, which doctor and opencode sync will then treat as invalid
+or unavailable.
+
+Typical next step: run alias list or doctor to confirm the remaining target
+chain.`,
+		Example: `  olpx alias unbind --alias gpt-5.4 --provider codex --model GPT-5.4
+  olpx doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if alias == "" || provider == "" || model == "" {
 				return fmt.Errorf("--alias, --provider and --model are required")
@@ -173,6 +231,16 @@ func newAliasRemoveCmd() *cobra.Command {
 		Use:   "remove <alias>",
 		Args:  cobra.ExactArgs(1),
 		Short: "Delete an alias entirely",
+		Long: `alias remove deletes one alias and all of its target bindings from local olpx
+config.
+
+Future opencode sync runs will stop exposing that alias in provider.olpx.models.
+This command does not directly clear top-level model selections that may still
+reference the old alias in OpenCode config.
+
+Typical next step: run olpx opencode sync if OpenCode exposure should be updated.`,
+		Example: `  olpx alias remove gpt-5.4
+  olpx opencode sync`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {

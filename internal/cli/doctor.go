@@ -12,6 +12,18 @@ func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Validate olpx config (static checks, no upstream requests)",
+		Long: `doctor performs static validation for local olpx config and the expected
+OpenCode sync result.
+
+It loads local olpx config, checks alias/provider consistency, resolves the
+default OpenCode sync target, and validates what provider.olpx would look like
+there. It does not send any real requests to upstream providers and does not
+consume model quota.
+
+Run doctor before opencode sync or serve whenever you changed providers,
+aliases, or local server settings.`,
+		Example: `  olpx doctor
+  olpx --config /path/to/config.json doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
