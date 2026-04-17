@@ -1,5 +1,5 @@
 // Package proxy implements the local `/v1/responses` HTTP server that resolves
-// ops aliases and forwards requests to upstream providers with deterministic
+// olpx aliases and forwards requests to upstream providers with deterministic
 // pre-first-byte failover.
 package proxy
 
@@ -32,7 +32,7 @@ type openAIError struct {
 	Code    string `json:"code,omitempty"`
 }
 
-// Server is the local ops HTTP proxy.
+// Server is the local olpx HTTP proxy.
 type Server struct {
 	cfg    *config.Config
 	client *http.Client
@@ -62,7 +62,7 @@ func New(cfg *config.Config) *Server {
 			Transport: transport,
 			Timeout:   0, // streaming, no overall timeout
 		},
-		logger: log.New(log.Writer(), "[ops] ", log.LstdFlags|log.Lmicroseconds),
+		logger: log.New(log.Writer(), "[olpx] ", log.LstdFlags|log.Lmicroseconds),
 	}
 }
 
@@ -112,7 +112,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		data = append(data, map[string]any{
 			"id":       a.Alias,
 			"object":   "model",
-			"owned_by": "ops",
+			"owned_by": "olpx",
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -379,7 +379,7 @@ func errorTypeForStatus(status int) string {
 }
 
 func normalizeAliasName(model string) string {
-	const prefix = "ops/"
+	const prefix = "olpx/"
 	if strings.HasPrefix(model, prefix) {
 		trimmed := strings.TrimPrefix(model, prefix)
 		if trimmed != "" {
@@ -389,14 +389,14 @@ func normalizeAliasName(model string) string {
 	return model
 }
 
-// writeDebugHeaders sets the X-OPS-* debug headers before WriteHeader.
+// writeDebugHeaders sets the X-OLPX-* debug headers before WriteHeader.
 func (s *Server) writeDebugHeaders(w http.ResponseWriter, alias, provider, remoteModel string, attempt, failoverCount int) {
 	h := w.Header()
-	h.Set("X-OPS-Alias", alias)
-	h.Set("X-OPS-Provider", provider)
-	h.Set("X-OPS-Remote-Model", remoteModel)
-	h.Set("X-OPS-Attempt", fmt.Sprintf("%d", attempt))
-	h.Set("X-OPS-Failover-Count", fmt.Sprintf("%d", failoverCount))
+	h.Set("X-OLPX-Alias", alias)
+	h.Set("X-OLPX-Provider", provider)
+	h.Set("X-OLPX-Remote-Model", remoteModel)
+	h.Set("X-OLPX-Attempt", fmt.Sprintf("%d", attempt))
+	h.Set("X-OLPX-Failover-Count", fmt.Sprintf("%d", failoverCount))
 }
 
 // hopByHopHeaders lists headers that must not be forwarded per RFC 7230.

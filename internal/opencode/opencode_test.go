@@ -64,76 +64,76 @@ func TestResolveGlobalConfigPathPrecedence(t *testing.T) {
 	}
 }
 
-func TestValidateOpsProvider(t *testing.T) {
+func TestValidateOLPXProvider(t *testing.T) {
 	raw := Raw{}
 	aliases := []string{"gpt-5.4", "gpt-5.4-mini"}
 	baseURL := "http://127.0.0.1:9982/v1"
-	apiKey := "ops-local"
-	EnsureOpsProvider(raw, baseURL, apiKey, aliases)
+	apiKey := "olpx-local"
+	EnsureOLPXProvider(raw, baseURL, apiKey, aliases)
 
 	providerRaw, _ := raw["provider"].(map[string]any)
-	opsRaw, _ := providerRaw["ops"].(map[string]any)
-	opts, _ := opsRaw["options"].(map[string]any)
+	olpxRaw, _ := providerRaw["olpx"].(map[string]any)
+	opts, _ := olpxRaw["options"].(map[string]any)
 	if got, ok := opts["setCacheKey"].(bool); !ok || !got {
-		t.Fatalf("provider.ops.options.setCacheKey = %#v, want true", opts["setCacheKey"])
+		t.Fatalf("provider.olpx.options.setCacheKey = %#v, want true", opts["setCacheKey"])
 	}
 
-	if err := ValidateOpsProvider(raw, baseURL, apiKey, aliases); err != nil {
-		t.Fatalf("ValidateOpsProvider() unexpected error: %v", err)
+	if err := ValidateOLPXProvider(raw, baseURL, apiKey, aliases); err != nil {
+		t.Fatalf("ValidateOLPXProvider() unexpected error: %v", err)
 	}
 }
 
-func TestRenderSaveDataReplacesExistingProviderOpsOnly(t *testing.T) {
+func TestRenderSaveDataReplacesExistingProviderOLPXOnly(t *testing.T) {
 	raw := Raw{
 		"$schema": "https://opencode.ai/config.json",
-		"model":   "ops/gpt-5.4",
+		"model":   "olpx/gpt-5.4",
 		"provider": map[string]any{
 			"anthropic": map[string]any{"npm": "@ai-sdk/anthropic"},
-			"ops": map[string]any{
+			"olpx": map[string]any{
 				"npm":  "@ai-sdk/openai",
-				"name": "OPS",
+				"name": "OpenCode LocalProxy CLI",
 				"options": map[string]any{
 					"baseURL":     "http://127.0.0.1:9982/v1",
-					"apiKey":      "ops-local",
+					"apiKey":      "olpx-local",
 					"setCacheKey": true,
 				},
 				"models": map[string]any{"gpt-5.4": map[string]any{"name": "gpt-5.4"}},
 			},
 			"openai": map[string]any{"npm": "@ai-sdk/openai"},
 		},
-		"small_model": "ops/gpt-5.4-mini",
+		"small_model": "olpx/gpt-5.4-mini",
 	}
-	original := []byte("{\n  \"model\": \"ops/old\",\n  \"provider\": {\n    \"anthropic\": {\"npm\": \"@ai-sdk/anthropic\"},\n    \"ops\": {\n      \"npm\": \"old\",\n      \"options\": {\"baseURL\": \"http://old/v1\"},\n      \"models\": {\"old\": {\"name\": \"old\"}}\n    },\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"}\n  },\n  \"small_model\": \"ops/old-mini\"\n}\n")
+	original := []byte("{\n  \"model\": \"olpx/old\",\n  \"provider\": {\n    \"anthropic\": {\"npm\": \"@ai-sdk/anthropic\"},\n    \"olpx\": {\n      \"npm\": \"old\",\n      \"options\": {\"baseURL\": \"http://old/v1\"},\n      \"models\": {\"old\": {\"name\": \"old\"}}\n    },\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"}\n  },\n  \"small_model\": \"olpx/old-mini\"\n}\n")
 
-	got, err := patchProviderOpsDocument(original, raw)
+	got, err := patchProviderOLPXDocument(original, raw)
 	if err != nil {
-		t.Fatalf("patchProviderOpsDocument() error: %v", err)
+		t.Fatalf("patchProviderOLPXDocument() error: %v", err)
 	}
 	assertValidJSON(t, got)
 	assertStringOrder(t, string(got), []string{`"model"`, `"provider"`, `"small_model"`})
-	assertStringOrder(t, string(got), []string{`"anthropic"`, `"ops"`, `"openai"`})
+	assertStringOrder(t, string(got), []string{`"anthropic"`, `"olpx"`, `"openai"`})
 	if strings.Contains(string(got), `"npm": "old"`) {
-		t.Fatalf("old provider.ops content still present: %s", string(got))
+		t.Fatalf("old provider.olpx content still present: %s", string(got))
 	}
 	var saved Raw
 	if err := json.Unmarshal(got, &saved); err != nil {
 		t.Fatalf("unmarshal patched json: %v", err)
 	}
-	if err := ValidateOpsProvider(saved, "http://127.0.0.1:9982/v1", "ops-local", []string{"gpt-5.4"}); err != nil {
-		t.Fatalf("ValidateOpsProvider(saved) error: %v", err)
+	if err := ValidateOLPXProvider(saved, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"}); err != nil {
+		t.Fatalf("ValidateOLPXProvider(saved) error: %v", err)
 	}
 }
 
-func TestRenderSaveDataInsertsOpsWithoutReorderingProviderKeys(t *testing.T) {
+func TestRenderSaveDataInsertsOLPXWithoutReorderingProviderKeys(t *testing.T) {
 	raw := Raw{
 		"provider": map[string]any{
 			"anthropic": map[string]any{"npm": "@ai-sdk/anthropic"},
-			"ops": map[string]any{
+			"olpx": map[string]any{
 				"npm":  "@ai-sdk/openai",
-				"name": "OPS",
+				"name": "OpenCode LocalProxy CLI",
 				"options": map[string]any{
 					"baseURL":     "http://127.0.0.1:9982/v1",
-					"apiKey":      "ops-local",
+					"apiKey":      "olpx-local",
 					"setCacheKey": true,
 				},
 				"models": map[string]any{"gpt-5.4": map[string]any{"name": "gpt-5.4"}},
@@ -141,38 +141,38 @@ func TestRenderSaveDataInsertsOpsWithoutReorderingProviderKeys(t *testing.T) {
 			"openai": map[string]any{"npm": "@ai-sdk/openai"},
 		},
 	}
-	original := []byte("{\n  \"provider\": {\n    \"anthropic\": {\"npm\": \"@ai-sdk/anthropic\"},\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"}\n  },\n  \"model\": \"ops/gpt-5.4\"\n}\n")
+	original := []byte("{\n  \"provider\": {\n    \"anthropic\": {\"npm\": \"@ai-sdk/anthropic\"},\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"}\n  },\n  \"model\": \"olpx/gpt-5.4\"\n}\n")
 
-	got, err := patchProviderOpsDocument(original, raw)
+	got, err := patchProviderOLPXDocument(original, raw)
 	if err != nil {
-		t.Fatalf("patchProviderOpsDocument() error: %v", err)
+		t.Fatalf("patchProviderOLPXDocument() error: %v", err)
 	}
 	assertValidJSON(t, got)
-	assertStringOrder(t, string(got), []string{`"anthropic"`, `"openai"`, `"ops"`})
+	assertStringOrder(t, string(got), []string{`"anthropic"`, `"openai"`, `"olpx"`})
 }
 
 func TestRenderSaveDataInsertsProviderAtTopLevelEnd(t *testing.T) {
 	raw := Raw{
-		"model": "ops/gpt-5.4",
+		"model": "olpx/gpt-5.4",
 		"provider": map[string]any{
-			"ops": map[string]any{
+			"olpx": map[string]any{
 				"npm":  "@ai-sdk/openai",
-				"name": "OPS",
+				"name": "OpenCode LocalProxy CLI",
 				"options": map[string]any{
 					"baseURL":     "http://127.0.0.1:9982/v1",
-					"apiKey":      "ops-local",
+					"apiKey":      "olpx-local",
 					"setCacheKey": true,
 				},
 				"models": map[string]any{"gpt-5.4": map[string]any{"name": "gpt-5.4"}},
 			},
 		},
-		"small_model": "ops/gpt-5.4-mini",
+		"small_model": "olpx/gpt-5.4-mini",
 	}
-	original := []byte("{\n  \"model\": \"ops/gpt-5.4\",\n  \"small_model\": \"ops/gpt-5.4-mini\"\n}\n")
+	original := []byte("{\n  \"model\": \"olpx/gpt-5.4\",\n  \"small_model\": \"olpx/gpt-5.4-mini\"\n}\n")
 
-	got, err := patchProviderOpsDocument(original, raw)
+	got, err := patchProviderOLPXDocument(original, raw)
 	if err != nil {
-		t.Fatalf("patchProviderOpsDocument() error: %v", err)
+		t.Fatalf("patchProviderOLPXDocument() error: %v", err)
 	}
 	assertValidJSON(t, got)
 	assertStringOrder(t, string(got), []string{`"model"`, `"small_model"`, `"provider"`})
@@ -181,12 +181,12 @@ func TestRenderSaveDataInsertsProviderAtTopLevelEnd(t *testing.T) {
 func TestRenderSaveDataAcceptsJSONCAndProducesValidJSON(t *testing.T) {
 	raw := Raw{
 		"provider": map[string]any{
-			"ops": map[string]any{
+			"olpx": map[string]any{
 				"npm":  "@ai-sdk/openai",
-				"name": "OPS",
+				"name": "OpenCode LocalProxy CLI",
 				"options": map[string]any{
 					"baseURL":     "http://127.0.0.1:9982/v1",
-					"apiKey":      "ops-local",
+					"apiKey":      "olpx-local",
 					"setCacheKey": true,
 				},
 				"models": map[string]any{"gpt-5.4": map[string]any{"name": "gpt-5.4"}},
@@ -195,9 +195,9 @@ func TestRenderSaveDataAcceptsJSONCAndProducesValidJSON(t *testing.T) {
 	}
 	original := []byte("{\n  // comment\n  \"provider\": {\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"},\n  },\n}\n")
 
-	got, err := patchProviderOpsDocument(original, raw)
+	got, err := patchProviderOLPXDocument(original, raw)
 	if err != nil {
-		t.Fatalf("patchProviderOpsDocument() error: %v", err)
+		t.Fatalf("patchProviderOLPXDocument() error: %v", err)
 	}
 	assertValidJSON(t, got)
 	if bytes.Contains(got, []byte("// comment")) {
@@ -208,51 +208,51 @@ func TestRenderSaveDataAcceptsJSONCAndProducesValidJSON(t *testing.T) {
 func TestRenderSaveDataRejectsInvalidJSONC(t *testing.T) {
 	raw := Raw{
 		"provider": map[string]any{
-			"ops": map[string]any{
+			"olpx": map[string]any{
 				"npm":  "@ai-sdk/openai",
-				"name": "OPS",
+				"name": "OpenCode LocalProxy CLI",
 				"options": map[string]any{
 					"baseURL":     "http://127.0.0.1:9982/v1",
-					"apiKey":      "ops-local",
+					"apiKey":      "olpx-local",
 					"setCacheKey": true,
 				},
 			},
 		},
 	}
 
-	if _, err := patchProviderOpsDocument([]byte(`{"provider": {`), raw); err == nil {
+	if _, err := patchProviderOLPXDocument([]byte(`{"provider": {`), raw); err == nil {
 		t.Fatal("expected invalid json/jsonc error")
 	}
 }
 
 func TestRenderSaveDataRejectsNonObjectProvider(t *testing.T) {
 	raw := Raw{}
-	EnsureOpsProvider(raw, "http://127.0.0.1:9982/v1", "ops-local", []string{"gpt-5.4"})
+	EnsureOLPXProvider(raw, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"})
 
-	if _, err := patchProviderOpsDocument([]byte(`{"provider":"bad"}`), raw); err == nil {
+	if _, err := patchProviderOLPXDocument([]byte(`{"provider":"bad"}`), raw); err == nil {
 		t.Fatal("expected provider object error")
 	}
 }
 
 func TestRenderSaveDataRejectsNonObjectTopLevel(t *testing.T) {
 	raw := Raw{}
-	EnsureOpsProvider(raw, "http://127.0.0.1:9982/v1", "ops-local", []string{"gpt-5.4"})
+	EnsureOLPXProvider(raw, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"})
 
-	if _, err := patchProviderOpsDocument([]byte(`[]`), raw); err == nil {
+	if _, err := patchProviderOLPXDocument([]byte(`[]`), raw); err == nil {
 		t.Fatal("expected top-level object error")
 	}
-	if _, err := patchProviderOpsDocument([]byte("{} trailing"), raw); err == nil {
+	if _, err := patchProviderOLPXDocument([]byte("{} trailing"), raw); err == nil {
 		t.Fatal("expected single top-level object error")
 	}
 }
 
 func TestRenderSaveDataWritesValidJSONToDisk(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "opencode.jsonc")
-	if err := os.WriteFile(path, []byte("{\n  \"model\": \"ops/gpt-5.4\",\n  \"provider\": {\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"}\n  }\n}\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("{\n  \"model\": \"olpx/gpt-5.4\",\n  \"provider\": {\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"}\n  }\n}\n"), 0o600); err != nil {
 		t.Fatalf("write seed config: %v", err)
 	}
 	raw := Raw{}
-	EnsureOpsProvider(raw, "http://127.0.0.1:9982/v1", "ops-local", []string{"gpt-5.4"})
+	EnsureOLPXProvider(raw, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"})
 
 	if err := Save(path, raw); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -266,8 +266,8 @@ func TestRenderSaveDataWritesValidJSONToDisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(saved) error: %v", err)
 	}
-	if err := ValidateOpsProvider(loaded, "http://127.0.0.1:9982/v1", "ops-local", []string{"gpt-5.4"}); err != nil {
-		t.Fatalf("ValidateOpsProvider(loaded) error: %v", err)
+	if err := ValidateOLPXProvider(loaded, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"}); err != nil {
+		t.Fatalf("ValidateOLPXProvider(loaded) error: %v", err)
 	}
 }
 

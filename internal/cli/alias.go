@@ -13,7 +13,7 @@ import (
 func newAliasCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "alias",
-		Short: "Manage logical aliases routed by ops",
+		Short: "Manage logical aliases routed by olpx",
 	}
 	c.AddCommand(newAliasAddCmd(), newAliasListCmd(), newAliasBindCmd(), newAliasUnbindCmd(), newAliasRemoveCmd())
 	return c
@@ -53,7 +53,7 @@ func newAliasAddCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "alias name exposed as ops/<name> in OpenCode (required)")
+	cmd.Flags().StringVar(&name, "name", "", "alias name exposed as olpx/<name> in OpenCode (required)")
 	cmd.Flags().StringVar(&display, "display-name", "", "human-friendly display name")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "create in disabled state")
 	return cmd

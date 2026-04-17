@@ -9,7 +9,7 @@ import (
 )
 
 func TestProviderAddPreservesExistingFields(t *testing.T) {
-	t.Setenv("OPS_CONFIG", filepath.Join(t.TempDir(), "ops.json"))
+	t.Setenv("OLPX_CONFIG", filepath.Join(t.TempDir(), "olpx.json"))
 	configPath = ""
 
 	cfg, err := loadCfg()
@@ -56,8 +56,8 @@ func TestProviderAddPreservesExistingFields(t *testing.T) {
 }
 
 func TestProviderAddRejectsInvalidBaseURL(t *testing.T) {
-	configFile := filepath.Join(t.TempDir(), "ops.json")
-	t.Setenv("OPS_CONFIG", configFile)
+	configFile := filepath.Join(t.TempDir(), "olpx.json")
+	t.Setenv("OLPX_CONFIG", configFile)
 	configPath = ""
 
 	cmd := newProviderAddCmd()
@@ -75,7 +75,7 @@ func TestProviderAddRejectsInvalidBaseURL(t *testing.T) {
 }
 
 func TestAliasAddPreservesExistingFields(t *testing.T) {
-	t.Setenv("OPS_CONFIG", filepath.Join(t.TempDir(), "ops.json"))
+	t.Setenv("OLPX_CONFIG", filepath.Join(t.TempDir(), "olpx.json"))
 	configPath = ""
 
 	cfg, err := loadCfg()

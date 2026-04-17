@@ -1,8 +1,8 @@
-# OPS MVP Design
+# OLPX MVP Design
 
 ## Summary
 
-`opencode-provider-switch` (`ops`) is a local CLI + proxy for OpenCode.
+`opencode-provider-switch` (`olpx`) is a local CLI + proxy for OpenCode.
 
 Its job is narrow:
 
@@ -10,7 +10,7 @@ Its job is narrow:
 - Route requests by protocol, not by provider brand
 - Retry/fail over across unreliable upstream relay providers
 - Let multiple upstream providers share one logical model alias
-- Manage state in SQLite, not in an `ops` config file
+- Manage state in SQLite, not in an `olpx` config file
 - Rewrite OpenCode global config to point at the local proxy
 
 MVP intentionally does **not** try to become a general AI gateway, a dashboard product, or a provider-agnostic orchestration platform.
@@ -32,7 +32,7 @@ MVP intentionally does **not** try to become a general AI gateway, a dashboard p
 ## Product Goals
 
 1. Keep OpenCode usable when cheap relay providers fail intermittently.
-2. Reduce OpenCode config complexity by centralizing provider management in `ops`.
+2. Reduce OpenCode config complexity by centralizing provider management in `olpx`.
 3. Make failover behavior predictable, visible, and debuggable.
 4. Preserve OpenCode-native workflow instead of asking users to switch tools.
 
@@ -57,9 +57,9 @@ Go is the right fit for this product shape:
 
 ## Core Design Principle
 
-`ops` should manage **protocol pools** and **logical aliases**, not raw provider selection inside OpenCode.
+`olpx` should manage **protocol pools** and **logical aliases**, not raw provider selection inside OpenCode.
 
-OpenCode should see a small number of local proxy providers. `ops` should own:
+OpenCode should see a small number of local proxy providers. `olpx` should own:
 
 - upstream providers
 - API keys and headers
@@ -74,7 +74,7 @@ This keeps OpenCode config stable even when upstream providers are added, remove
 ```text
 OpenCode
   -> local OpenAI-compatible provider config
-  -> ops proxy (127.0.0.1:9982)
+  -> olpx proxy (127.0.0.1:9982)
   -> protocol router
   -> alias resolver
   -> failover engine
@@ -127,18 +127,18 @@ OpenCode
 
 Even though both protocols are OpenAI-family APIs, they are **not** interchangeable at the OpenCode config level.
 
-For MVP, `ops` should expose two local providers to OpenCode:
+For MVP, `olpx` should expose two local providers to OpenCode:
 
 - one chat-completions provider
 - one responses provider
 
-This mirrors how OpenCode expects provider wiring today and avoids hidden protocol translation logic inside `ops`.
+This mirrors how OpenCode expects provider wiring today and avoids hidden protocol translation logic inside `olpx`.
 
 ## OpenCode Integration Strategy
 
 ### Generated OpenCode Config
 
-`ops install` should rewrite the user's global OpenCode config so that OpenCode points to local proxy providers instead of raw upstream relays.
+`olpx install` should rewrite the user's global OpenCode config so that OpenCode points to local proxy providers instead of raw upstream relays.
 
 Generated provider shape should be conceptually like this:
 
@@ -146,12 +146,12 @@ Generated provider shape should be conceptually like this:
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "ops-chat": {
+    "olpx-chat": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "OPS Chat",
+      "name": "OLPX Chat",
       "options": {
         "baseURL": "http://127.0.0.1:9982/v1",
-        "apiKey": "ops-local"
+        "apiKey": "olpx-local"
       },
       "models": {
         "gpt-5.4": {
@@ -159,12 +159,12 @@ Generated provider shape should be conceptually like this:
         }
       }
     },
-    "ops-responses": {
+    "olpx-responses": {
       "npm": "@ai-sdk/openai",
-      "name": "OPS Responses",
+      "name": "OLPX Responses",
       "options": {
         "baseURL": "http://127.0.0.1:9982/v1",
-        "apiKey": "ops-local"
+        "apiKey": "olpx-local"
       },
       "models": {
         "gpt-5.4": {
@@ -173,16 +173,16 @@ Generated provider shape should be conceptually like this:
       }
     }
   },
-  "model": "ops-responses/gpt-5.4",
-  "small_model": "ops-chat/gpt-5.4-mini"
+  "model": "olpx-responses/gpt-5.4",
+  "small_model": "olpx-chat/gpt-5.4-mini"
 }
 ```
 
 ### Important Rule
 
-`ops` should preserve as much of the user's existing OpenCode config as possible.
+`olpx` should preserve as much of the user's existing OpenCode config as possible.
 
-`ops install` should:
+`olpx install` should:
 
 1. Back up current global config file.
 2. Import provider/model information relevant to migration.
@@ -196,12 +196,12 @@ Generated provider shape should be conceptually like this:
 
 OpenCode merges config from multiple sources, and project config can override global config.
 
-That means `ops install` cannot guarantee full interception if a repository-local `opencode.json` or environment override replaces provider/model settings.
+That means `olpx install` cannot guarantee full interception if a repository-local `opencode.json` or environment override replaces provider/model settings.
 
 MVP response:
 
 - document this clearly
-- make `ops doctor` detect likely overrides
+- make `olpx doctor` detect likely overrides
 - support global install first
 
 Do **not** promise perfect takeover across all OpenCode precedence layers in MVP.
@@ -210,7 +210,7 @@ Do **not** promise perfect takeover across all OpenCode precedence layers in MVP
 
 ### Input Sources
 
-`ops install` should inspect:
+`olpx install` should inspect:
 
 1. `~/.config/opencode/opencode.json`
 2. `~/.config/opencode/opencode.jsonc`
@@ -236,7 +236,7 @@ For each imported provider/model entry from OpenCode:
    - tool_call
    - options
    - variants
-5. Generate local `ops-*` providers for OpenCode.
+5. Generate local `olpx-*` providers for OpenCode.
 
 ### Protocol Classification
 
@@ -246,18 +246,18 @@ Import classification rules for MVP:
 - `@ai-sdk/openai` -> `openai-responses`
 - everything else -> unsupported for automatic migration in MVP
 
-If unsupported providers exist, `ops install` should warn and skip them instead of guessing.
+If unsupported providers exist, `olpx install` should warn and skip them instead of guessing.
 
 ## SQLite-First State Model
 
-`ops` should not keep its own user-editable config file.
+`olpx` should not keep its own user-editable config file.
 
 Recommended database path:
 
-- Linux/WSL: `~/.local/share/ops/ops.db`
+- Linux/WSL: `~/.local/share/olpx/olpx.db`
 - Windows native: use `os.UserConfigDir()` or `os.UserCacheDir()`-appropriate app path, finalized in implementation
 
-The generated OpenCode config file is an output artifact, not `ops` source of truth.
+The generated OpenCode config file is an output artifact, not `olpx` source of truth.
 
 ### Proposed Tables
 
@@ -368,7 +368,7 @@ Example:
 - responses target priority 2: provider `codex-for-me`, remote model `GPT-5.4`
 - chat target priority 1: provider `relay-x`, remote model `gpt-5.4-chat`
 
-This allows the user to keep using one stable model name inside OpenCode while `ops` handles provider-specific naming.
+This allows the user to keep using one stable model name inside OpenCode while `olpx` handles provider-specific naming.
 
 ### Important Constraint
 
@@ -386,13 +386,13 @@ Reduce manual provider setup work.
 
 ### Behavior
 
-`ops` should be able to call upstream `GET /v1/models` and cache results per provider.
+`olpx` should be able to call upstream `GET /v1/models` and cache results per provider.
 
 Useful commands:
 
-- `ops provider models sync <provider>`
-- `ops provider models list <provider>`
-- `ops alias suggest <provider>`
+- `olpx provider models sync <provider>`
+- `olpx provider models list <provider>`
+- `olpx alias suggest <provider>`
 
 ### Important Limitation
 
@@ -432,7 +432,7 @@ Same as above, with one critical rule:
 
 - failover is only allowed **before first upstream response byte is sent to the client**
 
-Once a stream begins successfully, `ops` must stay on that provider for that request.
+Once a stream begins successfully, `olpx` must stay on that provider for that request.
 
 ## Failover Policy
 
@@ -477,12 +477,12 @@ This is conservative, but predictable.
 
 For debugging, add response headers when possible:
 
-- `X-OPS-Protocol`
-- `X-OPS-Alias`
-- `X-OPS-Provider`
-- `X-OPS-Remote-Model`
-- `X-OPS-Attempt`
-- `X-OPS-Failover-Count`
+- `X-OLPX-Protocol`
+- `X-OLPX-Alias`
+- `X-OLPX-Provider`
+- `X-OLPX-Remote-Model`
+- `X-OLPX-Attempt`
+- `X-OLPX-Failover-Count`
 
 These headers are low-cost and help explain behavior fast.
 
@@ -493,7 +493,7 @@ MVP security posture should be intentionally modest but clear.
 ### Default Behavior
 
 - bind only to `127.0.0.1`
-- generated OpenCode config uses local static API key like `ops-local`
+- generated OpenCode config uses local static API key like `olpx-local`
 - proxy accepts only loopback traffic by default
 
 ### Why This Is Acceptable For MVP
@@ -528,40 +528,40 @@ Proposed command set:
 
 ### Lifecycle
 
-- `ops init`
-- `ops serve`
-- `ops doctor`
-- `ops install`
-- `ops restore`
+- `olpx init`
+- `olpx serve`
+- `olpx doctor`
+- `olpx install`
+- `olpx restore`
 
 ### Provider Management
 
-- `ops provider add`
-- `ops provider list`
-- `ops provider edit`
-- `ops provider remove`
-- `ops provider enable`
-- `ops provider disable`
+- `olpx provider add`
+- `olpx provider list`
+- `olpx provider edit`
+- `olpx provider remove`
+- `olpx provider enable`
+- `olpx provider disable`
 
 ### Model Discovery
 
-- `ops provider models sync <provider>`
-- `ops provider models list <provider>`
+- `olpx provider models sync <provider>`
+- `olpx provider models list <provider>`
 
 ### Alias Management
 
-- `ops alias add`
-- `ops alias list`
-- `ops alias bind`
-- `ops alias unbind`
-- `ops alias enable`
-- `ops alias disable`
-- `ops alias inspect <alias>`
+- `olpx alias add`
+- `olpx alias list`
+- `olpx alias bind`
+- `olpx alias unbind`
+- `olpx alias enable`
+- `olpx alias disable`
+- `olpx alias inspect <alias>`
 
 ### Diagnostics
 
-- `ops logs tail`
-- `ops route test --protocol <protocol> --model <alias>`
+- `olpx logs tail`
+- `olpx route test --protocol <protocol> --model <alias>`
 
 ## Recommended Minimal UX
 
@@ -569,20 +569,20 @@ Prefer explicit CLI over magical automation.
 
 Good path:
 
-1. `ops init`
-2. `ops provider add`
-3. `ops provider models sync`
-4. `ops alias add`
-5. `ops alias bind`
-6. `ops install`
-7. `ops serve`
+1. `olpx init`
+2. `olpx provider add`
+3. `olpx provider models sync`
+4. `olpx alias add`
+5. `olpx alias bind`
+6. `olpx install`
+7. `olpx serve`
 
 This is easy to explain and easy to debug.
 
 ## Suggested Go Package Layout
 
 ```text
-cmd/ops/
+cmd/olpx/
 internal/cli/
 internal/db/
 internal/models/
@@ -608,12 +608,12 @@ Avoid adding a heavy HTTP framework unless a real need appears.
 
 ## Generated OpenCode Provider Strategy
 
-MVP should generate only providers that `ops` can actually back.
+MVP should generate only providers that `olpx` can actually back.
 
 That means:
 
-- `ops-chat`
-- `ops-responses`
+- `olpx-chat`
+- `olpx-responses`
 
 Do **not** generate fake Anthropic provider entries in MVP.
 
@@ -621,7 +621,7 @@ Do **not** attempt to preserve original provider IDs inside OpenCode after insta
 
 Reason:
 
-- `ops` becomes the stable local provider boundary
+- `olpx` becomes the stable local provider boundary
 - upstream providers should move into SQLite management only
 
 ## WSL / Windows Strategy
@@ -632,18 +632,18 @@ This requirement is important, but it needs careful wording.
 
 1. Native Linux/WSL build works.
 2. Native Windows build works.
-3. Running OpenCode and `ops` in the **same environment** is supported.
-4. `ops doctor` helps detect config-path and loopback issues.
+3. Running OpenCode and `olpx` in the **same environment** is supported.
+4. `olpx doctor` helps detect config-path and loopback issues.
 
 ### What MVP Should Not Promise Yet
 
-1. Fully automatic cross-boundary migration between WSL OpenCode and Windows `ops`.
+1. Fully automatic cross-boundary migration between WSL OpenCode and Windows `olpx`.
 2. Transparent path translation for every user setup.
 3. Zero-config interop when OpenCode runs on one side and proxy on the other.
 
 ### Practical Recommendation
 
-For MVP, recommend users run OpenCode and `ops` in the same environment.
+For MVP, recommend users run OpenCode and `olpx` in the same environment.
 
 Cross-environment support can be added later via explicit install target flags.
 
@@ -655,7 +655,7 @@ Global config rewrite alone may not capture project-level overrides.
 
 Mitigation:
 
-- `ops doctor`
+- `olpx doctor`
 - clear docs
 - possible future `ops install --project`
 
@@ -704,7 +704,7 @@ MVP is successful if a user can:
 1. Import existing OpenCode provider setup into `ops`.
 2. Create or verify aliases for commonly used models.
 3. Install proxy-backed OpenCode global config.
-4. Run `ops serve`.
+4. Run `olpx serve`.
 5. Use OpenCode normally against `127.0.0.1:9982`.
 6. Survive common upstream failures by automatic provider failover.
 
@@ -734,7 +734,7 @@ MVP is successful if a user can:
 
 - streaming support
 - logging/diagnostics
-- `ops doctor`
+- `olpx doctor`
 - restore flow
 
 ## Strong Recommendation

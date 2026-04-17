@@ -1,4 +1,4 @@
-// Package cli wires the ops cobra command tree.
+// Package cli wires the olpx cobra command tree.
 package cli
 
 import (
@@ -13,21 +13,21 @@ import (
 // configPath is populated from the global --config flag.
 var configPath string
 
-// loadCfg opens the active ops config, with the selected path.
+// loadCfg opens the active olpx config, with the selected path.
 func loadCfg() (*config.Config, error) {
 	return config.Load(configPath)
 }
 
-// NewRootCmd builds the root ops command.
+// NewRootCmd builds the root olpx command.
 func NewRootCmd(version string) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "ops",
-		Short:         "opencode-provider-switch: local alias + failover proxy for OpenCode",
+		Use:           "olpx",
+		Short:         "OpenCode LocalProxy CLI: local alias + failover proxy for OpenCode",
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		Version:       version,
 	}
-	root.PersistentFlags().StringVar(&configPath, "config", "", "path to ops config.json (default: $XDG_CONFIG_HOME/ops/config.json)")
+	root.PersistentFlags().StringVar(&configPath, "config", "", "path to olpx config.json (default: $XDG_CONFIG_HOME/olpx/config.json)")
 
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newDoctorCmd())

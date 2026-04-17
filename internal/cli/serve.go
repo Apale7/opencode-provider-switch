@@ -12,7 +12,7 @@ import (
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
-		Short: "Run the local ops proxy (alias → failover upstream)",
+		Short: "Run the local olpx proxy (alias -> failover upstream)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {

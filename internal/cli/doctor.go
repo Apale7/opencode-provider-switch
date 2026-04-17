@@ -11,7 +11,7 @@ import (
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Validate ops config (static checks, no upstream requests)",
+		Short: "Validate olpx config (static checks, no upstream requests)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -32,9 +32,9 @@ func newDoctorCmd() *cobra.Command {
 					aliasNames = append(aliasNames, a.Alias)
 				}
 				baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
-				opencode.EnsureOpsProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
-				if err := opencode.ValidateOpsProvider(raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {
-					issues = append(issues, fmt.Errorf("opencode provider.ops invalid: %w", err))
+				opencode.EnsureOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
+				if err := opencode.ValidateOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {
+					issues = append(issues, fmt.Errorf("opencode provider.olpx invalid: %w", err))
 				}
 			}
 			ok := len(issues) == 0
@@ -55,7 +55,7 @@ func newDoctorCmd() *cobra.Command {
 				marker = "(exists)"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "  opencode config target: %s %s\n", path, marker)
-			fmt.Fprintf(cmd.OutOrStdout(), "  provider.ops preview: valid=%v\n", ok)
+			fmt.Fprintf(cmd.OutOrStdout(), "  provider.olpx preview: valid=%v\n", ok)
 
 			fmt.Fprintf(cmd.OutOrStdout(), "  proxy bind: %s:%d\n", cfg.Server.Host, cfg.Server.Port)
 			if !ok {

@@ -1,4 +1,4 @@
-// Command ops: local alias + failover proxy for OpenCode.
+// Command olpx: local alias + failover proxy for OpenCode.
 package main
 
 import (

@@ -1,4 +1,4 @@
-// Package config manages the local ops JSON config file.
+// Package config manages the local olpx JSON config file.
 package config
 
 import (
@@ -43,7 +43,7 @@ type Server struct {
 	APIKey string `json:"api_key"`
 }
 
-// Config is the on-disk ops config.
+// Config is the on-disk olpx config.
 type Config struct {
 	Server    Server     `json:"server"`
 	Providers []Provider `json:"providers"`
@@ -72,26 +72,26 @@ func Default() *Config {
 		Server: Server{
 			Host:   "127.0.0.1",
 			Port:   9982,
-			APIKey: "ops-local",
+			APIKey: "olpx-local",
 		},
 		Providers: []Provider{},
 		Aliases:   []Alias{},
 	}
 }
 
-// DefaultPath returns ~/.config/ops/config.json (XDG aware).
+// DefaultPath returns ~/.config/olpx/config.json (XDG aware).
 func DefaultPath() string {
-	if p := os.Getenv("OPS_CONFIG"); p != "" {
+	if p := os.Getenv("OLPX_CONFIG"); p != "" {
 		return p
 	}
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "ops", "config.json")
+		return filepath.Join(xdg, "olpx", "config.json")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "ops-config.json"
+		return "olpx-config.json"
 	}
-	return filepath.Join(home, ".config", "ops", "config.json")
+	return filepath.Join(home, ".config", "olpx", "config.json")
 }
 
 // Load reads the config at path. Missing file returns a default config anchored to path.
@@ -121,7 +121,7 @@ func Load(path string) (*Config, error) {
 		c.Server.Port = 9982
 	}
 	if c.Server.APIKey == "" {
-		c.Server.APIKey = "ops-local"
+		c.Server.APIKey = "olpx-local"
 	}
 	c.path = path
 	return c, nil

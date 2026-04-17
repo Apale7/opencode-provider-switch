@@ -1,5 +1,5 @@
 // Package opencode reads and writes OpenCode config files, including the
-// `provider.ops` sync path. Files may be JSON or JSONC; we preserve the
+// `provider.olpx` sync path. Files may be JSON or JSONC; we preserve the
 // detected extension on write.
 package opencode
 
@@ -71,8 +71,8 @@ func Load(path string) (Raw, error) {
 	return out, nil
 }
 
-// Save writes provider.ops back to path. Existing files are normalized to plain
-// JSON and only the provider.ops subtree is patched so unrelated key order stays
+// Save writes provider.olpx back to path. Existing files are normalized to plain
+// JSON and only the provider.olpx subtree is patched so unrelated key order stays
 // stable. New files are still written from the full Raw object. Writes are
 // atomic.
 func Save(path string, raw Raw) error {
@@ -101,7 +101,7 @@ func renderSaveData(path string, raw Raw) ([]byte, error) {
 	if len(bytes.TrimSpace(original)) == 0 {
 		return marshalRaw(raw)
 	}
-	patched, err := patchProviderOpsDocument(original, raw)
+	patched, err := patchProviderOLPXDocument(original, raw)
 	if err != nil {
 		return nil, fmt.Errorf("patch %s: %w", path, err)
 	}
@@ -121,8 +121,8 @@ func marshalRaw(raw Raw) ([]byte, error) {
 	return data, nil
 }
 
-func patchProviderOpsDocument(original []byte, raw Raw) ([]byte, error) {
-	opsRaw, ok := opsProviderValue(raw)
+func patchProviderOLPXDocument(original []byte, raw Raw) ([]byte, error) {
+	olpxRaw, ok := olpxProviderValue(raw)
 	if !ok {
 		return marshalRaw(raw)
 	}
@@ -143,7 +143,7 @@ func patchProviderOpsDocument(original []byte, raw Raw) ([]byte, error) {
 	}
 	provider := root.findMember("provider")
 	if provider == nil {
-		return insertObjectMember(normalized, root, "provider", map[string]any{"ops": opsRaw})
+		return insertObjectMember(normalized, root, "provider", map[string]any{"olpx": olpxRaw})
 	}
 	if normalized[provider.valueStart] != '{' {
 		return nil, fmt.Errorf("top-level provider must be an object")
@@ -152,23 +152,23 @@ func patchProviderOpsDocument(original []byte, raw Raw) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	ops := providerObj.findMember("ops")
-	if ops == nil {
-		return insertObjectMember(normalized, providerObj, "ops", opsRaw)
+	olpx := providerObj.findMember("olpx")
+	if olpx == nil {
+		return insertObjectMember(normalized, providerObj, "olpx", olpxRaw)
 	}
-	return replaceObjectMember(normalized, *ops, opsRaw)
+	return replaceObjectMember(normalized, *olpx, olpxRaw)
 }
 
-func opsProviderValue(raw Raw) (map[string]any, bool) {
+func olpxProviderValue(raw Raw) (map[string]any, bool) {
 	providerRaw, _ := raw["provider"].(map[string]any)
 	if providerRaw == nil {
 		return nil, false
 	}
-	opsRaw, _ := providerRaw["ops"].(map[string]any)
-	if opsRaw == nil {
+	olpxRaw, _ := providerRaw["olpx"].(map[string]any)
+	if olpxRaw == nil {
 		return nil, false
 	}
-	return opsRaw, true
+	return olpxRaw, true
 }
 
 type objectSpan struct {
@@ -409,11 +409,11 @@ func lineIndent(data []byte, pos int) string {
 	return string(data[lineStart:lineEnd])
 }
 
-// EnsureOpsProvider updates (or creates) the provider.ops entry with the given
-// local base URL, local api key and alias set. Existing keys on provider.ops
+// EnsureOLPXProvider updates (or creates) the provider.olpx entry with the given
+// local base URL, local api key and alias set. Existing keys on provider.olpx
 // are preserved unless they conflict with the sync intent. Returns true if the
 // file would actually change.
-func EnsureOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
+func EnsureOLPXProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
 	changed := false
 	if _, ok := raw["$schema"]; !ok {
 		raw["$schema"] = "https://opencode.ai/config.json"
@@ -425,22 +425,22 @@ func EnsureOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
 		raw["provider"] = provRaw
 		changed = true
 	}
-	opsRaw, _ := provRaw["ops"].(map[string]any)
-	if opsRaw == nil {
-		opsRaw = map[string]any{}
-		provRaw["ops"] = opsRaw
+	olpxRaw, _ := provRaw["olpx"].(map[string]any)
+	if olpxRaw == nil {
+		olpxRaw = map[string]any{}
+		provRaw["olpx"] = olpxRaw
 		changed = true
 	}
-	if setIfDiff(opsRaw, "npm", "@ai-sdk/openai") {
+	if setIfDiff(olpxRaw, "npm", "@ai-sdk/openai") {
 		changed = true
 	}
-	if setIfDiff(opsRaw, "name", "OPS") {
+	if setIfDiff(olpxRaw, "name", "OpenCode LocalProxy CLI") {
 		changed = true
 	}
-	opts, _ := opsRaw["options"].(map[string]any)
+	opts, _ := olpxRaw["options"].(map[string]any)
 	if opts == nil {
 		opts = map[string]any{}
-		opsRaw["options"] = opts
+		olpxRaw["options"] = opts
 		changed = true
 	}
 	if setIfDiff(opts, "baseURL", baseURL) {
@@ -454,7 +454,7 @@ func EnsureOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
 	}
 	// Build models map from alias list. Preserve any existing per-model extras
 	// if the alias key matches; drop aliases removed locally.
-	existingModels, _ := opsRaw["models"].(map[string]any)
+	existingModels, _ := olpxRaw["models"].(map[string]any)
 	newModels := map[string]any{}
 	aliasSet := map[string]bool{}
 	for _, a := range aliases {
@@ -477,43 +477,43 @@ func EnsureOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
 		}
 	}
 	if !mapsEqualShallow(existingModels, newModels) {
-		opsRaw["models"] = newModels
+		olpxRaw["models"] = newModels
 	}
 	return changed
 }
 
-// ValidateOpsProvider checks that provider.ops matches the MVP sync contract.
-func ValidateOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) error {
+// ValidateOLPXProvider checks that provider.olpx matches the MVP sync contract.
+func ValidateOLPXProvider(raw Raw, baseURL, apiKey string, aliases []string) error {
 	provRaw, _ := raw["provider"].(map[string]any)
 	if provRaw == nil {
 		return fmt.Errorf("missing provider object")
 	}
-	opsRaw, _ := provRaw["ops"].(map[string]any)
-	if opsRaw == nil {
-		return fmt.Errorf("missing provider.ops")
+	olpxRaw, _ := provRaw["olpx"].(map[string]any)
+	if olpxRaw == nil {
+		return fmt.Errorf("missing provider.olpx")
 	}
-	if npm, _ := opsRaw["npm"].(string); npm != "@ai-sdk/openai" {
-		return fmt.Errorf("provider.ops.npm must be @ai-sdk/openai")
+	if npm, _ := olpxRaw["npm"].(string); npm != "@ai-sdk/openai" {
+		return fmt.Errorf("provider.olpx.npm must be @ai-sdk/openai")
 	}
-	if name, _ := opsRaw["name"].(string); name != "OPS" {
-		return fmt.Errorf("provider.ops.name must be OPS")
+	if name, _ := olpxRaw["name"].(string); name != "OpenCode LocalProxy CLI" {
+		return fmt.Errorf("provider.olpx.name must be OpenCode LocalProxy CLI")
 	}
-	opts, _ := opsRaw["options"].(map[string]any)
+	opts, _ := olpxRaw["options"].(map[string]any)
 	if opts == nil {
-		return fmt.Errorf("provider.ops.options missing")
+		return fmt.Errorf("provider.olpx.options missing")
 	}
 	if got, _ := opts["baseURL"].(string); got != baseURL {
-		return fmt.Errorf("provider.ops.options.baseURL mismatch")
+		return fmt.Errorf("provider.olpx.options.baseURL mismatch")
 	}
 	if got, _ := opts["apiKey"].(string); got != apiKey {
-		return fmt.Errorf("provider.ops.options.apiKey mismatch")
+		return fmt.Errorf("provider.olpx.options.apiKey mismatch")
 	}
 	if got, ok := opts["setCacheKey"].(bool); !ok || !got {
-		return fmt.Errorf("provider.ops.options.setCacheKey must be true")
+		return fmt.Errorf("provider.olpx.options.setCacheKey must be true")
 	}
-	models, _ := opsRaw["models"].(map[string]any)
+	models, _ := olpxRaw["models"].(map[string]any)
 	if models == nil {
-		return fmt.Errorf("provider.ops.models missing")
+		return fmt.Errorf("provider.olpx.models missing")
 	}
 	expected := append([]string(nil), aliases...)
 	sort.Strings(expected)
@@ -521,20 +521,20 @@ func ValidateOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) erro
 	for alias, v := range models {
 		modelCfg, _ := v.(map[string]any)
 		if modelCfg == nil {
-			return fmt.Errorf("provider.ops.models.%s must be an object", alias)
+			return fmt.Errorf("provider.olpx.models.%s must be an object", alias)
 		}
 		if got, _ := modelCfg["name"].(string); got != alias {
-			return fmt.Errorf("provider.ops.models.%s.name mismatch", alias)
+			return fmt.Errorf("provider.olpx.models.%s.name mismatch", alias)
 		}
 		actual = append(actual, alias)
 	}
 	sort.Strings(actual)
 	if len(actual) != len(expected) {
-		return fmt.Errorf("provider.ops.models alias set mismatch")
+		return fmt.Errorf("provider.olpx.models alias set mismatch")
 	}
 	for i := range actual {
 		if actual[i] != expected[i] {
-			return fmt.Errorf("provider.ops.models alias set mismatch")
+			return fmt.Errorf("provider.olpx.models alias set mismatch")
 		}
 	}
 	return nil
@@ -560,13 +560,13 @@ type ImportableProvider struct {
 }
 
 // ImportCustomProviders scans raw for @ai-sdk/openai custom providers that
-// declare baseURL and an apiKey-compatible setting. The `ops` id itself is
+// declare baseURL and an apiKey-compatible setting. The `olpx` id itself is
 // skipped so sync output is not re-imported.
 func ImportCustomProviders(raw Raw) []ImportableProvider {
 	out := []ImportableProvider{}
 	provRaw, _ := raw["provider"].(map[string]any)
 	for id, v := range provRaw {
-		if id == "ops" {
+		if id == "olpx" {
 			continue
 		}
 		m, ok := v.(map[string]any)

@@ -18,10 +18,10 @@ func TestHandleResponsesWritesOpenAIErrorForMissingAlias(t *testing.T) {
 	t.Parallel()
 
 	srv := New(&config.Config{
-		Server: config.Server{APIKey: "ops-local"},
+		Server: config.Server{APIKey: "olpx-local"},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"missing","stream":true}`))
-	req.Header.Set("Authorization", "Bearer ops-local")
+	req.Header.Set("Authorization", "Bearer olpx-local")
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -64,7 +64,7 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	defer second.Close()
 
 	srv := New(&config.Config{
-		Server: config.Server{APIKey: "ops-local"},
+		Server: config.Server{APIKey: "olpx-local"},
 		Providers: []config.Provider{
 			{ID: "p1", BaseURL: first.URL + "/v1", APIKey: "sk-1"},
 			{ID: "p2", BaseURL: second.URL + "/v1", APIKey: "sk-2"},
@@ -76,8 +76,8 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 		}},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ops/gpt-5.4","stream":true}`))
-	req.Header.Set("Authorization", "Bearer ops-local")
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"olpx/gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer olpx-local")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	rr := httptest.NewRecorder()
@@ -96,14 +96,14 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	if secondSeenModel != "up-2" {
 		t.Fatalf("second upstream model = %q, want up-2", secondSeenModel)
 	}
-	if got := rr.Header().Get("X-OPS-Attempt"); got != "2" {
-		t.Fatalf("X-OPS-Attempt = %q, want 2", got)
+	if got := rr.Header().Get("X-OLPX-Attempt"); got != "2" {
+		t.Fatalf("X-OLPX-Attempt = %q, want 2", got)
 	}
-	if got := rr.Header().Get("X-OPS-Failover-Count"); got != "1" {
-		t.Fatalf("X-OPS-Failover-Count = %q, want 1", got)
+	if got := rr.Header().Get("X-OLPX-Failover-Count"); got != "1" {
+		t.Fatalf("X-OLPX-Failover-Count = %q, want 1", got)
 	}
-	if got := rr.Header().Get("X-OPS-Provider"); got != "p2" {
-		t.Fatalf("X-OPS-Provider = %q, want p2", got)
+	if got := rr.Header().Get("X-OLPX-Provider"); got != "p2" {
+		t.Fatalf("X-OLPX-Provider = %q, want p2", got)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	defer second.Close()
 
 	srv := New(&config.Config{
-		Server: config.Server{APIKey: "ops-local"},
+		Server: config.Server{APIKey: "olpx-local"},
 		Providers: []config.Provider{
 			{ID: "p1", BaseURL: first.URL + "/v1"},
 			{ID: "p2", BaseURL: second.URL + "/v1"},
@@ -137,7 +137,7 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
-	req.Header.Set("Authorization", "Bearer ops-local")
+	req.Header.Set("Authorization", "Bearer olpx-local")
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -149,8 +149,8 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	if calledSecond {
 		t.Fatal("second upstream should not be called for 400 response")
 	}
-	if got := rr.Header().Get("X-OPS-Provider"); got != "p1" {
-		t.Fatalf("X-OPS-Provider = %q, want p1", got)
+	if got := rr.Header().Get("X-OLPX-Provider"); got != "p1" {
+		t.Fatalf("X-OLPX-Provider = %q, want p1", got)
 	}
 	if body := rr.Body.String(); body != `{"error":{"message":"bad request"}}` {
 		t.Fatalf("body = %q", body)

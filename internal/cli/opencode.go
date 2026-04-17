@@ -24,8 +24,8 @@ func newOpencodeSyncCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Update provider.ops in the global OpenCode config to match current aliases",
-		Long: `ops opencode sync writes provider.ops into the target OpenCode config.
+		Short: "Update provider.olpx in the global OpenCode config to match current aliases",
+		Long: `olpx opencode sync writes provider.olpx into the target OpenCode config.
 
 By default it targets the global user config (~/.config/opencode), picking the
 existing file in precedence order opencode.jsonc > opencode.json > config.json,
@@ -59,7 +59,7 @@ or creating opencode.jsonc if none exists. It does NOT touch the top-level
 				aliasNames = append(aliasNames, a.Alias)
 			}
 			baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
-			changed := opencode.EnsureOpsProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
+			changed := opencode.EnsureOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
 			if setModel != "" {
 				if raw["model"] != setModel {
 					raw["model"] = setModel
@@ -83,7 +83,7 @@ or creating opencode.jsonc if none exists. It does NOT touch the top-level
 			if err := opencode.Save(path, raw); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "synced provider.ops into %s (%d alias(es))\n", path, len(aliasNames))
+			fmt.Fprintf(cmd.OutOrStdout(), "synced provider.olpx into %s (%d alias(es))\n", path, len(aliasNames))
 			if setModel != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "  model = %s\n", setModel)
 			}
