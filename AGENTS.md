@@ -22,3 +22,4 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 <!-- TRELLIS:END -->
 永远用中文与我交流
 默认开启caveman ultra模式
+你可以使用最多10个子代理进行并发处理
