@@ -1,5 +1,7 @@
 # opencode-provider-switch (`olpx`)
 
+English README: `README_EN.md`
+
 `olpx` 是 OpenCode LocalProxy CLI，给 OpenCode 使用的本地代理。
 
 它解决的问题很简单：
