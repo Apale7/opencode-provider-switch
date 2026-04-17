@@ -150,12 +150,17 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing model field", http.StatusBadRequest)
 		return
 	}
+	rawModel := aliasName
+	aliasName = normalizeAliasName(aliasName)
+	s.logger.Printf("req=%d incoming model=%q alias=%q stream=%v", reqID, rawModel, aliasName, payload["stream"])
 	alias := s.cfg.FindAlias(aliasName)
 	if alias == nil {
+		s.logger.Printf("req=%d alias lookup failed for model=%q alias=%q", reqID, rawModel, aliasName)
 		http.Error(w, fmt.Sprintf("alias %q not found", aliasName), http.StatusNotFound)
 		return
 	}
 	if !alias.Enabled {
+		s.logger.Printf("req=%d alias=%q disabled", reqID, aliasName)
 		http.Error(w, fmt.Sprintf("alias %q is disabled", aliasName), http.StatusNotFound)
 		return
 	}
@@ -166,6 +171,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(targets) == 0 {
+		s.logger.Printf("req=%d alias=%q has no enabled targets", reqID, aliasName)
 		http.Error(w, fmt.Sprintf("alias %q has no enabled targets", aliasName), http.StatusFailedDependency)
 		return
 	}
@@ -178,6 +184,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			failoverCount++
 			continue
 		}
+		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt+1, p.ID, t.Model, failoverCount)
 		// rewrite payload.model for this upstream
 		cloned := cloneMap(payload)
 		cloned["model"] = t.Model
@@ -248,6 +255,7 @@ func (s *Server) tryOnce(
 	}
 	if resp.StatusCode >= 400 {
 		// non-retryable: forward status + body to client
+		s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
 		s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
 		copyResponseHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
@@ -256,6 +264,7 @@ func (s *Server) tryOnce(
 	}
 
 	// 2xx: start streaming pass-through. From this point no failover is allowed.
+	s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
 	s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
@@ -279,6 +288,17 @@ func (s *Server) tryOnce(
 			return true, false, rerr
 		}
 	}
+}
+
+func normalizeAliasName(model string) string {
+	const prefix = "ops/"
+	if strings.HasPrefix(model, prefix) {
+		trimmed := strings.TrimPrefix(model, prefix)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return model
 }
 
 // writeDebugHeaders sets the X-OPS-* debug headers before WriteHeader.

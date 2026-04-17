@@ -74,9 +74,9 @@ func newAliasListCmd() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%s  [%s]\n", a.Alias, state)
 				for i, t := range a.Targets {
-					mark := " "
+					mark := "x"
 					if !t.Enabled {
-						mark = "x"
+						mark = " "
 					}
 					fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %d. %s/%s\n", mark, i+1, t.Provider, t.Model)
 				}
