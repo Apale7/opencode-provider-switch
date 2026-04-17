@@ -214,3 +214,36 @@ Fixed a panic in opencode sync when preserved model metadata contains slices, an
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Rename CLI to ocswitch
+
+**Date**: 2026-04-17
+**Task**: Rename CLI to ocswitch
+**Branch**: `master`
+
+### Summary
+
+Renamed the CLI and synced docs, examples, and Trellis history from olpx/opswitch to ocswitch while keeping the repository name opencode-provider-switch.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cf3dcec` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

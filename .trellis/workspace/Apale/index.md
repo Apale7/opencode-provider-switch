@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
+- **Total Sessions**: 6
 - **Last Active**: 2026-04-17
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~216 | Active |
+| `journal-1.md` | ~249 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-04-17 | Rename CLI to ocswitch | `cf3dcec` | `master` |
 | 5 | 2026-04-17 | Fix sync command panic | `887eb14` | `master` |
 | 4 | 2026-04-17 | Review MVP completion status | - | `master` |
 | 3 | 2026-04-17 | Support disabling providers in ocswitch | HEAD | `master` |
