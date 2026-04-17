@@ -142,6 +142,43 @@ func TestEnsureOLPXProviderPreservesExistingModelMetadata(t *testing.T) {
 	}
 }
 
+func TestEnsureOLPXProviderDoesNotPanicOnComparableMetadata(t *testing.T) {
+	raw := Raw{
+		"$schema": "https://opencode.ai/config.json",
+		"provider": map[string]any{
+			"olpx": map[string]any{
+				"npm":  "@ai-sdk/openai",
+				"name": "OpenCode LocalProxy CLI",
+				"options": map[string]any{
+					"baseURL":     "http://127.0.0.1:9982/v1",
+					"apiKey":      "olpx-local",
+					"setCacheKey": true,
+				},
+				"models": map[string]any{
+					"gpt-5.4": map[string]any{
+						"name": "custom-display-name",
+						"tags": []any{"reasoning", "priority"},
+						"variants": []any{
+							map[string]any{"name": "high", "effort": "high"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("EnsureOLPXProvider() panicked with slice metadata: %v", r)
+		}
+	}()
+
+	changed := EnsureOLPXProvider(raw, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"})
+	if changed {
+		t.Fatal("EnsureOLPXProvider() reported change for unchanged alias metadata with slices")
+	}
+}
+
 func TestValidateOLPXProviderAllowsCustomModelMetadata(t *testing.T) {
 	raw := Raw{
 		"provider": map[string]any{

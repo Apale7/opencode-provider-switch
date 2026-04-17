@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 
 	"github.com/tidwall/jsonc"
@@ -601,25 +602,5 @@ func ImportCustomProviders(raw Raw) []ImportableProvider {
 
 // mapsEqualShallow compares two string-keyed maps for structural equality.
 func mapsEqualShallow(a, b map[string]any) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		bv, ok := b[k]
-		if !ok {
-			return false
-		}
-		am, amOk := v.(map[string]any)
-		bm, bmOk := bv.(map[string]any)
-		if amOk && bmOk {
-			if !mapsEqualShallow(am, bm) {
-				return false
-			}
-			continue
-		}
-		if v != bv {
-			return false
-		}
-	}
-	return true
+	return reflect.DeepEqual(a, b)
 }

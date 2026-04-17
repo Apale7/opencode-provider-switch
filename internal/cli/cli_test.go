@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -163,5 +164,59 @@ func TestProviderEnableDisableCommands(t *testing.T) {
 	}
 	if provider := cfg.FindProvider("p1"); provider == nil || provider.Disabled {
 		t.Fatalf("provider after enable = %#v, want disabled=false", provider)
+	}
+}
+
+func TestOpencodeSyncDoesNotPanicOnSliceModelMetadata(t *testing.T) {
+	t.Setenv("OLPX_CONFIG", filepath.Join(t.TempDir(), "olpx.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "p1",
+		BaseURL: "https://example.com/v1",
+	})
+	cfg.UpsertAlias(config.Alias{
+		Alias:   "gpt-5.4",
+		Enabled: true,
+		Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	target := filepath.Join(t.TempDir(), "opencode.jsonc")
+	seed := []byte("{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {\n    \"olpx\": {\n      \"npm\": \"@ai-sdk/openai\",\n      \"name\": \"OpenCode LocalProxy CLI\",\n      \"options\": {\n        \"baseURL\": \"http://127.0.0.1:9982/v1\",\n        \"apiKey\": \"olpx-local\",\n        \"setCacheKey\": true\n      },\n      \"models\": {\n        \"gpt-5.4\": {\n          \"name\": \"custom-display-name\",\n          \"tags\": [\"reasoning\", \"priority\"],\n          \"variants\": [\n            {\"name\": \"high\", \"effort\": \"high\"}\n          ]\n        }\n      }\n    }\n  }\n}\n")
+	if err := os.WriteFile(target, seed, 0o600); err != nil {
+		t.Fatalf("write target config: %v", err)
+	}
+
+	cmd := newOpencodeSyncCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+	cmd.SetArgs([]string{"--target", target})
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("opencode sync panicked with slice metadata: %v", r)
+		}
+	}()
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute opencode sync: %v", err)
+	}
+	if got := stdout.String(); got != "✓ no changes required at "+target+"\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target config: %v", err)
+	}
+	if !bytes.Equal(data, seed) {
+		t.Fatalf("sync rewrote unchanged config:\n%s", string(data))
 	}
 }
