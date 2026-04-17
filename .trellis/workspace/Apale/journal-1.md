@@ -122,3 +122,58 @@ Added provider-level disable/enable support, made failover skip disabled provide
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Review MVP completion status
+
+**Date**: 2026-04-17
+**Task**: Review MVP completion status
+**Branch**: `master`
+
+### Summary
+
+Reviewed current implementation against the archived MVP PRD and classified implemented, missing, and beyond-MVP features.
+
+### Main Changes
+
+| Category | Result |
+|---|---|
+| Overall status | MVP core flow is effectively complete |
+| Implemented MVP | Local olpx config, provider/alias CLI, OpenCode sync, static doctor, `/v1/responses` proxy, streaming pass-through, pre-first-byte failover, debug headers |
+| Partial / missing MVP edges | `doctor` validates generated preview more than on-disk synced state; OpenCode provider import only reads `options.apiKey`, not broader header-style auth |
+| Beyond MVP | `provider enable/disable`, minimal `/v1/models`, broader alias normalization, careful OpenCode config patching |
+
+**Reviewed Sources**:
+- `.trellis/tasks/archive/2026-04/04-17-04-17-ops-mvp-design-review/prd.md`
+- `internal/config/config.go`
+- `internal/cli/provider.go`
+- `internal/cli/alias.go`
+- `internal/cli/opencode.go`
+- `internal/cli/doctor.go`
+- `internal/cli/serve.go`
+- `internal/opencode/opencode.go`
+- `internal/proxy/server.go`
+- `internal/proxy/server_test.go`
+- `internal/opencode/opencode_test.go`
+- `internal/cli/cli_test.go`
+- `internal/config/config_test.go`
+
+**Verification**:
+- Ran `go test ./...` successfully: 34 tests passed across 5 packages.
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
