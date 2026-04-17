@@ -12,6 +12,15 @@
   - provider import docs and implementation disagree on empty `apiKey`
   - `opencode sync` side effects on JSONC comments and `$schema` need clearer docs
   - header forwarding should better handle dynamic hop-by-hop headers and narrower forwarding rules
-- Verification already completed during review:
+- Implemented direct fixes for the clearly scoped items:
+  - added advisory file locking and atomic writes for both local config and OpenCode sync writes
+  - validated non-loopback server binds cannot keep the default local API key
+  - added routable alias validation for `opencode sync --set-model` and `--set-small-model`
+  - added request body read timeout handling and stable timeout error mapping
+  - added stream idle timeout and last retryable upstream error passthrough for `429`/`5xx`
+  - narrowed forwarded request headers conservatively, including dynamic `Connection`-declared hop-by-hop removal
+  - aligned provider import behavior/docs to allow empty `apiKey`
+  - documented that OpenCode sync rewrites JSONC as normalized JSON
+- Verification completed after implementation:
   - `go test ./...`
   - `go test -race ./...`
