@@ -128,6 +128,7 @@ ocswitch opencode sync
 
 这个命令会做一件事：把当前可路由的 alias 列表同步进 OpenCode 的 `provider.ocswitch.models`。
 
+注意：如果目标文件原本是 JSONC，`sync` 写回时会规范化成普通 JSON，因此注释和尾逗号不会保留。
 默认行为：
 
 - 优先复用全局 OpenCode 配置文件：`opencode.jsonc` > `opencode.json` > `config.json`
@@ -229,8 +230,7 @@ ocswitch provider import-opencode --from ./examples/opencode.jsonc
 
 - `npm: @ai-sdk/openai`
 - 有 `options.baseURL`
-- 有 `options.apiKey`
-
+- `options.apiKey` 可以为空；导入后由 `ocswitch doctor` / `serve` 前校验帮助你发现风险
 注意：
 
 - 这不是完整迁移工具

@@ -157,6 +157,111 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	}
 }
 
+func TestHandleResponsesReturnsLastRetryableFailure(t *testing.T) {
+	t.Parallel()
+
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "7")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":{"message":"upstream unavailable"}}`))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1"},
+			{ID: "p2", BaseURL: second.URL + "/v1"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadGateway)
+	}
+	if got := rr.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	if got := rr.Header().Get("Retry-After"); got != "" {
+		t.Fatalf("Retry-After = %q, want empty from last failure", got)
+	}
+	if body := rr.Body.String(); body != `{"error":{"message":"upstream unavailable"}}` {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestCopyForwardHeadersDropsDynamicConnectionHeaders(t *testing.T) {
+	t.Parallel()
+
+	src := http.Header{}
+	src.Set("Connection", "X-Trace-Id, Keep-Alive")
+	src.Set("X-Trace-Id", "abc")
+	src.Set("Keep-Alive", "timeout=5")
+	src.Set("OpenAI-Beta", "assistants=v2")
+	src.Set("X-Forwarded-For", "1.2.3.4")
+	dst := http.Header{}
+
+	copyForwardHeaders(dst, src)
+
+	if got := dst.Get("X-Trace-Id"); got != "" {
+		t.Fatalf("X-Trace-Id = %q, want empty", got)
+	}
+	if got := dst.Get("Keep-Alive"); got != "" {
+		t.Fatalf("Keep-Alive = %q, want empty", got)
+	}
+	if got := dst.Get("X-Forwarded-For"); got != "" {
+		t.Fatalf("X-Forwarded-For = %q, want empty", got)
+	}
+	if got := dst.Get("OpenAI-Beta"); got != "assistants=v2" {
+		t.Fatalf("OpenAI-Beta = %q, want assistants=v2", got)
+	}
+}
+
+func TestReadChunkWithTimeout(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns data", func(t *testing.T) {
+		t.Parallel()
+		buf := make([]byte, 8)
+		n, err := readChunkWithTimeout(bytes.NewBufferString("abc"), buf, 50*time.Millisecond)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if n != 3 || string(buf[:n]) != "abc" {
+			t.Fatalf("read = %d %q, want 3 abc", n, string(buf[:n]))
+		}
+	})
+
+	t.Run("times out", func(t *testing.T) {
+		t.Parallel()
+		buf := make([]byte, 8)
+		n, err := readChunkWithTimeout(blockingReader{}, buf, 20*time.Millisecond)
+		if !errors.Is(err, errStreamIdleTimeout) {
+			t.Fatalf("err = %v, want errStreamIdleTimeout", err)
+		}
+		if n != 0 {
+			t.Fatalf("n = %d, want 0", n)
+		}
+	})
+}
 func TestHandleResponsesSkipsDisabledProviders(t *testing.T) {
 	t.Parallel()
 
@@ -260,6 +365,18 @@ func TestHandleModelsSkipsAliasesWithoutAvailableTargets(t *testing.T) {
 	}
 }
 
+func TestRequestReadErrorTimeout(t *testing.T) {
+	t.Parallel()
+
+	status, message := requestReadError(timeoutErr{})
+	if status != http.StatusRequestTimeout {
+		t.Fatalf("status = %d, want %d", status, http.StatusRequestTimeout)
+	}
+	if message != "request body read timeout" {
+		t.Fatalf("message = %q", message)
+	}
+}
+
 func TestReadFirstChunk(t *testing.T) {
 	t.Parallel()
 
@@ -309,8 +426,12 @@ func TestReadFirstChunk(t *testing.T) {
 }
 
 type blockingReader struct{}
-
 type dataEOFReader struct{}
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return false }
 
 func (blockingReader) Read(p []byte) (int, error) {
 	time.Sleep(200 * time.Millisecond)

@@ -56,9 +56,8 @@ The default import/sync target is the global user config only. It does not
 follow `OPENCODE_CONFIG_DIR`; use `--from` or `--target` when you want a
 different file.
 
-Only `@ai-sdk/openai` custom providers with a `baseURL` and `apiKey` are
-imported. Everything else is out of MVP scope.
-
+Only `@ai-sdk/openai` custom providers with a `baseURL` are imported. An empty
+`apiKey` is allowed and kept as-is so you can complete credentials later.
 ### Doctor (static)
 
 ```bash

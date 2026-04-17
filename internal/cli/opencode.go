@@ -43,11 +43,15 @@ existing file in precedence order opencode.jsonc > opencode.json > config.json,
 or creating opencode.jsonc if none exists. It does NOT touch the top-level
 "model" or "small_model" unless --set-model / --set-small-model are given.
 
+If the target file is JSONC, sync rewrites it as normalized plain JSON and any
+comments/trailing commas are lost. Existing provider.ocswitch model metadata is
+preserved when alias names stay the same, but this command is still a writing
+operation rather than a comment-preserving patcher.
+
 The default target scope is only the global user config path; it does not follow
 OPENCODE_CONFIG_DIR unless you pass --target yourself. The command writes alias
 exposure into provider.ocswitch.models using only aliases that are currently
 routable.
-
 Use --dry-run to preview the resolved target file without writing it. Typical
 workflow: run ocswitch doctor first, then sync, then start or restart ocswitch serve if
 needed.`,
@@ -77,19 +81,25 @@ needed.`,
 				return err
 			}
 			aliasNames := cfg.AvailableAliasNames()
-			baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
-			changed := opencode.EnsureOcswitchProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
 			if setModel != "" {
-				if raw["model"] != setModel {
-					raw["model"] = setModel
-					changed = true
+				if err := validateSyncedModelSelection(setModel, aliasNames, "--set-model"); err != nil {
+					return err
 				}
 			}
 			if setSmallModel != "" {
-				if raw["small_model"] != setSmallModel {
-					raw["small_model"] = setSmallModel
-					changed = true
+				if err := validateSyncedModelSelection(setSmallModel, aliasNames, "--set-small-model"); err != nil {
+					return err
 				}
+			}
+			baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
+			changed := opencode.EnsureOcswitchProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
+			if setModel != "" && raw["model"] != setModel {
+				raw["model"] = setModel
+				changed = true
+			}
+			if setSmallModel != "" && raw["small_model"] != setSmallModel {
+				raw["small_model"] = setSmallModel
+				changed = true
 			}
 			if !changed {
 				fmt.Fprintf(cmd.OutOrStdout(), "✓ no changes required at %s\n", path)

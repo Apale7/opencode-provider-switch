@@ -224,6 +224,50 @@ func TestOpencodeSyncDoesNotPanicOnSliceModelMetadata(t *testing.T) {
 	}
 }
 
+func TestOpencodeSyncRejectsInvalidSelectedModel(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://example.com/v1"})
+	cfg.UpsertAlias(config.Alias{
+		Alias:   "gpt-5.4",
+		Enabled: true,
+		Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	target := filepath.Join(t.TempDir(), "opencode.jsonc")
+	cmd := newOpencodeSyncCmd()
+	cmd.SetArgs([]string{"--target", target, "--set-model", "ocswitch/missing"})
+
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("expected invalid --set-model error")
+	}
+	if got := err.Error(); got != `--set-model "ocswitch/missing" is not a routable alias; available: ocswitch/gpt-5.4` {
+		t.Fatalf("error = %q", got)
+	}
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no target file write, stat err = %v", statErr)
+	}
+}
+
+func TestOpencodeSyncRejectsNonPrefixedSelectedModel(t *testing.T) {
+	err := validateSyncedModelSelection("gpt-5.4", []string{"gpt-5.4"}, "--set-model")
+	if err == nil {
+		t.Fatal("expected prefix validation error")
+	}
+	if got := err.Error(); got != "--set-model must use the ocswitch/<alias> form" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
 func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 	tests := []struct {
 		name        string

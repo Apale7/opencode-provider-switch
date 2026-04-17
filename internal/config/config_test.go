@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -86,6 +87,22 @@ func TestAvailableAliasNamesOnlyReturnsRoutableAliases(t *testing.T) {
 	names := cfg.AvailableAliasNames()
 	if len(names) != 1 || names[0] != "ok" {
 		t.Fatalf("available alias names = %#v, want [ok]", names)
+	}
+}
+
+func TestValidateRejectsDefaultKeyOnNonLoopbackHost(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Server: Server{Host: "0.0.0.0", Port: 9982, APIKey: DefaultLocalAPIKey},
+	}
+
+	errs := cfg.Validate()
+	if len(errs) != 1 {
+		t.Fatalf("Validate() errors = %v, want 1 error", errs)
+	}
+	if !strings.Contains(errs[0].Error(), "must not use the default value") {
+		t.Fatalf("Validate() error = %q", errs[0].Error())
 	}
 }
 

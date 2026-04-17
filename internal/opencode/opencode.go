@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"sort"
 
+	"github.com/Apale7/opencode-provider-switch/internal/fileutil"
 	"github.com/tidwall/jsonc"
 )
 
@@ -85,17 +86,17 @@ func Save(path string, raw Raw) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	data, err := renderSaveData(path, raw)
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write tmp: %w", err)
-	}
-	return os.Rename(tmp, path)
+	return fileutil.WithLockedFile(path, func() error {
+		data, err := renderSaveData(path, raw)
+		if err != nil {
+			return err
+		}
+		if err := fileutil.AtomicWriteFile(path, data, 0o600); err != nil {
+			return err
+		}
+		return nil
+	})
 }
-
 func renderSaveData(path string, raw Raw) ([]byte, error) {
 	original, err := os.ReadFile(path)
 	if err != nil {

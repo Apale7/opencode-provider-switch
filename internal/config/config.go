@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/Apale7/opencode-provider-switch/internal/fileutil"
 )
 
 const (
@@ -146,14 +149,10 @@ func (c *Config) Path() string { return c.path }
 // Save writes config atomically.
 func (c *Config) Save() error {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	if c.path == "" {
 		c.path = DefaultPath()
 	}
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
-		return fmt.Errorf("mkdir: %w", err)
-	}
-	// sort for stability
+	path := c.path
 	providers := append([]Provider(nil), c.Providers...)
 	sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
 	aliases := append([]Alias(nil), c.Aliases...)
@@ -163,16 +162,18 @@ func (c *Config) Save() error {
 		Providers []Provider `json:"providers"`
 		Aliases   []Alias    `json:"aliases"`
 	}{c.Server, providers, aliases}
+	c.mu.RUnlock()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
 	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
 	data = append(data, '\n')
-	tmp := c.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write tmp: %w", err)
-	}
-	return os.Rename(tmp, c.path)
+	return fileutil.WithLockedFile(path, func() error {
+		return fileutil.AtomicWriteFile(path, data, 0o600)
+	})
 }
 
 // FindProvider returns the provider with matching id or nil.
@@ -392,5 +393,16 @@ func (c *Config) Validate() []error {
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
 		errs = append(errs, fmt.Errorf("invalid server port %d", c.Server.Port))
 	}
+	if c.Server.APIKey == DefaultLocalAPIKey && !isLoopbackHost(c.Server.Host) {
+		errs = append(errs, fmt.Errorf("server.api_key must not use the default value when listening on non-loopback host %q", c.Server.Host))
+	}
 	return errs
+}
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

@@ -1,6 +1,3 @@
-// Package proxy implements the local `/v1/responses` HTTP server that resolves
-// ocswitch aliases and forwards requests to upstream providers with deterministic
-// pre-first-byte failover.
 package proxy
 
 import (
@@ -21,9 +18,17 @@ import (
 )
 
 var firstByteTimeout = 15 * time.Second
+var requestReadTimeout = 30 * time.Second
+var streamIdleTimeout = 60 * time.Second
 
 type openAIErrorEnvelope struct {
 	Error openAIError `json:"error"`
+}
+
+type upstreamFailure struct {
+	status int
+	header http.Header
+	body   []byte
 }
 
 type openAIError struct {
@@ -52,15 +57,14 @@ func New(cfg *config.Config) *Server {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: firstByteTimeout,
-		// no response buffering so streams flow through immediately
-		DisableCompression: false,
-		ForceAttemptHTTP2:  true,
+		DisableCompression:    false,
+		ForceAttemptHTTP2:     true,
 	}
 	return &Server{
 		cfg: cfg,
 		client: &http.Client{
 			Transport: transport,
-			Timeout:   0, // streaming, no overall timeout
+			Timeout:   0,
 		},
 		logger: log.New(log.Writer(), "[ocswitch] ", log.LstdFlags|log.Lmicroseconds),
 	}
@@ -80,10 +84,10 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       requestReadTimeout,
 	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
-	s.logger.Printf("listening on http://%s", addr)
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -147,7 +151,8 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 50<<20))
 	if err != nil {
-		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "read body: "+err.Error())
+		status, msg := requestReadError(err)
+		writeOpenAIError(w, status, "invalid_request_error", msg)
 		return
 	}
 	var payload map[string]any
@@ -182,6 +187,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	failoverCount := 0
+	var lastRetryable *upstreamFailure
 	for attempt, t := range targets {
 		p := s.cfg.FindProvider(t.Provider)
 		if p == nil || !p.IsEnabled() {
@@ -190,7 +196,6 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt+1, p.ID, t.Model, failoverCount)
-		// rewrite payload.model for this upstream
 		cloned := cloneMap(payload)
 		cloned["model"] = t.Model
 		newBody, err := json.Marshal(cloned)
@@ -200,24 +205,34 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ok, retryable, upstreamErr := s.tryOnce(r.Context(), w, r, p, t, newBody, aliasName, attempt+1, failoverCount)
+		ok, retryable, upstreamErr, failure := s.tryOnce(r.Context(), w, r, p, t, newBody, aliasName, attempt+1, failoverCount)
 		if ok {
 			return
 		}
 		if !retryable {
-			// final — response was either already committed or unrecoverable
 			s.logger.Printf("req=%d alias=%s attempt=%d final failure: %v", reqID, aliasName, attempt+1, upstreamErr)
 			return
+		}
+		if failure != nil {
+			lastRetryable = failure
 		}
 		s.logger.Printf("req=%d alias=%s attempt=%d retryable: %v", reqID, aliasName, attempt+1, upstreamErr)
 		failoverCount++
 	}
 
-	// exhausted all targets with retryable failures
+	if lastRetryable != nil {
+		copyResponseHeaders(w.Header(), lastRetryable.header)
+		w.WriteHeader(lastRetryable.status)
+		if len(lastRetryable.body) > 0 {
+			_, _ = w.Write(lastRetryable.body)
+		}
+		return
+	}
+
 	writeOpenAIError(w, http.StatusBadGateway, "server_error", fmt.Sprintf("all upstream targets failed for alias %q", aliasName))
 }
 
-// tryOnce proxies one attempt. Returns (ok, retryable, err).
+// tryOnce proxies one attempt. Returns (ok, retryable, err, failure).
 // ok=true means successful response fully/partially written to client.
 // retryable=true means failure happened before any bytes flushed downstream.
 func (s *Server) tryOnce(
@@ -230,11 +245,14 @@ func (s *Server) tryOnce(
 	aliasName string,
 	attempt int,
 	failoverCount int,
-) (ok bool, retryable bool, err error) {
+) (ok bool, retryable bool, err error, failure *upstreamFailure) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	upstreamURL := strings.TrimRight(provider.BaseURL, "/") + "/responses"
 	upReq, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
-		return false, false, fmt.Errorf("build request: %w", err)
+		return false, false, fmt.Errorf("build request: %w", err), nil
 	}
 	copyForwardHeaders(upReq.Header, clientReq.Header)
 	upReq.Header.Set("Content-Type", "application/json")
@@ -250,46 +268,41 @@ func (s *Server) tryOnce(
 	startedAt := time.Now()
 	resp, err := s.client.Do(upReq)
 	if err != nil {
-		return false, true, fmt.Errorf("upstream dial/transport: %w", err)
+		return false, true, fmt.Errorf("upstream dial/transport: %w", err), nil
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 500 || resp.StatusCode == 429 {
-		// drain up to small cap for logging context
-		peek, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return false, true, fmt.Errorf("upstream %d: %s", resp.StatusCode, truncate(string(peek), 200))
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		failure = captureRetryableFailure(resp)
+		return false, true, fmt.Errorf("upstream %d: %s", resp.StatusCode, truncate(string(failure.body), 200)), failure
 	}
 	if resp.StatusCode >= 400 {
-		// non-retryable: forward status + body to client
 		s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
 		s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
 		copyResponseHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
-		return true, false, fmt.Errorf("upstream %d", resp.StatusCode)
+		return true, false, fmt.Errorf("upstream %d", resp.StatusCode), nil
 	}
 
 	remaining := firstByteTimeout - time.Since(startedAt)
 	if remaining <= 0 {
-		_ = resp.Body.Close()
-		return false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout)
+		return false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout), nil
 	}
 	firstChunk, firstErr := readFirstChunk(resp.Body, remaining)
 	if firstErr != nil {
 		if errors.Is(firstErr, errFirstByteTimeout) {
-			_ = resp.Body.Close()
-			return false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout)
+			return false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout), nil
 		}
 		if errors.Is(firstErr, io.EOF) {
 			if len(firstChunk) == 0 {
 				firstChunk = nil
 			}
 		} else {
-			return false, true, fmt.Errorf("upstream first read: %w", firstErr)
+			return false, true, fmt.Errorf("upstream first read: %w", firstErr), nil
 		}
 	}
 
-	// 2xx: start streaming pass-through. From this point no failover is allowed.
 	s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
 	s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
 	copyResponseHeaders(w.Header(), resp.Header)
@@ -297,7 +310,7 @@ func (s *Server) tryOnce(
 	flusher, _ := w.(http.Flusher)
 	if len(firstChunk) > 0 {
 		if _, werr := w.Write(firstChunk); werr != nil {
-			return true, false, werr
+			return true, false, werr, nil
 		}
 		if flusher != nil {
 			flusher.Flush()
@@ -305,10 +318,10 @@ func (s *Server) tryOnce(
 	}
 	buf := make([]byte, 16<<10)
 	for {
-		n, rerr := resp.Body.Read(buf)
+		n, rerr := readChunkWithTimeout(resp.Body, buf, streamIdleTimeout)
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {
-				return true, false, werr
+				return true, false, werr, nil
 			}
 			if flusher != nil {
 				flusher.Flush()
@@ -316,15 +329,15 @@ func (s *Server) tryOnce(
 		}
 		if rerr != nil {
 			if errors.Is(rerr, io.EOF) {
-				return true, false, nil
+				return true, false, nil, nil
 			}
-			// mid-stream error — already committed, cannot failover
-			return true, false, rerr
+			return true, false, rerr, nil
 		}
 	}
 }
 
 var errFirstByteTimeout = errors.New("first byte timeout")
+var errStreamIdleTimeout = errors.New("stream idle timeout")
 
 func readFirstChunk(r io.Reader, timeout time.Duration) ([]byte, error) {
 	type result struct {
@@ -350,6 +363,44 @@ func readFirstChunk(r io.Reader, timeout time.Duration) ([]byte, error) {
 	}
 }
 
+func readChunkWithTimeout(r io.Reader, buf []byte, timeout time.Duration) (int, error) {
+	type result struct {
+		n   int
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		n, err := r.Read(buf)
+		ch <- result{n: n, err: err}
+	}()
+	select {
+	case res := <-ch:
+		return res.n, res.err
+	case <-time.After(timeout):
+		return 0, errStreamIdleTimeout
+	}
+}
+
+func captureRetryableFailure(resp *http.Response) *upstreamFailure {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
+	return &upstreamFailure{
+		status: resp.StatusCode,
+		header: cloneHeaderSubset(resp.Header, "Content-Type", "Retry-After"),
+		body:   body,
+	}
+}
+
+func cloneHeaderSubset(src http.Header, names ...string) http.Header {
+	dst := make(http.Header)
+	for _, name := range names {
+		ck := http.CanonicalHeaderKey(name)
+		for _, v := range src.Values(ck) {
+			dst.Add(ck, v)
+		}
+	}
+	return dst
+}
+
 func writeOpenAIError(w http.ResponseWriter, status int, code, message string) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
@@ -368,6 +419,18 @@ func errorTypeForStatus(status int) string {
 		return "server_error"
 	}
 	return "invalid_request_error"
+}
+
+func requestReadError(err error) (int, string) {
+	var netErr net.Error
+	switch {
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return http.StatusRequestTimeout, "request body read timeout"
+	case strings.Contains(strings.ToLower(err.Error()), "timeout"):
+		return http.StatusRequestTimeout, "request body read timeout"
+	default:
+		return http.StatusBadRequest, "read body: " + err.Error()
+	}
 }
 
 func normalizeAliasName(model string) string {
@@ -391,7 +454,6 @@ func (s *Server) writeDebugHeaders(w http.ResponseWriter, alias, provider, remot
 	h.Set("X-OCSWITCH-Failover-Count", fmt.Sprintf("%d", failoverCount))
 }
 
-// hopByHopHeaders lists headers that must not be forwarded per RFC 7230.
 var hopByHopHeaders = map[string]bool{
 	"Connection":          true,
 	"Proxy-Connection":    true,
@@ -404,16 +466,15 @@ var hopByHopHeaders = map[string]bool{
 	"Upgrade":             true,
 }
 
-// copyForwardHeaders copies safe request headers from client to upstream,
-// dropping Authorization (the upstream key replaces it) and hop-by-hop headers.
 func copyForwardHeaders(dst, src http.Header) {
+	connectionHeaders := connectionDeclaredHeaders(src)
 	for k, vs := range src {
 		ck := http.CanonicalHeaderKey(k)
-		if hopByHopHeaders[ck] {
+		if hopByHopHeaders[ck] || connectionHeaders[ck] {
 			continue
 		}
 		switch ck {
-		case "Authorization", "X-Api-Key", "Host", "Content-Length":
+		case "Authorization", "X-Api-Key", "Host", "Content-Length", "Transfer-Encoding", "Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Via":
 			continue
 		}
 		for _, v := range vs {
@@ -422,7 +483,19 @@ func copyForwardHeaders(dst, src http.Header) {
 	}
 }
 
-// copyResponseHeaders copies upstream response headers into client response.
+func connectionDeclaredHeaders(src http.Header) map[string]bool {
+	declared := map[string]bool{}
+	for _, raw := range src.Values("Connection") {
+		for _, part := range strings.Split(raw, ",") {
+			name := http.CanonicalHeaderKey(strings.TrimSpace(part))
+			if name != "" {
+				declared[name] = true
+			}
+		}
+	}
+	return declared
+}
+
 func copyResponseHeaders(dst, src http.Header) {
 	for k, vs := range src {
 		ck := http.CanonicalHeaderKey(k)
@@ -430,7 +503,6 @@ func copyResponseHeaders(dst, src http.Header) {
 			continue
 		}
 		if ck == "Content-Length" {
-			// We may transform nothing, but streaming responses often omit this.
 			continue
 		}
 		for _, v := range vs {
@@ -439,7 +511,6 @@ func copyResponseHeaders(dst, src http.Header) {
 	}
 }
 
-// cloneMap performs a shallow copy of a top-level map.
 func cloneMap(m map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
@@ -448,10 +519,9 @@ func cloneMap(m map[string]any) map[string]any {
 	return out
 }
 
-// truncate returns s truncated to at most n bytes (best-effort).
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return s[:n]
 }

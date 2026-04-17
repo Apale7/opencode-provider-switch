@@ -327,6 +327,30 @@ func TestRenderSaveDataAcceptsJSONCAndProducesValidJSON(t *testing.T) {
 	}
 }
 
+func TestImportCustomProvidersAllowsEmptyAPIKey(t *testing.T) {
+	raw := Raw{
+		"provider": map[string]any{
+			"openai-empty": map[string]any{
+				"npm":  "@ai-sdk/openai",
+				"name": "Empty Key",
+				"options": map[string]any{
+					"baseURL": "https://example.com/v1",
+				},
+			},
+		},
+	}
+
+	imports := ImportCustomProviders(raw)
+	if len(imports) != 1 {
+		t.Fatalf("len(imports) = %d, want 1", len(imports))
+	}
+	if imports[0].ID != "openai-empty" {
+		t.Fatalf("id = %q, want openai-empty", imports[0].ID)
+	}
+	if imports[0].APIKey != "" {
+		t.Fatalf("api key = %q, want empty", imports[0].APIKey)
+	}
+}
 func TestRenderSaveDataRejectsInvalidJSONC(t *testing.T) {
 	raw := Raw{
 		"provider": map[string]any{

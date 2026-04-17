@@ -270,10 +270,10 @@ opencode.jsonc > opencode.json > config.json under ~/.config/opencode (XDG
 aware). It does not follow OPENCODE_CONFIG_DIR for this default source; use
 --from when you want a different file.
 
-Only config-defined @ai-sdk/openai custom providers with both baseURL and apiKey
-are imported. Unsupported provider shapes are skipped by design. Existing ocswitch
-providers are skipped unless --overwrite is given.
-
+Only config-defined @ai-sdk/openai custom providers with baseURL are imported.
+Providers with an empty apiKey are allowed and kept as-is. Unsupported provider
+shapes are skipped by design. Existing ocswitch providers are skipped unless
+--overwrite is given.
 Typical next step: run ocswitch provider list, then create aliases and bindings.`,
 		Example: `  ocswitch provider import-opencode
   ocswitch provider import-opencode --from /path/to/opencode.jsonc
