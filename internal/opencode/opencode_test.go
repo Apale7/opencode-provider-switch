@@ -83,6 +83,91 @@ func TestValidateOLPXProvider(t *testing.T) {
 	}
 }
 
+func TestEnsureOLPXProviderPreservesExistingModelMetadata(t *testing.T) {
+	raw := Raw{
+		"$schema": "https://opencode.ai/config.json",
+		"provider": map[string]any{
+			"olpx": map[string]any{
+				"npm":  "@ai-sdk/openai",
+				"name": "OpenCode LocalProxy CLI",
+				"options": map[string]any{
+					"baseURL":     "http://127.0.0.1:9982/v1",
+					"apiKey":      "olpx-local",
+					"setCacheKey": true,
+				},
+				"models": map[string]any{
+					"gpt-5.4": map[string]any{
+						"name": "custom-display-name",
+						"limit": map[string]any{
+							"context": float64(272000),
+							"output":  float64(128000),
+						},
+						"cost": map[string]any{
+							"input":  float64(1.75),
+							"output": float64(14),
+						},
+						"variants": map[string]any{
+							"high": map[string]any{"reasoningEffort": "high"},
+						},
+						"options": map[string]any{"serviceTier": "priority"},
+					},
+				},
+			},
+		},
+	}
+
+	changed := EnsureOLPXProvider(raw, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"})
+	if changed {
+		t.Fatal("EnsureOLPXProvider() reported change for unchanged same-name alias")
+	}
+
+	providerRaw := raw["provider"].(map[string]any)
+	olpxRaw := providerRaw["olpx"].(map[string]any)
+	models := olpxRaw["models"].(map[string]any)
+	model := models["gpt-5.4"].(map[string]any)
+	if got := model["name"]; got != "custom-display-name" {
+		t.Fatalf("model name = %#v, want custom-display-name preserved", got)
+	}
+	if _, ok := model["limit"].(map[string]any); !ok {
+		t.Fatalf("model limit metadata missing: %#v", model["limit"])
+	}
+	if _, ok := model["cost"].(map[string]any); !ok {
+		t.Fatalf("model cost metadata missing: %#v", model["cost"])
+	}
+	if _, ok := model["variants"].(map[string]any); !ok {
+		t.Fatalf("model variants metadata missing: %#v", model["variants"])
+	}
+	if _, ok := model["options"].(map[string]any); !ok {
+		t.Fatalf("model options metadata missing: %#v", model["options"])
+	}
+}
+
+func TestValidateOLPXProviderAllowsCustomModelMetadata(t *testing.T) {
+	raw := Raw{
+		"provider": map[string]any{
+			"olpx": map[string]any{
+				"npm":  "@ai-sdk/openai",
+				"name": "OpenCode LocalProxy CLI",
+				"options": map[string]any{
+					"baseURL":     "http://127.0.0.1:9982/v1",
+					"apiKey":      "olpx-local",
+					"setCacheKey": true,
+				},
+				"models": map[string]any{
+					"gpt-5.4": map[string]any{
+						"name":    "custom-display-name",
+						"options": map[string]any{"serviceTier": "priority"},
+					},
+				},
+			},
+		},
+	}
+
+	if err := ValidateOLPXProvider(raw, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"}); err != nil {
+		t.Fatalf("ValidateOLPXProvider() unexpected error for custom metadata: %v", err)
+	}
+}
+
 func TestRenderSaveDataReplacesExistingProviderOLPXOnly(t *testing.T) {
 	raw := Raw{
 		"$schema": "https://opencode.ai/config.json",
@@ -268,6 +353,44 @@ func TestRenderSaveDataWritesValidJSONToDisk(t *testing.T) {
 	}
 	if err := ValidateOLPXProvider(loaded, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"}); err != nil {
 		t.Fatalf("ValidateOLPXProvider(loaded) error: %v", err)
+	}
+}
+
+func TestSavePreservesExistingModelMetadataForSameAlias(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode.jsonc")
+	seed := []byte("{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {\n    \"olpx\": {\n      \"npm\": \"@ai-sdk/openai\",\n      \"name\": \"OpenCode LocalProxy CLI\",\n      \"options\": {\n        \"baseURL\": \"http://127.0.0.1:9982/v1\",\n        \"apiKey\": \"olpx-local\",\n        \"setCacheKey\": true\n      },\n      \"models\": {\n        \"gpt-5.4\": {\n          \"name\": \"custom-display-name\",\n          \"limit\": {\n            \"context\": 272000,\n            \"output\": 128000\n          },\n          \"options\": {\n            \"serviceTier\": \"priority\"\n          }\n        }\n      }\n    }\n  }\n}\n")
+	if err := os.WriteFile(path, seed, 0o600); err != nil {
+		t.Fatalf("write seed config: %v", err)
+	}
+
+	raw, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(seed) error: %v", err)
+	}
+	changed := EnsureOLPXProvider(raw, "http://127.0.0.1:9982/v1", "olpx-local", []string{"gpt-5.4"})
+	if changed {
+		t.Fatal("EnsureOLPXProvider() reported change for preserved same-name alias metadata")
+	}
+	if err := Save(path, raw); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(saved) error: %v", err)
+	}
+	providerRaw := loaded["provider"].(map[string]any)
+	olpxRaw := providerRaw["olpx"].(map[string]any)
+	models := olpxRaw["models"].(map[string]any)
+	model := models["gpt-5.4"].(map[string]any)
+	if got := model["name"]; got != "custom-display-name" {
+		t.Fatalf("saved model name = %#v, want custom-display-name preserved", got)
+	}
+	if _, ok := model["limit"].(map[string]any); !ok {
+		t.Fatalf("saved limit metadata missing: %#v", model["limit"])
+	}
+	if _, ok := model["options"].(map[string]any); !ok {
+		t.Fatalf("saved options metadata missing: %#v", model["options"])
 	}
 }
 

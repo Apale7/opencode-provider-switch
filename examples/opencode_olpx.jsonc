@@ -1,0 +1,66 @@
+{
+  // provider.olpx.models entries may include OpenCode-only metadata.
+  // olpx sync preserves same-name model objects and only manages the alias set.
+  "$schema": "https://opencode.ai/config.json",
+  "model": "olpx/gpt-5.4",
+  "small_model": "olpx/gpt-5.4-mini",
+  "provider": {
+    "olpx": {
+      "models": {
+        "gpt-5.4": {
+          "name": "gpt-5.4",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cache_read": 0.175,
+            "cache_write": 1.75
+          },
+          "options": {
+            "serviceTier": "priority",
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "parallel_tool_calls": true,
+            "store": false
+          },
+          "variants": {
+            "xhigh": {
+              "reasoningEffort": "xhigh",
+              "reasoningSummary": "auto"
+            },
+            "high": {
+              "reasoningEffort": "high",
+              "reasoningSummary": "auto"
+            },
+            "medium": {
+              "reasoningEffort": "medium",
+              "reasoningSummary": "auto"
+            },
+            "low": {
+              "reasoningEffort": "low",
+              "reasoningSummary": "auto"
+            }
+          }
+        },
+        "gpt-5.4-mini": {
+          "name": "gpt-5.4-mini"
+        }
+      },
+      "name": "OpenCode LocalProxy CLI",
+      "npm": "@ai-sdk/openai",
+      "options": {
+        "apiKey": "olpx-local",
+        "baseURL": "http://127.0.0.1:9982/v1",
+        "setCacheKey": true
+      }
+    }
+  },
+  "plugin": [
+    "@tarquinen/opencode-dcp@latest",
+    "oh-my-opencode-slim@latest"
+  ]
+}

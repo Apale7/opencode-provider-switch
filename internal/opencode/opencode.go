@@ -411,8 +411,10 @@ func lineIndent(data []byte, pos int) string {
 
 // EnsureOLPXProvider updates (or creates) the provider.olpx entry with the given
 // local base URL, local api key and alias set. Existing keys on provider.olpx
-// are preserved unless they conflict with the sync intent. Returns true if the
-// file would actually change.
+// are preserved unless they conflict with the sync intent. For model entries,
+// sync owns only the alias set: same-name model objects are left untouched so
+// OpenCode-only metadata survives round-trips. Returns true if the file would
+// actually change.
 func EnsureOLPXProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
 	changed := false
 	if _, ok := raw["$schema"]; !ok {
@@ -452,18 +454,14 @@ func EnsureOLPXProvider(raw Raw, baseURL, apiKey string, aliases []string) bool 
 	if setIfDiff(opts, "setCacheKey", true) {
 		changed = true
 	}
-	// Build models map from alias list. Preserve any existing per-model extras
-	// if the alias key matches; drop aliases removed locally.
+	// Build models map from alias list. Preserve any existing per-model objects
+	// verbatim if the alias key matches; drop aliases removed locally.
 	existingModels, _ := olpxRaw["models"].(map[string]any)
 	newModels := map[string]any{}
 	aliasSet := map[string]bool{}
 	for _, a := range aliases {
 		aliasSet[a] = true
 		if existing, ok := existingModels[a].(map[string]any); ok {
-			// make sure "name" stays consistent with alias key
-			if setIfDiff(existing, "name", a) {
-				changed = true
-			}
 			newModels[a] = existing
 		} else {
 			newModels[a] = map[string]any{"name": a}
@@ -522,9 +520,6 @@ func ValidateOLPXProvider(raw Raw, baseURL, apiKey string, aliases []string) err
 		modelCfg, _ := v.(map[string]any)
 		if modelCfg == nil {
 			return fmt.Errorf("provider.olpx.models.%s must be an object", alias)
-		}
-		if got, _ := modelCfg["name"].(string); got != alias {
-			return fmt.Errorf("provider.olpx.models.%s.name mismatch", alias)
 		}
 		actual = append(actual, alias)
 	}
