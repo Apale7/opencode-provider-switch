@@ -48,6 +48,10 @@ ops provider import-opencode             # reads global OpenCode config
 ops provider import-opencode --from ./examples/opencode.jsonc
 ```
 
+The default import/sync target is the global user config only. It does not
+follow `OPENCODE_CONFIG_DIR`; use `--from` or `--target` when you want a
+different file.
+
 Only `@ai-sdk/openai` custom providers with a `baseURL` and `apiKey` are
 imported. Everything else is out of MVP scope.
 

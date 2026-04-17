@@ -36,6 +36,13 @@ func newAliasAddCmd() *cobra.Command {
 			existing := cfg.FindAlias(name)
 			a := config.Alias{Alias: name, DisplayName: display, Enabled: !disabled}
 			if existing != nil {
+				if display == "" {
+					a.DisplayName = existing.DisplayName
+				}
+				a.Enabled = existing.Enabled
+				if disabled {
+					a.Enabled = false
+				}
 				a.Targets = existing.Targets
 			}
 			cfg.UpsertAlias(a)

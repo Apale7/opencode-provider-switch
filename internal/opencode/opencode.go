@@ -4,11 +4,13 @@
 package opencode
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/tidwall/jsonc"
 )
@@ -17,10 +19,9 @@ import (
 var ConfigFileCandidates = []string{"opencode.jsonc", "opencode.json", "config.json"}
 
 // GlobalConfigDir returns the default user-global OpenCode config directory.
+// MVP intentionally ignores OPENCODE_CONFIG_DIR for default sync scope; callers
+// that want another file must pass --target explicitly.
 func GlobalConfigDir() string {
-	if dir := os.Getenv("OPENCODE_CONFIG_DIR"); dir != "" {
-		return dir
-	}
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "opencode")
 	}
@@ -70,22 +71,342 @@ func Load(path string) (Raw, error) {
 	return out, nil
 }
 
-// Save writes Raw back to path. Parent dirs are created. Writes are atomic.
+// Save writes provider.ops back to path. Existing files are normalized to plain
+// JSON and only the provider.ops subtree is patched so unrelated key order stays
+// stable. New files are still written from the full Raw object. Writes are
+// atomic.
 func Save(path string, raw Raw) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	// ensure $schema first; tidwall/jsonc indent not needed — plain JSON is fine.
-	data, err := json.MarshalIndent(raw, "", "  ")
+	data, err := renderSaveData(path, raw)
 	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
+		return err
 	}
-	data = append(data, '\n')
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write tmp: %w", err)
 	}
 	return os.Rename(tmp, path)
+}
+
+func renderSaveData(path string, raw Raw) ([]byte, error) {
+	original, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("read %s: %w", path, err)
+		}
+		return marshalRaw(raw)
+	}
+	if len(bytes.TrimSpace(original)) == 0 {
+		return marshalRaw(raw)
+	}
+	patched, err := patchProviderOpsDocument(original, raw)
+	if err != nil {
+		return nil, fmt.Errorf("patch %s: %w", path, err)
+	}
+	if !json.Valid(patched) {
+		return nil, fmt.Errorf("patch %s: produced invalid json", path)
+	}
+	patched = append(bytes.TrimRight(patched, "\n"), '\n')
+	return patched, nil
+}
+
+func marshalRaw(raw Raw) ([]byte, error) {
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	data = append(data, '\n')
+	return data, nil
+}
+
+func patchProviderOpsDocument(original []byte, raw Raw) ([]byte, error) {
+	opsRaw, ok := opsProviderValue(raw)
+	if !ok {
+		return marshalRaw(raw)
+	}
+	normalized := bytes.TrimSpace(jsonc.ToJSON(original))
+	if len(normalized) == 0 {
+		return marshalRaw(raw)
+	}
+	if !json.Valid(normalized) {
+		return nil, fmt.Errorf("source config is not valid json/jsonc")
+	}
+	rootStart := skipWhitespace(normalized, 0)
+	root, end, err := parseObjectSpan(normalized, rootStart)
+	if err != nil {
+		return nil, err
+	}
+	if skipWhitespace(normalized, end) != len(normalized) {
+		return nil, fmt.Errorf("source config must be a single top-level object")
+	}
+	provider := root.findMember("provider")
+	if provider == nil {
+		return insertObjectMember(normalized, root, "provider", map[string]any{"ops": opsRaw})
+	}
+	if normalized[provider.valueStart] != '{' {
+		return nil, fmt.Errorf("top-level provider must be an object")
+	}
+	providerObj, _, err := parseObjectSpan(normalized, provider.valueStart)
+	if err != nil {
+		return nil, err
+	}
+	ops := providerObj.findMember("ops")
+	if ops == nil {
+		return insertObjectMember(normalized, providerObj, "ops", opsRaw)
+	}
+	return replaceObjectMember(normalized, *ops, opsRaw)
+}
+
+func opsProviderValue(raw Raw) (map[string]any, bool) {
+	providerRaw, _ := raw["provider"].(map[string]any)
+	if providerRaw == nil {
+		return nil, false
+	}
+	opsRaw, _ := providerRaw["ops"].(map[string]any)
+	if opsRaw == nil {
+		return nil, false
+	}
+	return opsRaw, true
+}
+
+type objectSpan struct {
+	start   int
+	end     int
+	members []objectMember
+}
+
+type objectMember struct {
+	key        string
+	start      int
+	valueStart int
+	valueEnd   int
+}
+
+func (o objectSpan) findMember(key string) *objectMember {
+	for i := range o.members {
+		if o.members[i].key == key {
+			return &o.members[i]
+		}
+	}
+	return nil
+}
+
+func replaceObjectMember(data []byte, member objectMember, value any) ([]byte, error) {
+	memberIndent := lineIndent(data, member.start)
+	replacement, err := formatObjectMember(member.key, value, memberIndent)
+	if err != nil {
+		return nil, err
+	}
+	out := append([]byte{}, data[:member.start]...)
+	out = append(out, replacement...)
+	out = append(out, data[member.valueEnd:]...)
+	return out, nil
+}
+
+func insertObjectMember(data []byte, obj objectSpan, key string, value any) ([]byte, error) {
+	objIndent := lineIndent(data, obj.start)
+	childIndent := objIndent + "  "
+	if len(obj.members) > 0 {
+		childIndent = lineIndent(data, obj.members[0].start)
+	}
+	memberText, err := formatObjectMember(key, value, childIndent)
+	if err != nil {
+		return nil, err
+	}
+	if len(obj.members) == 0 {
+		out := append([]byte{}, data[:obj.start+1]...)
+		out = append(out, '\n')
+		out = append(out, childIndent...)
+		out = append(out, memberText...)
+		out = append(out, '\n')
+		out = append(out, objIndent...)
+		out = append(out, data[obj.end-1:]...)
+		return out, nil
+	}
+	insertAt := obj.members[len(obj.members)-1].valueEnd
+	out := append([]byte{}, data[:insertAt]...)
+	out = append(out, []byte(",\n")...)
+	out = append(out, childIndent...)
+	out = append(out, memberText...)
+	out = append(out, '\n')
+	out = append(out, objIndent...)
+	out = append(out, data[obj.end-1:]...)
+	return out, nil
+}
+
+func formatObjectMember(key string, value any, indent string) ([]byte, error) {
+	valueJSON, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal member %q: %w", key, err)
+	}
+	lines := bytes.Split(valueJSON, []byte("\n"))
+	quotedKey, err := json.Marshal(key)
+	if err != nil {
+		return nil, fmt.Errorf("marshal key %q: %w", key, err)
+	}
+	out := append([]byte{}, quotedKey...)
+	out = append(out, []byte(": ")...)
+	out = append(out, lines[0]...)
+	for _, line := range lines[1:] {
+		out = append(out, '\n')
+		out = append(out, indent...)
+		out = append(out, line...)
+	}
+	return out, nil
+}
+
+func parseObjectSpan(data []byte, start int) (objectSpan, int, error) {
+	if start >= len(data) || data[start] != '{' {
+		return objectSpan{}, 0, fmt.Errorf("expected object at byte %d", start)
+	}
+	obj := objectSpan{start: start}
+	i := skipWhitespace(data, start+1)
+	if i >= len(data) {
+		return objectSpan{}, 0, fmt.Errorf("unterminated object")
+	}
+	if data[i] == '}' {
+		obj.end = i + 1
+		return obj, obj.end, nil
+	}
+	for {
+		memberStart := skipWhitespace(data, i)
+		key, next, err := parseJSONString(data, memberStart)
+		if err != nil {
+			return objectSpan{}, 0, err
+		}
+		i = skipWhitespace(data, next)
+		if i >= len(data) || data[i] != ':' {
+			return objectSpan{}, 0, fmt.Errorf("expected ':' after key %q", key)
+		}
+		valueStart := skipWhitespace(data, i+1)
+		valueEnd, err := parseValueEnd(data, valueStart)
+		if err != nil {
+			return objectSpan{}, 0, err
+		}
+		obj.members = append(obj.members, objectMember{key: key, start: memberStart, valueStart: valueStart, valueEnd: valueEnd})
+		i = skipWhitespace(data, valueEnd)
+		if i >= len(data) {
+			return objectSpan{}, 0, fmt.Errorf("unterminated object")
+		}
+		if data[i] == '}' {
+			obj.end = i + 1
+			return obj, obj.end, nil
+		}
+		if data[i] != ',' {
+			return objectSpan{}, 0, fmt.Errorf("expected ',' or '}' in object")
+		}
+		i++
+	}
+}
+
+func parseValueEnd(data []byte, start int) (int, error) {
+	if start >= len(data) {
+		return 0, fmt.Errorf("missing value at byte %d", start)
+	}
+	switch data[start] {
+	case '{':
+		_, end, err := parseObjectSpan(data, start)
+		return end, err
+	case '[':
+		return parseArrayEnd(data, start)
+	case '"':
+		_, end, err := parseJSONString(data, start)
+		return end, err
+	default:
+		end := start
+		for end < len(data) {
+			switch data[end] {
+			case ' ', '\n', '\r', '\t', ',', '}', ']':
+				return end, nil
+			default:
+				end++
+			}
+		}
+		return end, nil
+	}
+}
+
+func parseArrayEnd(data []byte, start int) (int, error) {
+	if start >= len(data) || data[start] != '[' {
+		return 0, fmt.Errorf("expected array at byte %d", start)
+	}
+	i := skipWhitespace(data, start+1)
+	if i >= len(data) {
+		return 0, fmt.Errorf("unterminated array")
+	}
+	if data[i] == ']' {
+		return i + 1, nil
+	}
+	for {
+		valueStart := skipWhitespace(data, i)
+		valueEnd, err := parseValueEnd(data, valueStart)
+		if err != nil {
+			return 0, err
+		}
+		i = skipWhitespace(data, valueEnd)
+		if i >= len(data) {
+			return 0, fmt.Errorf("unterminated array")
+		}
+		if data[i] == ']' {
+			return i + 1, nil
+		}
+		if data[i] != ',' {
+			return 0, fmt.Errorf("expected ',' or ']' in array")
+		}
+		i++
+	}
+}
+
+func parseJSONString(data []byte, start int) (string, int, error) {
+	if start >= len(data) || data[start] != '"' {
+		return "", 0, fmt.Errorf("expected string at byte %d", start)
+	}
+	i := start + 1
+	for i < len(data) {
+		if data[i] == '\\' {
+			i += 2
+			continue
+		}
+		if data[i] == '"' {
+			var out string
+			if err := json.Unmarshal(data[start:i+1], &out); err != nil {
+				return "", 0, fmt.Errorf("parse string at byte %d: %w", start, err)
+			}
+			return out, i + 1, nil
+		}
+		i++
+	}
+	return "", 0, fmt.Errorf("unterminated string at byte %d", start)
+}
+
+func skipWhitespace(data []byte, i int) int {
+	for i < len(data) {
+		switch data[i] {
+		case ' ', '\n', '\r', '\t':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+func lineIndent(data []byte, pos int) string {
+	lineStart := pos
+	for lineStart > 0 && data[lineStart-1] != '\n' {
+		lineStart--
+	}
+	lineEnd := lineStart
+	for lineEnd < len(data) {
+		if data[lineEnd] == ' ' || data[lineEnd] == '\t' {
+			lineEnd++
+			continue
+		}
+		break
+	}
+	return string(data[lineStart:lineEnd])
 }
 
 // EnsureOpsProvider updates (or creates) the provider.ops entry with the given
@@ -128,6 +449,9 @@ func EnsureOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
 	if setIfDiff(opts, "apiKey", apiKey) {
 		changed = true
 	}
+	if setIfDiff(opts, "setCacheKey", true) {
+		changed = true
+	}
 	// Build models map from alias list. Preserve any existing per-model extras
 	// if the alias key matches; drop aliases removed locally.
 	existingModels, _ := opsRaw["models"].(map[string]any)
@@ -156,6 +480,64 @@ func EnsureOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
 		opsRaw["models"] = newModels
 	}
 	return changed
+}
+
+// ValidateOpsProvider checks that provider.ops matches the MVP sync contract.
+func ValidateOpsProvider(raw Raw, baseURL, apiKey string, aliases []string) error {
+	provRaw, _ := raw["provider"].(map[string]any)
+	if provRaw == nil {
+		return fmt.Errorf("missing provider object")
+	}
+	opsRaw, _ := provRaw["ops"].(map[string]any)
+	if opsRaw == nil {
+		return fmt.Errorf("missing provider.ops")
+	}
+	if npm, _ := opsRaw["npm"].(string); npm != "@ai-sdk/openai" {
+		return fmt.Errorf("provider.ops.npm must be @ai-sdk/openai")
+	}
+	if name, _ := opsRaw["name"].(string); name != "OPS" {
+		return fmt.Errorf("provider.ops.name must be OPS")
+	}
+	opts, _ := opsRaw["options"].(map[string]any)
+	if opts == nil {
+		return fmt.Errorf("provider.ops.options missing")
+	}
+	if got, _ := opts["baseURL"].(string); got != baseURL {
+		return fmt.Errorf("provider.ops.options.baseURL mismatch")
+	}
+	if got, _ := opts["apiKey"].(string); got != apiKey {
+		return fmt.Errorf("provider.ops.options.apiKey mismatch")
+	}
+	if got, ok := opts["setCacheKey"].(bool); !ok || !got {
+		return fmt.Errorf("provider.ops.options.setCacheKey must be true")
+	}
+	models, _ := opsRaw["models"].(map[string]any)
+	if models == nil {
+		return fmt.Errorf("provider.ops.models missing")
+	}
+	expected := append([]string(nil), aliases...)
+	sort.Strings(expected)
+	actual := make([]string, 0, len(models))
+	for alias, v := range models {
+		modelCfg, _ := v.(map[string]any)
+		if modelCfg == nil {
+			return fmt.Errorf("provider.ops.models.%s must be an object", alias)
+		}
+		if got, _ := modelCfg["name"].(string); got != alias {
+			return fmt.Errorf("provider.ops.models.%s.name mismatch", alias)
+		}
+		actual = append(actual, alias)
+	}
+	sort.Strings(actual)
+	if len(actual) != len(expected) {
+		return fmt.Errorf("provider.ops.models alias set mismatch")
+	}
+	for i := range actual {
+		if actual[i] != expected[i] {
+			return fmt.Errorf("provider.ops.models alias set mismatch")
+		}
+	}
+	return nil
 }
 
 // setIfDiff assigns key=val and returns true if the value actually changed.

@@ -30,6 +30,9 @@ func newProviderAddCmd() *cobra.Command {
 			if id == "" || baseURL == "" {
 				return fmt.Errorf("--id and --base-url are required")
 			}
+			if err := config.ValidateProviderBaseURL(baseURL); err != nil {
+				return fmt.Errorf("invalid --base-url: %w", err)
+			}
 			cfg, err := loadCfg()
 			if err != nil {
 				return err
@@ -42,13 +45,25 @@ func newProviderAddCmd() *cobra.Command {
 				}
 				hdrs[strings.TrimSpace(k)] = strings.TrimSpace(v)
 			}
-			cfg.UpsertProvider(config.Provider{
+			p := config.Provider{
 				ID:      id,
 				Name:    name,
 				BaseURL: baseURL,
 				APIKey:  apiKey,
 				Headers: hdrs,
-			})
+			}
+			if existing := cfg.FindProvider(id); existing != nil {
+				if p.Name == "" {
+					p.Name = existing.Name
+				}
+				if p.APIKey == "" {
+					p.APIKey = existing.APIKey
+				}
+				if len(headers) == 0 && len(existing.Headers) > 0 {
+					p.Headers = cloneHeaders(existing.Headers)
+				}
+			}
+			cfg.UpsertProvider(p)
 			if err := cfg.Save(); err != nil {
 				return err
 			}
@@ -62,6 +77,17 @@ func newProviderAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "upstream API key")
 	cmd.Flags().StringArrayVar(&headers, "header", nil, "extra header KEY=VALUE (repeatable)")
 	return cmd
+}
+
+func cloneHeaders(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func newProviderListCmd() *cobra.Command {

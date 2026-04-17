@@ -130,6 +130,7 @@ ops opencode sync
 
 - 优先复用全局 OpenCode 配置文件：`opencode.jsonc` > `opencode.json` > `config.json`
 - 如果都不存在，就创建 `~/.config/opencode/opencode.jsonc`
+- 默认目标明确只看全局用户配置目录，不跟随 `OPENCODE_CONFIG_DIR`
 - 只更新 `provider.ops`
 - 不会修改顶层 `model`
 - 不会修改顶层 `small_model`
@@ -231,6 +232,8 @@ ops provider import-opencode --from ./examples/opencode.jsonc
 注意：
 
 - 这不是完整迁移工具
+- 默认导入源也只看全局用户配置目录，不跟随 `OPENCODE_CONFIG_DIR`
+- 如果你要导入别的 OpenCode 配置文件，请显式传 `--from`
 - 当前只导入 provider 的基本连接信息
 - 如果你的旧配置依赖额外自定义 header，需要导入后自己用 `ops provider add --header ...` 补齐
 - `ops` 自己不会被反向导入

@@ -20,6 +20,18 @@ import (
 	"github.com/anomalyco/opencode-provider-switch/internal/config"
 )
 
+var firstByteTimeout = 15 * time.Second
+
+type openAIErrorEnvelope struct {
+	Error openAIError `json:"error"`
+}
+
+type openAIError struct {
+	Message string `json:"message"`
+	Type    string `json:"type,omitempty"`
+	Code    string `json:"code,omitempty"`
+}
+
 // Server is the local ops HTTP proxy.
 type Server struct {
 	cfg    *config.Config
@@ -39,6 +51,7 @@ func New(cfg *config.Config) *Server {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: firstByteTimeout,
 		// no response buffering so streams flow through immediately
 		DisableCompression: false,
 		ForceAttemptHTTP2:  true,
@@ -88,7 +101,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // does not rely on this, but clients sometimes probe it for connectivity.
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	if !s.authorize(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", "unauthorized")
 		return
 	}
 	data := []map[string]any{}
@@ -128,26 +141,26 @@ var reqCounter uint64
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	reqID := atomic.AddUint64(&reqCounter, 1)
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeOpenAIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	if !s.authorize(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", "unauthorized")
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 50<<20))
 	if err != nil {
-		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "read body: "+err.Error())
 		return
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
-		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "invalid json: "+err.Error())
 		return
 	}
 	aliasName, _ := payload["model"].(string)
 	if aliasName == "" {
-		http.Error(w, "missing model field", http.StatusBadRequest)
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "missing model field")
 		return
 	}
 	rawModel := aliasName
@@ -156,12 +169,12 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	alias := s.cfg.FindAlias(aliasName)
 	if alias == nil {
 		s.logger.Printf("req=%d alias lookup failed for model=%q alias=%q", reqID, rawModel, aliasName)
-		http.Error(w, fmt.Sprintf("alias %q not found", aliasName), http.StatusNotFound)
+		writeOpenAIError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q not found", aliasName))
 		return
 	}
 	if !alias.Enabled {
 		s.logger.Printf("req=%d alias=%q disabled", reqID, aliasName)
-		http.Error(w, fmt.Sprintf("alias %q is disabled", aliasName), http.StatusNotFound)
+		writeOpenAIError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
 		return
 	}
 	var targets []config.Target
@@ -172,7 +185,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(targets) == 0 {
 		s.logger.Printf("req=%d alias=%q has no enabled targets", reqID, aliasName)
-		http.Error(w, fmt.Sprintf("alias %q has no enabled targets", aliasName), http.StatusFailedDependency)
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("alias %q has no enabled targets", aliasName))
 		return
 	}
 
@@ -191,7 +204,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		newBody, err := json.Marshal(cloned)
 		if err != nil {
 			s.logger.Printf("req=%d marshal error: %v", reqID, err)
-			http.Error(w, "marshal error", http.StatusInternalServerError)
+			writeOpenAIError(w, http.StatusInternalServerError, "server_error", "marshal error")
 			return
 		}
 
@@ -209,7 +222,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// exhausted all targets with retryable failures
-	http.Error(w, fmt.Sprintf("all upstream targets failed for alias %q", aliasName), http.StatusBadGateway)
+	writeOpenAIError(w, http.StatusBadGateway, "server_error", fmt.Sprintf("all upstream targets failed for alias %q", aliasName))
 }
 
 // tryOnce proxies one attempt. Returns (ok, retryable, err).
@@ -242,6 +255,7 @@ func (s *Server) tryOnce(
 	}
 	upReq.ContentLength = int64(len(body))
 
+	startedAt := time.Now()
 	resp, err := s.client.Do(upReq)
 	if err != nil {
 		return false, true, fmt.Errorf("upstream dial/transport: %w", err)
@@ -263,12 +277,40 @@ func (s *Server) tryOnce(
 		return true, false, fmt.Errorf("upstream %d", resp.StatusCode)
 	}
 
+	remaining := firstByteTimeout - time.Since(startedAt)
+	if remaining <= 0 {
+		_ = resp.Body.Close()
+		return false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout)
+	}
+	firstChunk, firstErr := readFirstChunk(resp.Body, remaining)
+	if firstErr != nil {
+		if errors.Is(firstErr, errFirstByteTimeout) {
+			_ = resp.Body.Close()
+			return false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout)
+		}
+		if errors.Is(firstErr, io.EOF) {
+			if len(firstChunk) == 0 {
+				firstChunk = nil
+			}
+		} else {
+			return false, true, fmt.Errorf("upstream first read: %w", firstErr)
+		}
+	}
+
 	// 2xx: start streaming pass-through. From this point no failover is allowed.
 	s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
 	s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	flusher, _ := w.(http.Flusher)
+	if len(firstChunk) > 0 {
+		if _, werr := w.Write(firstChunk); werr != nil {
+			return true, false, werr
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
 	buf := make([]byte, 16<<10)
 	for {
 		n, rerr := resp.Body.Read(buf)
@@ -288,6 +330,52 @@ func (s *Server) tryOnce(
 			return true, false, rerr
 		}
 	}
+}
+
+var errFirstByteTimeout = errors.New("first byte timeout")
+
+func readFirstChunk(r io.Reader, timeout time.Duration) ([]byte, error) {
+	type result struct {
+		buf []byte
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		buf := make([]byte, 16<<10)
+		n, err := r.Read(buf)
+		if n > 0 {
+			buf = buf[:n]
+		} else {
+			buf = nil
+		}
+		ch <- result{buf: buf, err: err}
+	}()
+	select {
+	case res := <-ch:
+		return res.buf, res.err
+	case <-time.After(timeout):
+		return nil, errFirstByteTimeout
+	}
+}
+
+func writeOpenAIError(w http.ResponseWriter, status int, code, message string) {
+	h := w.Header()
+	h.Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(openAIErrorEnvelope{
+		Error: openAIError{
+			Message: message,
+			Type:    errorTypeForStatus(status),
+			Code:    code,
+		},
+	})
+}
+
+func errorTypeForStatus(status int) string {
+	if status >= 500 {
+		return "server_error"
+	}
+	return "invalid_request_error"
 }
 
 func normalizeAliasName(model string) string {

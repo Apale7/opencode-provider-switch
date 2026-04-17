@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -50,6 +51,19 @@ type Config struct {
 
 	path string
 	mu   sync.RWMutex
+}
+
+// ValidateProviderBaseURL checks the MVP requirement that upstream base URLs
+// point at an OpenAI-compatible /v1 root.
+func ValidateProviderBaseURL(baseURL string) error {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmed == "" {
+		return fmt.Errorf("missing base_url")
+	}
+	if !strings.HasSuffix(trimmed, "/v1") {
+		return fmt.Errorf("base_url must end with /v1")
+	}
+	return nil
 }
 
 // Default returns an empty config with sane defaults.
@@ -286,6 +300,10 @@ func (c *Config) Validate() []error {
 		ids[p.ID] = true
 		if p.BaseURL == "" {
 			errs = append(errs, fmt.Errorf("provider %q missing base_url", p.ID))
+			continue
+		}
+		if err := ValidateProviderBaseURL(p.BaseURL); err != nil {
+			errs = append(errs, fmt.Errorf("provider %q %s", p.ID, err))
 		}
 	}
 	seen := map[string]bool{}
