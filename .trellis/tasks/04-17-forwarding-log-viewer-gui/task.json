@@ -1,0 +1,73 @@
+{
+  "id": "forwarding-log-viewer-gui",
+  "name": "forwarding-log-viewer-gui",
+  "title": "Design forwarding log viewer GUI for olpx",
+  "description": "Define a minimal local web UI and request logging design for olpx forwarding operations, including provider/model visibility, token usage, and failover display.",
+  "status": "completed",
+  "dev_type": "docs",
+  "scope": "observability",
+  "package": null,
+  "priority": "P2",
+  "creator": "Apale",
+  "assignee": "Apale",
+  "createdAt": "2026-04-17",
+  "completedAt": "2026-04-17",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-17-forwarding-log-viewer-gui/prd.md",
+    "internal/proxy/server.go",
+    "internal/proxy/server_test.go",
+    "internal/cli/serve.go",
+    "README.md"
+  ],
+  "notes": "Design-only task completed. The PRD recommends a same-process local web viewer with append-only JSONL request logs and no new frontend build system.",
+  "meta": {
+    "recommendedSurface": "local-web-ui",
+    "protocolScope": [
+      "openai-responses"
+    ],
+    "storageRecommendation": "jsonl-next-to-config",
+    "mustShow": [
+      "provider",
+      "remote-model",
+      "input-tokens",
+      "output-tokens",
+      "total-tokens",
+      "failover"
+    ]
+  }
+}

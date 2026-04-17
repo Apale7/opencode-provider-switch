@@ -177,3 +177,40 @@ Reviewed current implementation against the archived MVP PRD and classified impl
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Fix sync command panic
+
+**Date**: 2026-04-17
+**Task**: Fix sync command panic
+**Branch**: `master`
+
+### Summary
+
+Fixed a panic in opencode sync when preserved model metadata contains slices, and added package plus CLI regression coverage.
+
+### Main Changes
+
+- Root cause: `internal/opencode/opencode.go` compared `interface{}` values directly inside `mapsEqualShallow`, which panicked when preserved `provider.olpx.models.<alias>` metadata included slices.
+- Fix: replaced the unsafe hand-rolled comparison with `reflect.DeepEqual` so existing model metadata with nested maps/slices can be compared safely during `sync`.
+- Added regression tests in `internal/opencode/opencode_test.go` and `internal/cli/cli_test.go` covering preserved slice metadata and a real `opencode sync --target` no-op path.
+- Verification: ran `rtk go test ./internal/opencode`, `rtk go test ./internal/cli ./internal/opencode`, and `rtk go test ./...` successfully.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `887eb14` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
