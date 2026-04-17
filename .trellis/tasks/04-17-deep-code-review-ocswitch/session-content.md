@@ -1,0 +1,17 @@
+- Added `.trellis/tasks/04-17-deep-code-review-ocswitch/review.md` to capture the full deep review output and concrete remediation guidance.
+- Recorded 2 high-risk items:
+  - concurrent config/OpenCode save paths are unsafe under concurrent writers
+  - proxy request body has no read timeout after headers
+- Recorded 4 medium-risk items:
+  - streaming responses have no idle timeout
+  - retryable upstream failures are collapsed into a generic `502`
+  - `opencode sync --set-model` / `--set-small-model` can silently write invalid defaults
+  - fixed default API key remains unsafe when binding to non-loopback addresses
+- Recorded 4 low-risk or improvement items:
+  - alias lifecycle lacks enable/disable recovery path
+  - provider import docs and implementation disagree on empty `apiKey`
+  - `opencode sync` side effects on JSONC comments and `$schema` need clearer docs
+  - header forwarding should better handle dynamic hop-by-hop headers and narrower forwarding rules
+- Verification already completed during review:
+  - `go test ./...`
+  - `go test -race ./...`
