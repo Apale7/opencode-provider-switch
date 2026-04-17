@@ -1,8 +1,8 @@
 {
   "id": "forwarding-log-viewer-gui",
   "name": "forwarding-log-viewer-gui",
-  "title": "Design forwarding log viewer GUI for olpx",
-  "description": "Define a minimal local web UI and request logging design for olpx forwarding operations, including provider/model visibility, token usage, and failover display.",
+  "title": "Design forwarding log viewer GUI for ocswitch",
+  "description": "Define a minimal local web UI and request logging design for ocswitch forwarding operations, including provider/model visibility, token usage, and failover display.",
   "status": "completed",
   "dev_type": "docs",
   "scope": "observability",

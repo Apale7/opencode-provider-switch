@@ -5,25 +5,25 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/anomalyco/opencode-provider-switch/internal/opencode"
+	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 )
 
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Validate olpx config (static checks, no upstream requests)",
-		Long: `doctor performs static validation for local olpx config and the expected
+		Short: "Validate ocswitch config (static checks, no upstream requests)",
+		Long: `doctor performs static validation for local ocswitch config and the expected
 OpenCode sync result.
 
-It loads local olpx config, checks alias/provider consistency, resolves the
-default OpenCode sync target, and validates what provider.olpx would look like
+It loads local ocswitch config, checks alias/provider consistency, resolves the
+	default OpenCode sync target, and validates what provider.ocswitch would look like
 there. It does not send any real requests to upstream providers and does not
 consume model quota.
 
 Run doctor before opencode sync or serve whenever you changed providers,
 aliases, or local server settings.`,
-		Example: `  olpx doctor
-  olpx --config /path/to/config.json doctor`,
+		Example: `  ocswitch doctor
+  ocswitch --config /path/to/config.json doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -38,9 +38,9 @@ aliases, or local server settings.`,
 			} else {
 				aliasNames := cfg.AvailableAliasNames()
 				baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
-				opencode.EnsureOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
-				if err := opencode.ValidateOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {
-					issues = append(issues, fmt.Errorf("opencode provider.olpx invalid: %w", err))
+				opencode.EnsureOcswitchProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
+				if err := opencode.ValidateOcswitchProvider(raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {
+					issues = append(issues, fmt.Errorf("opencode provider.ocswitch invalid: %w", err))
 				}
 			}
 			ok := len(issues) == 0
@@ -61,7 +61,7 @@ aliases, or local server settings.`,
 				marker = "(exists)"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "  opencode config target: %s %s\n", path, marker)
-			fmt.Fprintf(cmd.OutOrStdout(), "  provider.olpx preview: valid=%v\n", ok)
+			fmt.Fprintf(cmd.OutOrStdout(), "  provider.ocswitch preview: valid=%v\n", ok)
 
 			fmt.Fprintf(cmd.OutOrStdout(), "  proxy bind: %s:%d\n", cfg.Server.Host, cfg.Server.Port)
 			if !ok {

@@ -1,11 +1,11 @@
 {
-  // provider.olpx.models entries may include OpenCode-only metadata.
-  // olpx sync preserves same-name model objects and only manages the alias set.
+  // provider.ocswitch.models entries may include OpenCode-only metadata.
+  // ocswitch sync preserves same-name model objects and only manages the alias set.
   "$schema": "https://opencode.ai/config.json",
-  "model": "olpx/gpt-5.4",
-  "small_model": "olpx/gpt-5.4-mini",
+  "model": "ocswitch/gpt-5.4",
+  "small_model": "ocswitch/gpt-5.4-mini",
   "provider": {
-    "olpx": {
+    "ocswitch": {
       "models": {
         "gpt-5.4": {
           "name": "gpt-5.4",
@@ -50,10 +50,10 @@
           "name": "gpt-5.4-mini"
         }
       },
-      "name": "OpenCode LocalProxy CLI",
+      "name": "OpenCode Provider Switch CLI",
       "npm": "@ai-sdk/openai",
       "options": {
-        "apiKey": "olpx-local",
+        "apiKey": "ocswitch-local",
         "baseURL": "http://127.0.0.1:9982/v1",
         "setCacheKey": true
       }

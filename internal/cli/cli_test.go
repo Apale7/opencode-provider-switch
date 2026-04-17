@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/anomalyco/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
 func TestProviderAddPreservesExistingFields(t *testing.T) {
-	t.Setenv("OLPX_CONFIG", filepath.Join(t.TempDir(), "olpx.json"))
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
 	configPath = ""
 
 	cfg, err := loadCfg()
@@ -64,8 +64,8 @@ func TestProviderAddPreservesExistingFields(t *testing.T) {
 }
 
 func TestProviderAddRejectsInvalidBaseURL(t *testing.T) {
-	configFile := filepath.Join(t.TempDir(), "olpx.json")
-	t.Setenv("OLPX_CONFIG", configFile)
+	configFile := filepath.Join(t.TempDir(), "ocswitch.json")
+	t.Setenv(config.ConfigEnvVar, configFile)
 	configPath = ""
 
 	cmd := newProviderAddCmd()
@@ -83,7 +83,7 @@ func TestProviderAddRejectsInvalidBaseURL(t *testing.T) {
 }
 
 func TestAliasAddPreservesExistingFields(t *testing.T) {
-	t.Setenv("OLPX_CONFIG", filepath.Join(t.TempDir(), "olpx.json"))
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
 	configPath = ""
 
 	cfg, err := loadCfg()
@@ -126,7 +126,7 @@ func TestAliasAddPreservesExistingFields(t *testing.T) {
 }
 
 func TestProviderEnableDisableCommands(t *testing.T) {
-	t.Setenv("OLPX_CONFIG", filepath.Join(t.TempDir(), "olpx.json"))
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
 	configPath = ""
 
 	cfg, err := loadCfg()
@@ -171,7 +171,7 @@ func TestProviderEnableDisableCommands(t *testing.T) {
 }
 
 func TestOpencodeSyncDoesNotPanicOnSliceModelMetadata(t *testing.T) {
-	t.Setenv("OLPX_CONFIG", filepath.Join(t.TempDir(), "olpx.json"))
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
 	configPath = ""
 
 	cfg, err := loadCfg()
@@ -192,7 +192,7 @@ func TestOpencodeSyncDoesNotPanicOnSliceModelMetadata(t *testing.T) {
 	}
 
 	target := filepath.Join(t.TempDir(), "opencode.jsonc")
-	seed := []byte("{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {\n    \"olpx\": {\n      \"npm\": \"@ai-sdk/openai\",\n      \"name\": \"OpenCode LocalProxy CLI\",\n      \"options\": {\n        \"baseURL\": \"http://127.0.0.1:9982/v1\",\n        \"apiKey\": \"olpx-local\",\n        \"setCacheKey\": true\n      },\n      \"models\": {\n        \"gpt-5.4\": {\n          \"name\": \"custom-display-name\",\n          \"tags\": [\"reasoning\", \"priority\"],\n          \"variants\": [\n            {\"name\": \"high\", \"effort\": \"high\"}\n          ]\n        }\n      }\n    }\n  }\n}\n")
+	seed := []byte("{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {\n    \"ocswitch\": {\n      \"npm\": \"@ai-sdk/openai\",\n      \"name\": \"OpenCode Provider Switch CLI\",\n      \"options\": {\n        \"baseURL\": \"http://127.0.0.1:9982/v1\",\n        \"apiKey\": \"ocswitch-local\",\n        \"setCacheKey\": true\n      },\n      \"models\": {\n        \"gpt-5.4\": {\n          \"name\": \"custom-display-name\",\n          \"tags\": [\"reasoning\", \"priority\"],\n          \"variants\": [\n            {\"name\": \"high\", \"effort\": \"high\"}\n          ]\n        }\n      }\n    }\n  }\n}\n")
 	if err := os.WriteFile(target, seed, 0o600); err != nil {
 		t.Fatalf("write target config: %v", err)
 	}
@@ -235,13 +235,13 @@ func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 			name:        "root",
 			cmd:         NewRootCmd("test"),
 			wantLong:    []string{"Typical workflow:", "prefer command-local --help over README summaries"},
-			wantExample: []string{"olpx provider add", "olpx serve"},
+			wantExample: []string{"ocswitch provider add", "ocswitch serve"},
 		},
 		{
 			name:        "provider add",
 			cmd:         newProviderAddCmd(),
 			wantLong:    []string{"--base-url must point at an", "omitted mutable fields keep their current", "values: name, api key, headers"},
-			wantExample: []string{"olpx provider add --id relay", "--header X-Workspace=my-team"},
+			wantExample: []string{"ocswitch provider add --id relay", "--header X-Workspace=my-team"},
 		},
 		{
 			name:        "alias bind",
@@ -252,8 +252,8 @@ func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 		{
 			name:        "opencode sync",
 			cmd:         newOpencodeSyncCmd(),
-			wantLong:    []string{"does not follow", "writes alias", "exposure into provider.olpx.models"},
-			wantExample: []string{"--dry-run", "--set-small-model olpx/gpt-5.4-mini"},
+			wantLong:    []string{"does not follow", "writes alias", "exposure into provider.ocswitch.models"},
+			wantExample: []string{"--dry-run", "--set-small-model ocswitch/gpt-5.4-mini"},
 		},
 	}
 
@@ -283,7 +283,7 @@ func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 	if flag == nil {
 		t.Fatal("--config flag not found")
 	}
-	for _, want := range []string{"$OLPX_CONFIG", "$XDG_CONFIG_HOME/olpx/config.json", "~/.config/olpx/config.json"} {
+	for _, want := range []string{"$OCSWITCH_CONFIG", "$XDG_CONFIG_HOME/ocswitch/config.json", "~/.config/ocswitch/config.json"} {
 		if !strings.Contains(flag.Usage, want) {
 			t.Fatalf("config flag usage missing %q: %s", want, flag.Usage)
 		}

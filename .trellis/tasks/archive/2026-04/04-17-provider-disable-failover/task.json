@@ -1,7 +1,7 @@
 {
   "id": "provider-disable-failover",
   "name": "provider-disable-failover",
-  "title": "Support disabling providers in olpx",
+  "title": "Support disabling providers in ocswitch",
   "description": "",
   "status": "completed",
   "dev_type": null,

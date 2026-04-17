@@ -11,17 +11,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anomalyco/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
 func TestHandleResponsesWritesOpenAIErrorForMissingAlias(t *testing.T) {
 	t.Parallel()
 
 	srv := New(&config.Config{
-		Server: config.Server{APIKey: "olpx-local"},
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"missing","stream":true}`))
-	req.Header.Set("Authorization", "Bearer olpx-local")
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -64,7 +64,7 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	defer second.Close()
 
 	srv := New(&config.Config{
-		Server: config.Server{APIKey: "olpx-local"},
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
 			{ID: "p1", BaseURL: first.URL + "/v1", APIKey: "sk-1"},
 			{ID: "p2", BaseURL: second.URL + "/v1", APIKey: "sk-2"},
@@ -76,8 +76,8 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 		}},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"olpx/gpt-5.4","stream":true}`))
-	req.Header.Set("Authorization", "Bearer olpx-local")
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ocswitch/gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	rr := httptest.NewRecorder()
@@ -96,14 +96,14 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	if secondSeenModel != "up-2" {
 		t.Fatalf("second upstream model = %q, want up-2", secondSeenModel)
 	}
-	if got := rr.Header().Get("X-OLPX-Attempt"); got != "2" {
-		t.Fatalf("X-OLPX-Attempt = %q, want 2", got)
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 2", got)
 	}
-	if got := rr.Header().Get("X-OLPX-Failover-Count"); got != "1" {
-		t.Fatalf("X-OLPX-Failover-Count = %q, want 1", got)
+	if got := rr.Header().Get("X-OCSWITCH-Failover-Count"); got != "1" {
+		t.Fatalf("X-OCSWITCH-Failover-Count = %q, want 1", got)
 	}
-	if got := rr.Header().Get("X-OLPX-Provider"); got != "p2" {
-		t.Fatalf("X-OLPX-Provider = %q, want p2", got)
+	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p2" {
+		t.Fatalf("X-OCSWITCH-Provider = %q, want p2", got)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	defer second.Close()
 
 	srv := New(&config.Config{
-		Server: config.Server{APIKey: "olpx-local"},
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
 			{ID: "p1", BaseURL: first.URL + "/v1"},
 			{ID: "p2", BaseURL: second.URL + "/v1"},
@@ -137,7 +137,7 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
-	req.Header.Set("Authorization", "Bearer olpx-local")
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -149,8 +149,8 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	if calledSecond {
 		t.Fatal("second upstream should not be called for 400 response")
 	}
-	if got := rr.Header().Get("X-OLPX-Provider"); got != "p1" {
-		t.Fatalf("X-OLPX-Provider = %q, want p1", got)
+	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p1" {
+		t.Fatalf("X-OCSWITCH-Provider = %q, want p1", got)
 	}
 	if body := rr.Body.String(); body != `{"error":{"message":"bad request"}}` {
 		t.Fatalf("body = %q", body)
@@ -181,7 +181,7 @@ func TestHandleResponsesSkipsDisabledProviders(t *testing.T) {
 	defer enabled.Close()
 
 	srv := New(&config.Config{
-		Server: config.Server{APIKey: "olpx-local"},
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
 			{ID: "p1", BaseURL: disabled.URL + "/v1", Disabled: true},
 			{ID: "p2", BaseURL: enabled.URL + "/v1"},
@@ -194,7 +194,7 @@ func TestHandleResponsesSkipsDisabledProviders(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
-	req.Header.Set("Authorization", "Bearer olpx-local")
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	rr := httptest.NewRecorder()
@@ -210,14 +210,14 @@ func TestHandleResponsesSkipsDisabledProviders(t *testing.T) {
 	if seenModel != "up-2" {
 		t.Fatalf("enabled upstream model = %q, want up-2", seenModel)
 	}
-	if got := rr.Header().Get("X-OLPX-Attempt"); got != "1" {
-		t.Fatalf("X-OLPX-Attempt = %q, want 1", got)
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "1" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 1", got)
 	}
-	if got := rr.Header().Get("X-OLPX-Failover-Count"); got != "0" {
-		t.Fatalf("X-OLPX-Failover-Count = %q, want 0", got)
+	if got := rr.Header().Get("X-OCSWITCH-Failover-Count"); got != "0" {
+		t.Fatalf("X-OCSWITCH-Failover-Count = %q, want 0", got)
 	}
-	if got := rr.Header().Get("X-OLPX-Provider"); got != "p2" {
-		t.Fatalf("X-OLPX-Provider = %q, want p2", got)
+	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p2" {
+		t.Fatalf("X-OCSWITCH-Provider = %q, want p2", got)
 	}
 	if body := rr.Body.String(); body != "data: ok\n\n" {
 		t.Fatalf("body = %q, want SSE payload", body)
@@ -228,7 +228,7 @@ func TestHandleModelsSkipsAliasesWithoutAvailableTargets(t *testing.T) {
 	t.Parallel()
 
 	srv := New(&config.Config{
-		Server: config.Server{APIKey: "olpx-local"},
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
 			{ID: "p1", BaseURL: "https://p1.example.com/v1"},
 			{ID: "p2", BaseURL: "https://p2.example.com/v1", Disabled: true},
@@ -241,7 +241,7 @@ func TestHandleModelsSkipsAliasesWithoutAvailableTargets(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-	req.Header.Set("Authorization", "Bearer olpx-local")
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	rr := httptest.NewRecorder()
 
 	srv.handleModels(rr, req)

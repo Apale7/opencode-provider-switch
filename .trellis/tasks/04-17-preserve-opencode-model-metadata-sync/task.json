@@ -1,7 +1,7 @@
 {
   "id": "preserve-opencode-model-metadata-sync",
   "name": "preserve-opencode-model-metadata-sync",
-  "title": "Preserve OpenCode model metadata during olpx sync",
+  "title": "Preserve OpenCode model metadata during ocswitch sync",
   "description": "",
   "status": "completed",
   "dev_type": null,

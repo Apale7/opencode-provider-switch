@@ -1,4 +1,4 @@
-// Package config manages the local olpx JSON config file.
+// Package config manages the local ocswitch JSON config file.
 package config
 
 import (
@@ -10,6 +10,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+)
+
+const (
+	AppName            = "ocswitch"
+	ConfigEnvVar       = "OCSWITCH_CONFIG"
+	ConfigDirName      = "ocswitch"
+	DefaultLocalAPIKey = "ocswitch-local"
 )
 
 // Target is one concrete upstream candidate for an alias.
@@ -44,7 +51,7 @@ type Server struct {
 	APIKey string `json:"api_key"`
 }
 
-// Config is the on-disk olpx config.
+// Config is the on-disk ocswitch config.
 type Config struct {
 	Server    Server     `json:"server"`
 	Providers []Provider `json:"providers"`
@@ -78,26 +85,26 @@ func Default() *Config {
 		Server: Server{
 			Host:   "127.0.0.1",
 			Port:   9982,
-			APIKey: "olpx-local",
+			APIKey: DefaultLocalAPIKey,
 		},
 		Providers: []Provider{},
 		Aliases:   []Alias{},
 	}
 }
 
-// DefaultPath returns ~/.config/olpx/config.json (XDG aware).
+// DefaultPath returns ~/.config/ocswitch/config.json (XDG aware).
 func DefaultPath() string {
-	if p := os.Getenv("OLPX_CONFIG"); p != "" {
+	if p := os.Getenv(ConfigEnvVar); p != "" {
 		return p
 	}
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "olpx", "config.json")
+		return filepath.Join(xdg, ConfigDirName, "config.json")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "olpx-config.json"
+		return AppName + "-config.json"
 	}
-	return filepath.Join(home, ".config", "olpx", "config.json")
+	return filepath.Join(home, ".config", ConfigDirName, "config.json")
 }
 
 // Load reads the config at path. Missing file returns a default config anchored to path.
@@ -127,7 +134,7 @@ func Load(path string) (*Config, error) {
 		c.Server.Port = 9982
 	}
 	if c.Server.APIKey == "" {
-		c.Server.APIKey = "olpx-local"
+		c.Server.APIKey = DefaultLocalAPIKey
 	}
 	c.path = path
 	return c, nil

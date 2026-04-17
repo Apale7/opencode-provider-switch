@@ -1,8 +1,8 @@
-# OLPX MVP Design
+# OCSWITCH MVP Design
 
 ## Summary
 
-`opencode-provider-switch` (`olpx`) is a local CLI + proxy for OpenCode.
+`opencode-provider-switch` (`ocswitch`) is a local CLI + proxy for OpenCode.
 
 Its job is narrow:
 
@@ -10,7 +10,7 @@ Its job is narrow:
 - Route requests by protocol, not by provider brand
 - Retry/fail over across unreliable upstream relay providers
 - Let multiple upstream providers share one logical model alias
-- Manage state in SQLite, not in an `olpx` config file
+- Manage state in SQLite, not in an `ocswitch` config file
 - Rewrite OpenCode global config to point at the local proxy
 
 MVP intentionally does **not** try to become a general AI gateway, a dashboard product, or a provider-agnostic orchestration platform.
@@ -32,7 +32,7 @@ MVP intentionally does **not** try to become a general AI gateway, a dashboard p
 ## Product Goals
 
 1. Keep OpenCode usable when cheap relay providers fail intermittently.
-2. Reduce OpenCode config complexity by centralizing provider management in `olpx`.
+2. Reduce OpenCode config complexity by centralizing provider management in `ocswitch`.
 3. Make failover behavior predictable, visible, and debuggable.
 4. Preserve OpenCode-native workflow instead of asking users to switch tools.
 
@@ -57,9 +57,9 @@ Go is the right fit for this product shape:
 
 ## Core Design Principle
 
-`olpx` should manage **protocol pools** and **logical aliases**, not raw provider selection inside OpenCode.
+`ocswitch` should manage **protocol pools** and **logical aliases**, not raw provider selection inside OpenCode.
 
-OpenCode should see a small number of local proxy providers. `olpx` should own:
+OpenCode should see a small number of local proxy providers. `ocswitch` should own:
 
 - upstream providers
 - API keys and headers
@@ -74,7 +74,7 @@ This keeps OpenCode config stable even when upstream providers are added, remove
 ```text
 OpenCode
   -> local OpenAI-compatible provider config
-  -> olpx proxy (127.0.0.1:9982)
+  -> ocswitch proxy (127.0.0.1:9982)
   -> protocol router
   -> alias resolver
   -> failover engine
@@ -127,18 +127,18 @@ OpenCode
 
 Even though both protocols are OpenAI-family APIs, they are **not** interchangeable at the OpenCode config level.
 
-For MVP, `olpx` should expose two local providers to OpenCode:
+For MVP, `ocswitch` should expose two local providers to OpenCode:
 
 - one chat-completions provider
 - one responses provider
 
-This mirrors how OpenCode expects provider wiring today and avoids hidden protocol translation logic inside `olpx`.
+This mirrors how OpenCode expects provider wiring today and avoids hidden protocol translation logic inside `ocswitch`.
 
 ## OpenCode Integration Strategy
 
 ### Generated OpenCode Config
 
-`olpx install` should rewrite the user's global OpenCode config so that OpenCode points to local proxy providers instead of raw upstream relays.
+`ocswitch install` should rewrite the user's global OpenCode config so that OpenCode points to local proxy providers instead of raw upstream relays.
 
 Generated provider shape should be conceptually like this:
 
@@ -146,12 +146,12 @@ Generated provider shape should be conceptually like this:
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "olpx-chat": {
+    "ocswitch-chat": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "OLPX Chat",
+      "name": "OCSWITCH Chat",
       "options": {
         "baseURL": "http://127.0.0.1:9982/v1",
-        "apiKey": "olpx-local"
+        "apiKey": "ocswitch-local"
       },
       "models": {
         "gpt-5.4": {
@@ -159,12 +159,12 @@ Generated provider shape should be conceptually like this:
         }
       }
     },
-    "olpx-responses": {
+    "ocswitch-responses": {
       "npm": "@ai-sdk/openai",
-      "name": "OLPX Responses",
+      "name": "OCSWITCH Responses",
       "options": {
         "baseURL": "http://127.0.0.1:9982/v1",
-        "apiKey": "olpx-local"
+        "apiKey": "ocswitch-local"
       },
       "models": {
         "gpt-5.4": {
@@ -173,16 +173,16 @@ Generated provider shape should be conceptually like this:
       }
     }
   },
-  "model": "olpx-responses/gpt-5.4",
-  "small_model": "olpx-chat/gpt-5.4-mini"
+  "model": "ocswitch-responses/gpt-5.4",
+  "small_model": "ocswitch-chat/gpt-5.4-mini"
 }
 ```
 
 ### Important Rule
 
-`olpx` should preserve as much of the user's existing OpenCode config as possible.
+`ocswitch` should preserve as much of the user's existing OpenCode config as possible.
 
-`olpx install` should:
+`ocswitch install` should:
 
 1. Back up current global config file.
 2. Import provider/model information relevant to migration.
@@ -196,12 +196,12 @@ Generated provider shape should be conceptually like this:
 
 OpenCode merges config from multiple sources, and project config can override global config.
 
-That means `olpx install` cannot guarantee full interception if a repository-local `opencode.json` or environment override replaces provider/model settings.
+That means `ocswitch install` cannot guarantee full interception if a repository-local `opencode.json` or environment override replaces provider/model settings.
 
 MVP response:
 
 - document this clearly
-- make `olpx doctor` detect likely overrides
+- make `ocswitch doctor` detect likely overrides
 - support global install first
 
 Do **not** promise perfect takeover across all OpenCode precedence layers in MVP.
@@ -210,7 +210,7 @@ Do **not** promise perfect takeover across all OpenCode precedence layers in MVP
 
 ### Input Sources
 
-`olpx install` should inspect:
+`ocswitch install` should inspect:
 
 1. `~/.config/opencode/opencode.json`
 2. `~/.config/opencode/opencode.jsonc`
@@ -236,7 +236,7 @@ For each imported provider/model entry from OpenCode:
    - tool_call
    - options
    - variants
-5. Generate local `olpx-*` providers for OpenCode.
+5. Generate local `ocswitch-*` providers for OpenCode.
 
 ### Protocol Classification
 
@@ -246,18 +246,18 @@ Import classification rules for MVP:
 - `@ai-sdk/openai` -> `openai-responses`
 - everything else -> unsupported for automatic migration in MVP
 
-If unsupported providers exist, `olpx install` should warn and skip them instead of guessing.
+If unsupported providers exist, `ocswitch install` should warn and skip them instead of guessing.
 
 ## SQLite-First State Model
 
-`olpx` should not keep its own user-editable config file.
+`ocswitch` should not keep its own user-editable config file.
 
 Recommended database path:
 
-- Linux/WSL: `~/.local/share/olpx/olpx.db`
+- Linux/WSL: `~/.local/share/ocswitch/ocswitch.db`
 - Windows native: use `os.UserConfigDir()` or `os.UserCacheDir()`-appropriate app path, finalized in implementation
 
-The generated OpenCode config file is an output artifact, not `olpx` source of truth.
+The generated OpenCode config file is an output artifact, not `ocswitch` source of truth.
 
 ### Proposed Tables
 
@@ -368,7 +368,7 @@ Example:
 - responses target priority 2: provider `codex-for-me`, remote model `GPT-5.4`
 - chat target priority 1: provider `relay-x`, remote model `gpt-5.4-chat`
 
-This allows the user to keep using one stable model name inside OpenCode while `olpx` handles provider-specific naming.
+This allows the user to keep using one stable model name inside OpenCode while `ocswitch` handles provider-specific naming.
 
 ### Important Constraint
 
@@ -386,13 +386,13 @@ Reduce manual provider setup work.
 
 ### Behavior
 
-`olpx` should be able to call upstream `GET /v1/models` and cache results per provider.
+`ocswitch` should be able to call upstream `GET /v1/models` and cache results per provider.
 
 Useful commands:
 
-- `olpx provider models sync <provider>`
-- `olpx provider models list <provider>`
-- `olpx alias suggest <provider>`
+- `ocswitch provider models sync <provider>`
+- `ocswitch provider models list <provider>`
+- `ocswitch alias suggest <provider>`
 
 ### Important Limitation
 
@@ -432,7 +432,7 @@ Same as above, with one critical rule:
 
 - failover is only allowed **before first upstream response byte is sent to the client**
 
-Once a stream begins successfully, `olpx` must stay on that provider for that request.
+Once a stream begins successfully, `ocswitch` must stay on that provider for that request.
 
 ## Failover Policy
 
@@ -477,12 +477,12 @@ This is conservative, but predictable.
 
 For debugging, add response headers when possible:
 
-- `X-OLPX-Protocol`
-- `X-OLPX-Alias`
-- `X-OLPX-Provider`
-- `X-OLPX-Remote-Model`
-- `X-OLPX-Attempt`
-- `X-OLPX-Failover-Count`
+- `X-OCSWITCH-Protocol`
+- `X-OCSWITCH-Alias`
+- `X-OCSWITCH-Provider`
+- `X-OCSWITCH-Remote-Model`
+- `X-OCSWITCH-Attempt`
+- `X-OCSWITCH-Failover-Count`
 
 These headers are low-cost and help explain behavior fast.
 
@@ -493,7 +493,7 @@ MVP security posture should be intentionally modest but clear.
 ### Default Behavior
 
 - bind only to `127.0.0.1`
-- generated OpenCode config uses local static API key like `olpx-local`
+- generated OpenCode config uses local static API key like `ocswitch-local`
 - proxy accepts only loopback traffic by default
 
 ### Why This Is Acceptable For MVP
@@ -528,40 +528,40 @@ Proposed command set:
 
 ### Lifecycle
 
-- `olpx init`
-- `olpx serve`
-- `olpx doctor`
-- `olpx install`
-- `olpx restore`
+- `ocswitch init`
+- `ocswitch serve`
+- `ocswitch doctor`
+- `ocswitch install`
+- `ocswitch restore`
 
 ### Provider Management
 
-- `olpx provider add`
-- `olpx provider list`
-- `olpx provider edit`
-- `olpx provider remove`
-- `olpx provider enable`
-- `olpx provider disable`
+- `ocswitch provider add`
+- `ocswitch provider list`
+- `ocswitch provider edit`
+- `ocswitch provider remove`
+- `ocswitch provider enable`
+- `ocswitch provider disable`
 
 ### Model Discovery
 
-- `olpx provider models sync <provider>`
-- `olpx provider models list <provider>`
+- `ocswitch provider models sync <provider>`
+- `ocswitch provider models list <provider>`
 
 ### Alias Management
 
-- `olpx alias add`
-- `olpx alias list`
-- `olpx alias bind`
-- `olpx alias unbind`
-- `olpx alias enable`
-- `olpx alias disable`
-- `olpx alias inspect <alias>`
+- `ocswitch alias add`
+- `ocswitch alias list`
+- `ocswitch alias bind`
+- `ocswitch alias unbind`
+- `ocswitch alias enable`
+- `ocswitch alias disable`
+- `ocswitch alias inspect <alias>`
 
 ### Diagnostics
 
-- `olpx logs tail`
-- `olpx route test --protocol <protocol> --model <alias>`
+- `ocswitch logs tail`
+- `ocswitch route test --protocol <protocol> --model <alias>`
 
 ## Recommended Minimal UX
 
@@ -569,20 +569,20 @@ Prefer explicit CLI over magical automation.
 
 Good path:
 
-1. `olpx init`
-2. `olpx provider add`
-3. `olpx provider models sync`
-4. `olpx alias add`
-5. `olpx alias bind`
-6. `olpx install`
-7. `olpx serve`
+1. `ocswitch init`
+2. `ocswitch provider add`
+3. `ocswitch provider models sync`
+4. `ocswitch alias add`
+5. `ocswitch alias bind`
+6. `ocswitch install`
+7. `ocswitch serve`
 
 This is easy to explain and easy to debug.
 
 ## Suggested Go Package Layout
 
 ```text
-cmd/olpx/
+cmd/ocswitch/
 internal/cli/
 internal/db/
 internal/models/
@@ -608,12 +608,12 @@ Avoid adding a heavy HTTP framework unless a real need appears.
 
 ## Generated OpenCode Provider Strategy
 
-MVP should generate only providers that `olpx` can actually back.
+MVP should generate only providers that `ocswitch` can actually back.
 
 That means:
 
-- `olpx-chat`
-- `olpx-responses`
+- `ocswitch-chat`
+- `ocswitch-responses`
 
 Do **not** generate fake Anthropic provider entries in MVP.
 
@@ -621,7 +621,7 @@ Do **not** attempt to preserve original provider IDs inside OpenCode after insta
 
 Reason:
 
-- `olpx` becomes the stable local provider boundary
+- `ocswitch` becomes the stable local provider boundary
 - upstream providers should move into SQLite management only
 
 ## WSL / Windows Strategy
@@ -632,18 +632,18 @@ This requirement is important, but it needs careful wording.
 
 1. Native Linux/WSL build works.
 2. Native Windows build works.
-3. Running OpenCode and `olpx` in the **same environment** is supported.
-4. `olpx doctor` helps detect config-path and loopback issues.
+3. Running OpenCode and `ocswitch` in the **same environment** is supported.
+4. `ocswitch doctor` helps detect config-path and loopback issues.
 
 ### What MVP Should Not Promise Yet
 
-1. Fully automatic cross-boundary migration between WSL OpenCode and Windows `olpx`.
+1. Fully automatic cross-boundary migration between WSL OpenCode and Windows `ocswitch`.
 2. Transparent path translation for every user setup.
 3. Zero-config interop when OpenCode runs on one side and proxy on the other.
 
 ### Practical Recommendation
 
-For MVP, recommend users run OpenCode and `olpx` in the same environment.
+For MVP, recommend users run OpenCode and `ocswitch` in the same environment.
 
 Cross-environment support can be added later via explicit install target flags.
 
@@ -655,7 +655,7 @@ Global config rewrite alone may not capture project-level overrides.
 
 Mitigation:
 
-- `olpx doctor`
+- `ocswitch doctor`
 - clear docs
 - possible future `ops install --project`
 
@@ -704,7 +704,7 @@ MVP is successful if a user can:
 1. Import existing OpenCode provider setup into `ops`.
 2. Create or verify aliases for commonly used models.
 3. Install proxy-backed OpenCode global config.
-4. Run `olpx serve`.
+4. Run `ocswitch serve`.
 5. Use OpenCode normally against `127.0.0.1:9982`.
 6. Survive common upstream failures by automatic provider failover.
 
@@ -734,7 +734,7 @@ MVP is successful if a user can:
 
 - streaming support
 - logging/diagnostics
-- `olpx doctor`
+- `ocswitch doctor`
 - restore flow
 
 ## Strong Recommendation

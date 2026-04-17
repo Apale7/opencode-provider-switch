@@ -1,5 +1,5 @@
 {
-  // Sanitized example for `olpx provider import-opencode --from ./examples/opencode.jsonc`
+  // Sanitized example for `ocswitch provider import-opencode --from ./examples/opencode.jsonc`
   "model": "su8/gpt-5.4",
   "small_model": "codex/GPT-5.4-mini",
   "provider": {

@@ -1,25 +1,25 @@
-# OLPX Agent-First CLI Help System
+# OCSWITCH Agent-First CLI Help System
 
 ## Summary
 
-`olpx` already has a working CLI and a reasonably complete README, but its help
+`ocswitch` already has a working CLI and a reasonably complete README, but its help
 surface is still optimized for a human reading source-adjacent docs, not for an
 AI agent trying to configure the tool end-to-end with high reliability.
 
 This PRD defines a narrow product change:
 
-- every user-facing `olpx` command must provide `Long` help
-- every user-facing `olpx` command must provide `Example` help
+- every user-facing `ocswitch` command must provide `Long` help
+- every user-facing `ocswitch` command must provide `Example` help
 - help content must be written for **AI agent execution reliability first**
 - manual CLI ergonomics remain important, but are secondary to agent clarity
 
-The intended result is that an AI agent can use `olpx --help` and nested
+The intended result is that an AI agent can use `ocswitch --help` and nested
 `--help` output as a trustworthy local interface contract for discovery,
 planning, execution, and recovery during configuration.
 
 ## Product Goal
 
-Make `olpx` self-describing enough that a capable AI agent can complete normal
+Make `ocswitch` self-describing enough that a capable AI agent can complete normal
 configuration workflows without relying on hidden tribal knowledge, source code
 inspection, or README-only instructions.
 
@@ -27,7 +27,7 @@ inspection, or README-only instructions.
 
 User wants to say, in effect:
 
-"Configure `olpx` for my providers and aliases, then sync OpenCode and tell me
+"Configure `ocswitch` for my providers and aliases, then sync OpenCode and tell me
 how to run it."
 
 The agent should be able to do that safely by reading CLI help output and
@@ -39,9 +39,9 @@ Current repository state already supports the core workflow:
 
 - add or import upstream providers
 - create aliases and bind ordered targets
-- validate config via `olpx doctor`
-- sync aliases into OpenCode via `olpx opencode sync`
-- run proxy via `olpx serve`
+- validate config via `ocswitch doctor`
+- sync aliases into OpenCode via `ocswitch opencode sync`
+- run proxy via `ocswitch serve`
 
 But the command tree does not yet expose the full operational contract through
 help text. In practice this means:
@@ -52,7 +52,7 @@ help text. In practice this means:
 - the "what to do next" step is often only in README, not in command help
 - an agent may need to infer workflow rules from source code instead of help
 
-This is acceptable for an engineering MVP, but not good enough if `olpx` wants
+This is acceptable for an engineering MVP, but not good enough if `ocswitch` wants
 to recommend agent-driven configuration as a first-class path.
 
 ## Design Principle
@@ -97,22 +97,22 @@ This means slightly longer help is acceptable if it reduces agent mistakes.
 
 All user-facing commands in the current Cobra tree:
 
-- `olpx`
-- `olpx serve`
-- `olpx doctor`
-- `olpx provider`
-- `olpx provider add`
-- `olpx provider list`
-- `olpx provider remove`
-- `olpx provider import-opencode`
-- `olpx alias`
-- `olpx alias add`
-- `olpx alias list`
-- `olpx alias bind`
-- `olpx alias unbind`
-- `olpx alias remove`
-- `olpx opencode`
-- `olpx opencode sync`
+- `ocswitch`
+- `ocswitch serve`
+- `ocswitch doctor`
+- `ocswitch provider`
+- `ocswitch provider add`
+- `ocswitch provider list`
+- `ocswitch provider remove`
+- `ocswitch provider import-opencode`
+- `ocswitch alias`
+- `ocswitch alias add`
+- `ocswitch alias list`
+- `ocswitch alias bind`
+- `ocswitch alias unbind`
+- `ocswitch alias remove`
+- `ocswitch opencode`
+- `ocswitch opencode sync`
 
 ### Also In Scope
 
@@ -169,7 +169,7 @@ Examples must avoid:
 
 ### Requirement 3: Root and group commands must explain workflow position
 
-Commands like `olpx`, `olpx provider`, `olpx alias`, and `olpx opencode` are not
+Commands like `ocswitch`, `ocswitch provider`, `ocswitch alias`, and `ocswitch opencode` are not
 action commands themselves, but they are decision points for an agent.
 
 Their help must answer:
@@ -184,8 +184,8 @@ Whenever a command writes local config or OpenCode config, help must say so.
 
 Examples:
 
-- provider commands write `olpx` config
-- alias commands write `olpx` config
+- provider commands write `ocswitch` config
+- alias commands write `ocswitch` config
 - `opencode sync` writes the target OpenCode config unless `--dry-run`
 - `doctor` validates statically and does not call upstream providers
 - `serve` starts a long-running local proxy and does not mutate config
@@ -197,7 +197,7 @@ defaults.
 
 Examples of defaults that must appear where relevant:
 
-- default `olpx` config path via `--config`
+- default `ocswitch` config path via `--config`
 - default OpenCode sync target resolution order
 - default proxy bind address and API key when describing `serve` or workflows
 
@@ -209,7 +209,7 @@ config files to chat or expose API keys in logs.
 
 ## Content Contract By Command Type
 
-### Root Command: `olpx`
+### Root Command: `ocswitch`
 
 `Long` should define the full happy-path workflow:
 
@@ -229,7 +229,7 @@ config files to chat or expose API keys in logs.
 
 `Long` should explain that providers are upstream OpenAI-compatible endpoints
 used by alias targets. It should state that provider definitions live in local
-`olpx` config and are separate from alias routing.
+`ocswitch` config and are separate from alias routing.
 
 `Example` should include:
 
@@ -268,7 +268,7 @@ used by agents to confirm imported or saved provider IDs before binding aliases.
 
 `Long` should explain:
 
-- removes provider from `olpx` config
+- removes provider from `ocswitch` config
 - does not automatically clean alias references
 - follow-up `doctor` may fail if aliases still reference removed provider
 
@@ -296,7 +296,7 @@ used by agents to confirm imported or saved provider IDs before binding aliases.
 ### Group Command: `alias`
 
 `Long` should explain aliases as the primary user-facing abstraction exposed to
-OpenCode as `olpx/<alias>`, and that target order defines failover priority.
+OpenCode as `ocswitch/<alias>`, and that target order defines failover priority.
 
 `Example` should include:
 
@@ -366,7 +366,7 @@ OpenCode as `olpx/<alias>`, and that target order defines failover priority.
 `Long` should explain:
 
 - removes entire alias from local config
-- future `opencode sync` will stop exposing it in `provider.olpx.models`
+- future `opencode sync` will stop exposing it in `provider.ocswitch.models`
 - does not directly remove model selection already set elsewhere in OpenCode
 
 `Example` should include:
@@ -391,7 +391,7 @@ OpenCode as `olpx/<alias>`, and that target order defines failover priority.
 ### Group Command: `opencode`
 
 `Long` should explain that these commands manage the narrow integration boundary
-between `olpx` and OpenCode, and do not attempt full OpenCode config takeover.
+between `ocswitch` and OpenCode, and do not attempt full OpenCode config takeover.
 
 `Example` should include:
 
@@ -407,7 +407,7 @@ contract.
 
 - exact write target rules
 - what fields are mutated and not mutated
-- that aliases become `provider.olpx.models`
+- that aliases become `provider.ocswitch.models`
 - meaning of `--dry-run`
 - recommended call order around `doctor`
 
@@ -481,7 +481,7 @@ scenarios without README-only dependency.
 
 ### Scenario 1: Configure from scratch
 
-1. inspect `olpx --help`
+1. inspect `ocswitch --help`
 2. add one or more providers
 3. add alias
 4. bind targets in order
@@ -491,7 +491,7 @@ scenarios without README-only dependency.
 
 ### Scenario 2: Import existing OpenCode provider definitions first
 
-1. inspect `olpx provider import-opencode --help`
+1. inspect `ocswitch provider import-opencode --help`
 2. import supported providers
 3. list providers
 4. create aliases and bindings
@@ -527,9 +527,9 @@ README should not be the only place where critical command semantics live.
 
 ### Functional Acceptance
 
-1. Every user-facing Cobra command in the current `olpx` tree defines non-empty
+1. Every user-facing Cobra command in the current `ocswitch` tree defines non-empty
    `Long` and non-empty `Example` help.
-2. `olpx --help` and all nested `--help` pages expose enough information for an
+2. `ocswitch --help` and all nested `--help` pages expose enough information for an
    agent to discover the intended configuration workflow without reading source.
 3. Help text for mutating commands explicitly states what files/config are
    written.
@@ -593,14 +593,14 @@ duplication becomes genuinely harmful.
 
 These are explicitly out of this task, but compatible with it later:
 
-- `olpx setup` guided workflow command
+- `ocswitch setup` guided workflow command
 - shell completion tuned for provider/alias names
 - structured `--help-format json` for agent-native consumption
 - README agent prompt template that mirrors the help contract
 
 ## Final Product Decision
 
-`olpx` should recommend an **agent-first, CLI-native** configuration workflow.
+`ocswitch` should recommend an **agent-first, CLI-native** configuration workflow.
 
 The CLI itself must become the most reliable place to learn how to configure the
 tool. `Long` and `Example` are therefore not documentation polish; they are part

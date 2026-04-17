@@ -2,7 +2,7 @@
   "id": "04-17-agent-first-cli-help-prd",
   "name": "04-17-agent-first-cli-help-prd",
   "title": "PRD: agent-first CLI help system",
-  "description": "Define an agent-first product spec for olpx CLI Long/Example help and related docs behavior",
+  "description": "Define an agent-first product spec for ocswitch CLI Long/Example help and related docs behavior",
   "status": "completed",
   "dev_type": "docs",
   "scope": null,
@@ -57,7 +57,7 @@
     "internal/cli/serve.go",
     "README.md"
   ],
-  "notes": "This task defines an agent-first PRD for making olpx CLI help text a reliable configuration interface for AI agents.",
+  "notes": "This task defines an agent-first PRD for making ocswitch CLI help text a reliable configuration interface for AI agents.",
   "meta": {
     "primaryAudience": "ai-agent",
     "priorityRule": "agent-first-manual-second",

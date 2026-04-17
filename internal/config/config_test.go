@@ -93,7 +93,7 @@ func TestValidateReportsAliasWithoutAvailableTargets(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
-		Server:    Server{Host: "127.0.0.1", Port: 9982, APIKey: "olpx-local"},
+		Server:    Server{Host: "127.0.0.1", Port: 9982, APIKey: DefaultLocalAPIKey},
 		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", Disabled: true}},
 		Aliases: []Alias{{
 			Alias:   "gpt-5.4",

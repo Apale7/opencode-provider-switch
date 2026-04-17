@@ -1,8 +1,8 @@
-# OLPX Forwarding Log Viewer Design
+# OCSWITCH Forwarding Log Viewer Design
 
 ## Summary
 
-`olpx` currently exposes enough per-request routing information for header-level debugging, but it does not keep a durable request log and it does not provide any local UI.
+`ocswitch` currently exposes enough per-request routing information for header-level debugging, but it does not keep a durable request log and it does not provide any local UI.
 
 This task defines a minimal, implementation-ready design for a local web log viewer that shows each forwarded request with:
 
@@ -23,18 +23,18 @@ The design is intentionally scoped to the current codebase:
 
 ### What already exists
 
-`olpx` already has the core proxy path in `internal/proxy/server.go`:
+`ocswitch` already has the core proxy path in `internal/proxy/server.go`:
 
 - `POST /v1/responses`
 - deterministic ordered failover
 - retry on transport errors, `429`, and `5xx`
 - no mid-stream failover after downstream response starts
 - debug response headers:
-  - `X-OLPX-Alias`
-  - `X-OLPX-Provider`
-  - `X-OLPX-Remote-Model`
-  - `X-OLPX-Attempt`
-  - `X-OLPX-Failover-Count`
+  - `X-OCSWITCH-Alias`
+  - `X-OCSWITCH-Provider`
+  - `X-OCSWITCH-Remote-Model`
+  - `X-OCSWITCH-Attempt`
+  - `X-OCSWITCH-Failover-Count`
 
 ### What is missing
 
@@ -74,12 +74,12 @@ Reason:
 
 - it fits the current Go-only codebase
 - it avoids adding a frontend toolchain
-- it can run off the same `olpx serve` process and listener
+- it can run off the same `ocswitch serve` process and listener
 - it is the smallest path to a usable visual log surface
 
 ## High-Level Design
 
-When `olpx serve` is running, the same HTTP server should expose three surfaces:
+When `ocswitch serve` is running, the same HTTP server should expose three surfaces:
 
 1. proxy API
    - `POST /v1/responses`
@@ -116,10 +116,10 @@ This keeps storage simple and makes the UI directly match the user's mental mode
 
 ### Recommended MVP storage
 
-Use an append-only JSONL file stored next to the existing `olpx` config:
+Use an append-only JSONL file stored next to the existing `ocswitch` config:
 
-- config path today: `~/.config/olpx/config.json` by default
-- proposed log path: `~/.config/olpx/request-log.jsonl`
+- config path today: `~/.config/ocswitch/config.json` by default
+- proposed log path: `~/.config/ocswitch/request-log.jsonl`
 
 Reason:
 
@@ -156,7 +156,7 @@ Each finalized request log entry should contain at least the following fields:
   "duration_ms": 1881,
   "protocol": "openai-responses",
   "alias": "gpt-5.4",
-  "raw_model": "olpx/gpt-5.4",
+  "raw_model": "ocswitch/gpt-5.4",
   "stream": true,
   "final_status": 200,
   "final_provider": "p2",
@@ -195,7 +195,7 @@ Each finalized request log entry should contain at least the following fields:
 
 ### Required field semantics
 
-- `alias`: normalized local alias actually routed by `olpx`
+- `alias`: normalized local alias actually routed by `ocswitch`
 - `raw_model`: original request payload `model` value before normalization
 - `final_provider`: provider that produced the downstream response visible to the client
 - `final_remote_model`: upstream model name actually sent to that provider
@@ -381,7 +381,7 @@ For MVP, the log viewer can follow the same trust model as the current local pro
 - same loopback listener by default
 - intended for single-user localhost usage
 
-If `olpx` is later allowed to bind non-loopback addresses, the log UI and log API should be explicitly gated before reuse in that mode.
+If `ocswitch` is later allowed to bind non-loopback addresses, the log UI and log API should be explicitly gated before reuse in that mode.
 
 ## Implementation Plan
 
@@ -438,7 +438,7 @@ Suggested existing files to extend:
 
 This design is considered implemented successfully when:
 
-1. running `olpx serve` exposes a local page at `/logs`
+1. running `ocswitch serve` exposes a local page at `/logs`
 2. the page shows one row per completed forwarding request
 3. each row clearly shows final provider and final upstream model
 4. each row clearly shows whether failover happened

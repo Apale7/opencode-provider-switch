@@ -1,8 +1,8 @@
-# OLPX MVP Redesign
+# OCSWITCH MVP Redesign
 
 ## Summary
 
-`opencode-provider-switch` (`olpx`) is a local proxy for OpenCode focused on one narrow job:
+`opencode-provider-switch` (`ocswitch`) is a local proxy for OpenCode focused on one narrow job:
 
 - expose one stable local provider to OpenCode
 - let users select logical model aliases instead of concrete upstream models
@@ -15,7 +15,7 @@ MVP is about one thing: **multi-provider failover behind a stable OpenCode model
 
 ## Product Goal
 
-When a user chooses `olpx/<alias>` inside OpenCode, `olpx` should transparently try the configured upstream targets in priority order until one succeeds, without the user needing to care which provider actually served the request.
+When a user chooses `ocswitch/<alias>` inside OpenCode, `ocswitch` should transparently try the configured upstream targets in priority order until one succeeds, without the user needing to care which provider actually served the request.
 
 ## Core User Need
 
@@ -56,13 +56,13 @@ User wants:
 
 ## Architecture in One Sentence
 
-OpenCode sends `POST /v1/responses` to local provider `olpx`; `olpx` resolves requested alias to an ordered target list and proxies request to first healthy upstream candidate.
+OpenCode sends `POST /v1/responses` to local provider `ocswitch`; `ocswitch` resolves requested alias to an ordered target list and proxies request to first healthy upstream candidate.
 
 ## High-Level Architecture
 
 ```text
 OpenCode
-  -> custom provider `olpx` (@ai-sdk/openai)
+  -> custom provider `ocswitch` (@ai-sdk/openai)
   -> http://127.0.0.1:9982/v1/responses
   -> alias resolver
   -> failover engine
@@ -77,10 +77,10 @@ OpenCode
 
 MVP should expose exactly one local provider to OpenCode:
 
-- provider id: `olpx`
+- provider id: `ocswitch`
 - npm package: `@ai-sdk/openai`
 - base URL: `http://127.0.0.1:9982/v1`
-- local API key: static placeholder such as `olpx-local`
+- local API key: static placeholder such as `ocswitch-local`
 
 Conceptual OpenCode config shape:
 
@@ -88,12 +88,12 @@ Conceptual OpenCode config shape:
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "olpx": {
+    "ocswitch": {
       "npm": "@ai-sdk/openai",
       "name": "OPS",
       "options": {
         "baseURL": "http://127.0.0.1:9982/v1",
-        "apiKey": "olpx-local"
+        "apiKey": "ocswitch-local"
       },
       "models": {
         "gpt-5.4": {
@@ -105,7 +105,7 @@ Conceptual OpenCode config shape:
       }
     }
   },
-  "model": "olpx/gpt-5.4"
+  "model": "ocswitch/gpt-5.4"
 }
 ```
 
@@ -117,23 +117,23 @@ OpenCode source confirms this path is valid.
 
 OpenCode Web/TUI model pickers also read runtime provider state and only surface models from connected providers.
 
-OpenCode provider loading also merges custom config-defined providers and models into runtime provider state. That means `olpx` does **not** need a special external model catalog protocol for MVP.
+OpenCode provider loading also merges custom config-defined providers and models into runtime provider state. That means `ocswitch` does **not** need a special external model catalog protocol for MVP.
 
 Simplest MVP path:
 
-- keep alias list in `olpx`
-- sync alias list into OpenCode `provider.olpx.models`
-- make sure `provider.olpx` is valid enough to appear as a connected runtime provider
-- let OpenCode surface `olpx/<alias>` in `/models` and `/model`
+- keep alias list in `ocswitch`
+- sync alias list into OpenCode `provider.ocswitch.models`
+- make sure `provider.ocswitch` is valid enough to appear as a connected runtime provider
+- let OpenCode surface `ocswitch/<alias>` in `/models` and `/model`
 
 ### Important Scope Rule
 
 MVP should **not** rewrite the entire OpenCode config.
 
-Instead, `olpx` should only support a narrow integration step:
+Instead, `ocswitch` should only support a narrow integration step:
 
-- ensure `provider.olpx` exists or is updated
-- optionally sync alias entries into `provider.olpx.models`
+- ensure `provider.ocswitch` exists or is updated
+- optionally sync alias entries into `provider.ocswitch.models`
 - optionally let user set `model` or `small_model` manually
 
 This avoids the previous PRD's high-risk install/restore workflow.
@@ -144,7 +144,7 @@ OpenCode source also confirms config is merged from multiple layers, and lower-p
 
 Implication for MVP:
 
-- `olpx opencode sync` must know which config file it is targeting
+- `ocswitch opencode sync` must know which config file it is targeting
 - MVP should not silently write one low-precedence file and assume aliases will appear at runtime
 - default target should be global user config under `~/.config/opencode/`
 - if global config already exists, reuse existing main file in this order: `opencode.jsonc`, `opencode.json`, `config.json`
@@ -153,11 +153,11 @@ Implication for MVP:
 
 ## Provider Source Model
 
-`olpx` needs upstream provider definitions, but this is no longer the product center.
+`ocswitch` needs upstream provider definitions, but this is no longer the product center.
 
 MVP should support two input paths:
 
-1. manual provider entry through `olpx` CLI
+1. manual provider entry through `ocswitch` CLI
 2. one-shot import from one explicit OpenCode config file, defaulting to global user config
 
 ### Supported Provider Shape In MVP
@@ -179,7 +179,7 @@ OpenCode source also shows that `auth.json` provides credentials for an existing
 
 Implication for MVP:
 
-- `olpx` should import provider definitions from config, not from merged runtime auth state
+- `ocswitch` should import provider definitions from config, not from merged runtime auth state
 - `auth.json` support, if ever added later, should be treated as credential enrichment for already-known provider IDs
 - MVP import does not need to evaluate account config, managed config, or remote well-known config layers
 
@@ -200,8 +200,8 @@ User should use alias directly inside OpenCode. User should not need to know con
 1. Every alias maps to one or more concrete targets.
 2. Every alias must contain at least one enabled target.
 3. Alias target order is explicit and defines failover priority.
-4. Alias name must be unique within `olpx`.
-5. OpenCode should reference alias as `olpx/<alias>`.
+4. Alias name must be unique within `ocswitch`.
+5. OpenCode should reference alias as `ocswitch/<alias>`.
 
 ### Example
 
@@ -234,7 +234,7 @@ Rich capability metadata such as `limit`, `attachment`, `reasoning`, `tool_call`
 1. Receive request from OpenCode.
 2. Read and buffer full JSON request body once.
 3. Parse `model` from that JSON body.
-4. Treat `model` as `olpx` alias.
+4. Treat `model` as `ocswitch` alias.
 5. Resolve alias to ordered enabled targets.
 6. Replace only alias model field with concrete upstream model ID.
 7. Forward request to highest-priority target.
@@ -303,13 +303,13 @@ Conservative failover is preferable to surprising failover.
 
 ## Proxy Debugging Headers
 
-For debugging, `olpx` should add response headers where possible:
+For debugging, `ocswitch` should add response headers where possible:
 
-- `X-OLPX-Alias`
-- `X-OLPX-Provider`
-- `X-OLPX-Remote-Model`
-- `X-OLPX-Attempt`
-- `X-OLPX-Failover-Count`
+- `X-OCSWITCH-Alias`
+- `X-OCSWITCH-Provider`
+- `X-OCSWITCH-Remote-Model`
+- `X-OCSWITCH-Attempt`
+- `X-OCSWITCH-Failover-Count`
 
 These headers are cheap and make failover behavior understandable.
 
@@ -321,7 +321,7 @@ MVP should prefer a simpler user-editable config shape unless implementation pro
 
 ### Recommended MVP Direction
 
-Use one local `olpx` JSON or JSONC config file for:
+Use one local `ocswitch` JSON or JSONC config file for:
 
 - upstream providers
 - aliases
@@ -341,19 +341,19 @@ Recommended MVP commands:
 
 ### Core
 
-- `olpx serve`
-- `olpx doctor`
+- `ocswitch serve`
+- `ocswitch doctor`
 
-### `olpx doctor` MVP Boundary
+### `ocswitch doctor` MVP Boundary
 
-First-release `olpx doctor` should stay side-effect free.
+First-release `ocswitch doctor` should stay side-effect free.
 
 It should validate:
 
-- local `olpx` config can be loaded
+- local `ocswitch` config can be loaded
 - every alias resolves to at least one enabled target
 - local proxy bind address and config are internally consistent
-- generated or synced `provider.olpx` config shape is structurally valid
+- generated or synced `provider.ocswitch` config shape is structurally valid
 
 It should not, by default:
 
@@ -361,35 +361,35 @@ It should not, by default:
 - consume quota from user providers
 - mutate local or OpenCode config as part of diagnosis
 
-If live upstream probing is needed later, it should be added as explicit opt-in behavior such as `olpx doctor --live`.
+If live upstream probing is needed later, it should be added as explicit opt-in behavior such as `ocswitch doctor --live`.
 
 ### Provider Management
 
-- `olpx provider add`
-- `olpx provider list`
-- `olpx provider remove`
-- `olpx provider import-opencode`
+- `ocswitch provider add`
+- `ocswitch provider list`
+- `ocswitch provider remove`
+- `ocswitch provider import-opencode`
 
 ### Alias Management
 
-- `olpx alias add`
-- `olpx alias list`
-- `olpx alias bind`
-- `olpx alias unbind`
-- `olpx alias remove`
+- `ocswitch alias add`
+- `ocswitch alias list`
+- `ocswitch alias bind`
+- `ocswitch alias unbind`
+- `ocswitch alias remove`
 
 ### OpenCode Integration
 
-- `olpx opencode sync`
+- `ocswitch opencode sync`
 
-## `olpx opencode sync` Responsibility
+## `ocswitch opencode sync` Responsibility
 
 This command should do one narrow job:
 
-- by default update or create custom provider `olpx` in global OpenCode user config
+- by default update or create custom provider `ocswitch` in global OpenCode user config
 - prefer existing global config file in this order: `opencode.jsonc`, `opencode.json`, `config.json`
 - if none exists, create `~/.config/opencode/opencode.jsonc`
-- sync current alias names into `provider.olpx.models`
+- sync current alias names into `provider.ocswitch.models`
 
 Optional extra behavior:
 
@@ -418,15 +418,15 @@ Conclusion:
 
 - alias exposure inside OpenCode is feasible in MVP
 - simplest path is config sync, not custom remote model registry work
-- syncing alias keys into `provider.olpx.models` is sufficient for exposure if `provider.olpx` lands in connected runtime provider state
+- syncing alias keys into `provider.ocswitch.models` is sufficient for exposure if `provider.ocswitch` lands in connected runtime provider state
 
 ## Security Model
 
 MVP security posture should stay simple:
 
 - listen on `127.0.0.1` by default
-- use static local placeholder API key between OpenCode and `olpx`
-- store upstream credentials in local `olpx` config
+- use static local placeholder API key between OpenCode and `ocswitch`
+- store upstream credentials in local `ocswitch` config
 - document that local credential storage is sensitive
 
 No multi-user or remote-network security guarantees in MVP.
@@ -437,9 +437,9 @@ MVP is successful if a user can:
 
 1. configure at least two upstream providers manually or through OpenCode sync
 2. create an alias with ordered targets across those providers
-3. run `olpx opencode sync` and see alias names appear in OpenCode `opencode models` output and `/model` picker
-4. select `olpx/<alias>` in OpenCode without exposing concrete upstream model IDs
-5. send normal streaming OpenAI Responses traffic through `olpx`
+3. run `ocswitch opencode sync` and see alias names appear in OpenCode `opencode models` output and `/model` picker
+4. select `ocswitch/<alias>` in OpenCode without exposing concrete upstream model IDs
+5. send normal streaming OpenAI Responses traffic through `ocswitch`
 6. get automatic failover when primary provider returns `429` or `5xx`, or fails before first downstream byte
 7. observe that once a stream has started, later upstream failure is surfaced as failure rather than hidden mid-stream switching
 
@@ -454,10 +454,10 @@ MVP is successful if a user can:
 
 ### Phase 2
 
-- `olpx opencode sync`
+- `ocswitch opencode sync`
 - narrow OpenCode provider import
 - alias list exposure in OpenCode config
-- connected-provider validation in `olpx doctor`
+- connected-provider validation in `ocswitch doctor`
 
 ### Phase 3
 
@@ -469,16 +469,16 @@ MVP is successful if a user can:
 
 ### Phase 4
 
-- `olpx doctor`
+- `ocswitch doctor`
 - debugging headers and logs
 
 ## Finalized MVP Decisions
 
 The following implementation choices are now locked for first-release MVP:
 
-1. `olpx opencode sync` updates `provider.olpx` and alias exposure only by default. It must not modify OpenCode `model` or `small_model` unless explicit opt-in flags are provided.
+1. `ocswitch opencode sync` updates `provider.ocswitch` and alias exposure only by default. It must not modify OpenCode `model` or `small_model` unless explicit opt-in flags are provided.
 2. Provider import support is limited to config-defined `@ai-sdk/openai` custom providers.
-3. `olpx doctor` is static by default and must not issue live upstream requests unless future explicit opt-in behavior is added.
+3. `ocswitch doctor` is static by default and must not issue live upstream requests unless future explicit opt-in behavior is added.
 
 ## Strong Recommendation
 

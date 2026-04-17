@@ -91,10 +91,10 @@ Implemented the Go-based OPS MVP: local config, provider and alias CLI, OpenCode
 - None - task complete
 
 
-## Session 3: Support disabling providers in olpx
+## Session 3: Support disabling providers in ocswitch
 
 **Date**: 2026-04-17
-**Task**: Support disabling providers in olpx
+**Task**: Support disabling providers in ocswitch
 **Branch**: `master`
 
 ### Summary
@@ -139,7 +139,7 @@ Reviewed current implementation against the archived MVP PRD and classified impl
 | Category | Result |
 |---|---|
 | Overall status | MVP core flow is effectively complete |
-| Implemented MVP | Local olpx config, provider/alias CLI, OpenCode sync, static doctor, `/v1/responses` proxy, streaming pass-through, pre-first-byte failover, debug headers |
+| Implemented MVP | Local ocswitch config, provider/alias CLI, OpenCode sync, static doctor, `/v1/responses` proxy, streaming pass-through, pre-first-byte failover, debug headers |
 | Partial / missing MVP edges | `doctor` validates generated preview more than on-disk synced state; OpenCode provider import only reads `options.apiKey`, not broader header-style auth |
 | Beyond MVP | `provider enable/disable`, minimal `/v1/models`, broader alias normalization, careful OpenCode config patching |
 
@@ -191,7 +191,7 @@ Fixed a panic in opencode sync when preserved model metadata contains slices, an
 
 ### Main Changes
 
-- Root cause: `internal/opencode/opencode.go` compared `interface{}` values directly inside `mapsEqualShallow`, which panicked when preserved `provider.olpx.models.<alias>` metadata included slices.
+- Root cause: `internal/opencode/opencode.go` compared `interface{}` values directly inside `mapsEqualShallow`, which panicked when preserved `provider.ocswitch.models.<alias>` metadata included slices.
 - Fix: replaced the unsafe hand-rolled comparison with `reflect.DeepEqual` so existing model metadata with nested maps/slices can be compared safely during `sync`.
 - Added regression tests in `internal/opencode/opencode_test.go` and `internal/cli/cli_test.go` covering preserved slice metadata and a real `opencode sync --target` no-op path.
 - Verification: ran `rtk go test ./internal/opencode`, `rtk go test ./internal/cli ./internal/opencode`, and `rtk go test ./...` successfully.

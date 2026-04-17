@@ -1,4 +1,4 @@
-module github.com/anomalyco/opencode-provider-switch
+module github.com/Apale7/opencode-provider-switch
 
 go 1.22.2
 

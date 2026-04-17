@@ -31,7 +31,7 @@
 |---|------|-------|---------|--------|
 | 5 | 2026-04-17 | Fix sync command panic | `887eb14` | `master` |
 | 4 | 2026-04-17 | Review MVP completion status | - | `master` |
-| 3 | 2026-04-17 | Support disabling providers in olpx | HEAD | `master` |
+| 3 | 2026-04-17 | Support disabling providers in ocswitch | HEAD | `master` |
 | 2 | 2026-04-17 | Build OPS MVP failover proxy | `2b04d91` | `master` |
 | 1 | 2026-04-17 | Finalize OPS MVP review PRD | `eeacdc4`, `00747fa`, `ca0b3c4` | `master` |
 <!-- @@@/auto:session-history -->

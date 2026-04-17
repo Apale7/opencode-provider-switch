@@ -5,24 +5,24 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/anomalyco/opencode-provider-switch/internal/opencode"
+	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 )
 
 func newOpencodeCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "opencode",
 		Short: "OpenCode integration commands",
-		Long: `OpenCode commands manage the narrow integration boundary between olpx and
+		Long: `OpenCode commands manage the narrow integration boundary between ocswitch and
 OpenCode config.
 
 These commands do not attempt full OpenCode config takeover. They are limited to
-the provider.olpx sync path and optional top-level model fields when you opt in
+the provider.ocswitch sync path and optional top-level model fields when you opt in
 explicitly.
 
 Common workflow: validate with doctor first, inspect sync help, then run
 opencode sync.`,
-		Example: `  olpx opencode sync --dry-run
-  olpx opencode sync --set-model olpx/gpt-5.4`,
+		Example: `  ocswitch opencode sync --dry-run
+  ocswitch opencode sync --set-model ocswitch/gpt-5.4`,
 	}
 	c.AddCommand(newOpencodeSyncCmd())
 	return c
@@ -35,8 +35,8 @@ func newOpencodeSyncCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Update provider.olpx in the global OpenCode config to match current aliases",
-		Long: `olpx opencode sync writes provider.olpx into the target OpenCode config.
+		Short: "Update provider.ocswitch in the global OpenCode config to match current aliases",
+		Long: `ocswitch opencode sync writes provider.ocswitch into the target OpenCode config.
 
 By default it targets the global user config (~/.config/opencode), picking the
 existing file in precedence order opencode.jsonc > opencode.json > config.json,
@@ -45,17 +45,17 @@ or creating opencode.jsonc if none exists. It does NOT touch the top-level
 
 The default target scope is only the global user config path; it does not follow
 OPENCODE_CONFIG_DIR unless you pass --target yourself. The command writes alias
-exposure into provider.olpx.models using only aliases that are currently
+exposure into provider.ocswitch.models using only aliases that are currently
 routable.
 
 Use --dry-run to preview the resolved target file without writing it. Typical
-workflow: run olpx doctor first, then sync, then start or restart olpx serve if
+workflow: run ocswitch doctor first, then sync, then start or restart ocswitch serve if
 needed.`,
-		Example: `  olpx opencode sync
-  olpx opencode sync --dry-run
-  olpx opencode sync --set-model olpx/gpt-5.4
-  olpx opencode sync --set-model olpx/gpt-5.4 --set-small-model olpx/gpt-5.4-mini
-  olpx opencode sync --target /path/to/opencode.jsonc`,
+		Example: `  ocswitch opencode sync
+  ocswitch opencode sync --dry-run
+  ocswitch opencode sync --set-model ocswitch/gpt-5.4
+  ocswitch opencode sync --set-model ocswitch/gpt-5.4 --set-small-model ocswitch/gpt-5.4-mini
+  ocswitch opencode sync --target /path/to/opencode.jsonc`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCfg()
 			if err != nil {
@@ -78,7 +78,7 @@ needed.`,
 			}
 			aliasNames := cfg.AvailableAliasNames()
 			baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
-			changed := opencode.EnsureOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
+			changed := opencode.EnsureOcswitchProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
 			if setModel != "" {
 				if raw["model"] != setModel {
 					raw["model"] = setModel
@@ -102,7 +102,7 @@ needed.`,
 			if err := opencode.Save(path, raw); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "synced provider.olpx into %s (%d alias(es))\n", path, len(aliasNames))
+			fmt.Fprintf(cmd.OutOrStdout(), "synced provider.ocswitch into %s (%d alias(es))\n", path, len(aliasNames))
 			if setModel != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "  model = %s\n", setModel)
 			}

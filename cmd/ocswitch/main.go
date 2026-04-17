@@ -1,11 +1,11 @@
-// Command olpx: local alias + failover proxy for OpenCode.
+// Command ocswitch: local alias + failover proxy for OpenCode.
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/anomalyco/opencode-provider-switch/internal/cli"
+	"github.com/Apale7/opencode-provider-switch/internal/cli"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".

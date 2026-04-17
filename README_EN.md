@@ -1,15 +1,15 @@
-# opencode-provider-switch (`olpx`)
+# opencode-provider-switch (`ocswitch`)
 
 A tiny local proxy for [OpenCode](https://opencode.ai) that gives you **one
 stable model alias** routed to **multiple upstream providers** with
 **deterministic failover**.
 
-- Expose one custom provider `olpx` to OpenCode.
-- Configure logical aliases (`olpx/gpt-5.4`, etc.).
+- Expose one custom provider `ocswitch` to OpenCode.
+- Configure logical aliases (`ocswitch/gpt-5.4`, etc.).
 - Each alias has an ordered list of upstream `provider/model` targets.
 - Providers can be disabled without mutating alias target state.
 - When the primary upstream returns `5xx`/`429`/connect error *before* any
-  stream bytes are flushed, `olpx` transparently retries the next target.
+  stream bytes are flushed, `ocswitch` transparently retries the next target.
 - Once a stream has started, the upstream is locked for the rest of that
   request — no mid-stream splicing.
 
@@ -18,38 +18,38 @@ Protocol: OpenAI Responses (`POST /v1/responses`) only. Streaming supported.
 ## Install
 
 ```bash
-go build -o olpx ./cmd/olpx
+go build -o ocswitch ./cmd/ocswitch
 ```
 
 ## Quick start
 
 ```bash
 # 1. add upstream providers
-olpx provider add --id su8   --base-url https://cn2.su8.codes/v1 --api-key sk-...
-olpx provider add --id codex --base-url https://api-vip.codex-for.me/v1 --api-key sk-...
+ocswitch provider add --id su8   --base-url https://cn2.su8.codes/v1 --api-key sk-...
+ocswitch provider add --id codex --base-url https://api-vip.codex-for.me/v1 --api-key sk-...
 
 # 2. create alias and bind targets in priority order
-olpx alias add --name gpt-5.4
-olpx alias bind --alias gpt-5.4 --provider su8   --model gpt-5.4
-olpx alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
+ocswitch alias add --name gpt-5.4
+ocswitch alias bind --alias gpt-5.4 --provider su8   --model gpt-5.4
+ocswitch alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
 
 # 3. push alias exposure into OpenCode global config
-olpx opencode sync
+ocswitch opencode sync
 
 # optional: temporarily disable one provider without editing alias targets
-olpx provider disable su8
+ocswitch provider disable su8
 
 # 4. run the proxy
-olpx serve
+ocswitch serve
 ```
 
-Inside OpenCode you can now pick `olpx/gpt-5.4`.
+Inside OpenCode you can now pick `ocswitch/gpt-5.4`.
 
 ### Import providers from an existing OpenCode config
 
 ```bash
-olpx provider import-opencode             # reads global OpenCode config
-olpx provider import-opencode --from ./examples/opencode.jsonc
+ocswitch provider import-opencode             # reads global OpenCode config
+ocswitch provider import-opencode --from ./examples/opencode.jsonc
 ```
 
 The default import/sync target is the global user config only. It does not
@@ -62,7 +62,7 @@ imported. Everything else is out of MVP scope.
 ### Doctor (static)
 
 ```bash
-olpx doctor
+ocswitch doctor
 ```
 
 Runs structural checks only — never issues real upstream requests.
@@ -75,14 +75,14 @@ considered routable only when:
 - the referenced provider exists
 - the referenced provider is not disabled
 
-`olpx opencode sync` and `/v1/models` use the same routable-alias view, so
+`ocswitch opencode sync` and `/v1/models` use the same routable-alias view, so
 OpenCode does not see aliases that the proxy would immediately reject.
 
 ### Provider state
 
 ```bash
-olpx provider disable <id>
-olpx provider enable <id>
+ocswitch provider disable <id>
+ocswitch provider enable <id>
 ```
 
 Disabling a provider only removes it from routing/failover consideration. It
@@ -95,23 +95,23 @@ For exact command behavior, defaults, write scope, and side effects, prefer the
 matching `--help` page. This README is the quick-start narrative, while CLI help
 is the authoritative local execution contract.
 
-- `olpx serve` — run the proxy
-- `olpx doctor` — validate config
-- `olpx provider {add,list,enable,disable,remove,import-opencode}`
-- `olpx alias {add,list,bind,unbind,remove}`
-- `olpx opencode sync [--target FILE] [--set-model ALIAS] [--set-small-model ALIAS] [--dry-run]`
+- `ocswitch serve` — run the proxy
+- `ocswitch doctor` — validate config
+- `ocswitch provider {add,list,enable,disable,remove,import-opencode}`
+- `ocswitch alias {add,list,bind,unbind,remove}`
+- `ocswitch opencode sync [--target FILE] [--set-model ALIAS] [--set-small-model ALIAS] [--dry-run]`
 
-Global flag: `--config PATH` (default `$XDG_CONFIG_HOME/olpx/config.json`).
+Global flag: `--config PATH` (default `$OCSWITCH_CONFIG`, else `$XDG_CONFIG_HOME/ocswitch/config.json`).
 
 ## Debug headers
 
 Every proxied response includes:
 
-- `X-OLPX-Alias`
-- `X-OLPX-Provider`
-- `X-OLPX-Remote-Model`
-- `X-OLPX-Attempt`
-- `X-OLPX-Failover-Count`
+- `X-OCSWITCH-Alias`
+- `X-OCSWITCH-Provider`
+- `X-OCSWITCH-Remote-Model`
+- `X-OCSWITCH-Attempt`
+- `X-OCSWITCH-Failover-Count`
 
 ## Scope
 
