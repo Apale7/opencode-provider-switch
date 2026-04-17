@@ -7,6 +7,7 @@ stable model alias** routed to **multiple upstream providers** with
 - Expose one custom provider `olpx` to OpenCode.
 - Configure logical aliases (`olpx/gpt-5.4`, etc.).
 - Each alias has an ordered list of upstream `provider/model` targets.
+- Providers can be disabled without mutating alias target state.
 - When the primary upstream returns `5xx`/`429`/connect error *before* any
   stream bytes are flushed, `olpx` transparently retries the next target.
 - Once a stream has started, the upstream is locked for the rest of that
@@ -34,6 +35,9 @@ olpx alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
 
 # 3. push alias exposure into OpenCode global config
 olpx opencode sync
+
+# optional: temporarily disable one provider without editing alias targets
+olpx provider disable su8
 
 # 4. run the proxy
 olpx serve
@@ -63,11 +67,33 @@ olpx doctor
 
 Runs structural checks only — never issues real upstream requests.
 
+Enabled aliases must have at least one **routable** target. A target is
+considered routable only when:
+
+- the alias itself is enabled
+- the target itself is enabled
+- the referenced provider exists
+- the referenced provider is not disabled
+
+`olpx opencode sync` and `/v1/models` use the same routable-alias view, so
+OpenCode does not see aliases that the proxy would immediately reject.
+
+### Provider state
+
+```bash
+olpx provider disable <id>
+olpx provider enable <id>
+```
+
+Disabling a provider only removes it from routing/failover consideration. It
+does **not** rewrite alias target `enabled` flags in config, which avoids odd
+interactions when the same provider is shared across multiple aliases.
+
 ## CLI reference
 
 - `olpx serve` — run the proxy
 - `olpx doctor` — validate config
-- `olpx provider {add,list,remove,import-opencode}`
+- `olpx provider {add,list,enable,disable,remove,import-opencode}`
 - `olpx alias {add,list,bind,unbind,remove}`
 - `olpx opencode sync [--target FILE] [--set-model ALIAS] [--set-small-model ALIAS] [--dry-run]`
 
@@ -86,6 +112,7 @@ Every proxied response includes:
 ## Scope
 
 Out of MVP: Anthropic native, multi-protocol routing, dashboard, billing,
-latency-based routing, `/v1/models` discovery, full OpenCode config takeover.
+latency-based routing, full `/v1/models` provider discovery, full OpenCode
+config takeover.
 See `.trellis/tasks/archive/2026-04/04-17-04-17-ops-mvp-design-review/prd.md`
 for the authoritative design notes.

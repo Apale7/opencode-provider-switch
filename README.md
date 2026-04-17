@@ -101,7 +101,7 @@ olpx alias list
 注意：
 
 - target 的顺序就是失败切换顺序
-- enabled alias 必须至少有一个 enabled target
+- enabled alias 必须至少有一个可路由 target
 - `olpx alias bind` 在 alias 不存在时会自动创建一个 enabled alias
 
 ### 3. 先做一次静态检查
@@ -116,7 +116,7 @@ olpx doctor
 
 - 本地 `olpx` 配置能不能正常加载
 - alias 是否引用了不存在的 provider
-- enabled alias 是否至少有一个 enabled target
+- enabled alias 是否至少有一个可路由 target
 - 本地代理监听地址是否合理
 - 默认会同步到哪个 OpenCode 配置文件
 
@@ -126,7 +126,7 @@ olpx doctor
 olpx opencode sync
 ```
 
-这个命令会做一件事：把当前 alias 列表同步进 OpenCode 的 `provider.olpx.models`。
+这个命令会做一件事：把当前可路由的 alias 列表同步进 OpenCode 的 `provider.olpx.models`。
 
 默认行为：
 
@@ -262,6 +262,18 @@ olpx provider add --id <id> --base-url <url-with-/v1> --api-key <key>
 olpx provider list
 ```
 
+禁用 provider：
+
+```bash
+olpx provider disable <id>
+```
+
+重新启用 provider：
+
+```bash
+olpx provider enable <id>
+```
+
 删除 provider：
 
 ```bash
@@ -365,7 +377,8 @@ olpx --config /path/to/config.json doctor
       "id": "codex",
       "name": "Codex",
       "base_url": "https://api-vip.codex-for.me/v1",
-      "api_key": "sk-yyy"
+      "api_key": "sk-yyy",
+      "disabled": true
     }
   ],
   "aliases": [
@@ -406,7 +419,7 @@ olpx --config /path/to/config.json doctor
 
 - alias 不存在
 - alias 被禁用
-- alias 没有 enabled target
+- alias 没有可用 target
 - 上游返回 `400`
 - 上游返回 `401`
 - 上游返回 `403`
@@ -445,18 +458,31 @@ olpx --config /path/to/config.json doctor
 
 1. 你是否执行过 `olpx opencode sync`
 2. 你的 alias 是否是 enabled 状态
-3. alias 是否至少绑定了一个 enabled target
-4. OpenCode 当前实际使用的配置文件，是否就是 `olpx opencode sync` 写入的那个文件
-5. 执行一次 `olpx doctor`，看输出里的 `opencode config target`
+3. alias 是否至少绑定了一个可路由 target
+4. alias 绑定的 provider 是否都被禁用了
+5. OpenCode 当前实际使用的配置文件，是否就是 `olpx opencode sync` 写入的那个文件
+6. 执行一次 `olpx doctor`，看输出里的 `opencode config target`
 
-### 为什么 `olpx doctor` 报 alias 没有 enabled target？
+### 为什么 `olpx doctor` 报 alias 没有可用 target？
 
-因为当前实现要求：只要 alias 是 enabled，就必须至少有一个 enabled target。
+因为当前实现要求：只要 alias 是 enabled，就必须至少有一个可路由的 target。
+
+可路由的意思是同时满足：
+
+- target 自己是 enabled
+- target 引用的 provider 存在且没有被禁用
 
 你可以：
 
 - 给它绑定 target
+- 重新启用被禁用的 provider
 - 或者把这个 alias 改成 disabled 后再保存
+
+### 为什么要禁用 provider，而不是把 alias target 也改成 disabled？
+
+因为 provider 可能被多个 alias 复用。
+
+`olpx provider disable` 只会让路由层在 failover 时自动跳过这个 provider，不会改写 alias 里的 target 状态，这样重新启用 provider 时不会和 alias 上原有的启用关系打架。
 
 ### 删除 provider 后为什么还有报错？
 

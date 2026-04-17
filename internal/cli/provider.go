@@ -16,13 +16,21 @@ func newProviderCmd() *cobra.Command {
 		Use:   "provider",
 		Short: "Manage upstream providers",
 	}
-	c.AddCommand(newProviderAddCmd(), newProviderListCmd(), newProviderRemoveCmd(), newProviderImportCmd())
+	c.AddCommand(
+		newProviderAddCmd(),
+		newProviderListCmd(),
+		newProviderEnableCmd(),
+		newProviderDisableCmd(),
+		newProviderRemoveCmd(),
+		newProviderImportCmd(),
+	)
 	return c
 }
 
 func newProviderAddCmd() *cobra.Command {
 	var id, name, baseURL, apiKey string
 	var headers []string
+	var disabled bool
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add or update an upstream provider",
@@ -46,11 +54,12 @@ func newProviderAddCmd() *cobra.Command {
 				hdrs[strings.TrimSpace(k)] = strings.TrimSpace(v)
 			}
 			p := config.Provider{
-				ID:      id,
-				Name:    name,
-				BaseURL: baseURL,
-				APIKey:  apiKey,
-				Headers: hdrs,
+				ID:       id,
+				Name:     name,
+				BaseURL:  baseURL,
+				APIKey:   apiKey,
+				Headers:  hdrs,
+				Disabled: disabled,
 			}
 			if existing := cfg.FindProvider(id); existing != nil {
 				if p.Name == "" {
@@ -62,12 +71,19 @@ func newProviderAddCmd() *cobra.Command {
 				if len(headers) == 0 && len(existing.Headers) > 0 {
 					p.Headers = cloneHeaders(existing.Headers)
 				}
+				if !disabled {
+					p.Disabled = existing.Disabled
+				}
 			}
 			cfg.UpsertProvider(p)
 			if err := cfg.Save(); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q → %s\n", id, baseURL)
+			state := "enabled"
+			if p.Disabled {
+				state = "disabled"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q [%s] → %s\n", id, state, baseURL)
 			return nil
 		},
 	}
@@ -76,6 +92,7 @@ func newProviderAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "OpenAI-compatible base URL, including /v1 (required)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "upstream API key")
 	cmd.Flags().StringArrayVar(&headers, "header", nil, "extra header KEY=VALUE (repeatable)")
+	cmd.Flags().BoolVar(&disabled, "disabled", false, "save provider in disabled state")
 	return cmd
 }
 
@@ -110,8 +127,50 @@ func newProviderListCmd() *cobra.Command {
 				if p.APIKey != "" {
 					key = maskKey(p.APIKey)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%-20s %s  apiKey=%s\n", p.ID, p.BaseURL, key)
+				state := "enabled"
+				if !p.IsEnabled() {
+					state = "disabled"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%-20s [%s] %s  apiKey=%s\n", p.ID, state, p.BaseURL, key)
 			}
+			return nil
+		},
+	}
+}
+
+func newProviderEnableCmd() *cobra.Command {
+	return newProviderStateCmd("enable", false)
+}
+
+func newProviderDisableCmd() *cobra.Command {
+	return newProviderStateCmd("disable", true)
+}
+
+func newProviderStateCmd(use string, disabled bool) *cobra.Command {
+	action := "enabled"
+	if disabled {
+		action = "disabled"
+	}
+	return &cobra.Command{
+		Use:   use + " <id>",
+		Args:  cobra.ExactArgs(1),
+		Short: strings.Title(action[:len(action)-1]) + " a provider without changing alias target state",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadCfg()
+			if err != nil {
+				return err
+			}
+			existing := cfg.FindProvider(args[0])
+			if existing == nil {
+				return fmt.Errorf("provider %q not found", args[0])
+			}
+			updated := *existing
+			updated.Disabled = disabled
+			cfg.UpsertProvider(updated)
+			if err := cfg.Save(); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s provider %q\n", action, args[0])
 			return nil
 		},
 	}
@@ -175,10 +234,11 @@ func newProviderImportCmd() *cobra.Command {
 					continue
 				}
 				cfg.UpsertProvider(config.Provider{
-					ID:      ip.ID,
-					Name:    ip.Name,
-					BaseURL: ip.BaseURL,
-					APIKey:  ip.APIKey,
+					ID:       ip.ID,
+					Name:     ip.Name,
+					BaseURL:  ip.BaseURL,
+					APIKey:   ip.APIKey,
+					Disabled: false,
 				})
 				imported++
 				fmt.Fprintf(cmd.OutOrStdout(), "import %q → %s (models: %s)\n", ip.ID, ip.BaseURL, strings.Join(ip.Models, ","))

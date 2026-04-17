@@ -24,13 +24,7 @@ func newDoctorCmd() *cobra.Command {
 			if err != nil {
 				issues = append(issues, fmt.Errorf("load opencode config target: %w", err))
 			} else {
-				aliasNames := []string{}
-				for _, a := range cfg.Aliases {
-					if !a.Enabled {
-						continue
-					}
-					aliasNames = append(aliasNames, a.Alias)
-				}
+				aliasNames := cfg.AvailableAliasNames()
 				baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
 				opencode.EnsureOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
 				if err := opencode.ValidateOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {

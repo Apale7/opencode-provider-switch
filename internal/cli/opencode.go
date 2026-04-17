@@ -51,13 +51,7 @@ or creating opencode.jsonc if none exists. It does NOT touch the top-level
 			if err != nil {
 				return err
 			}
-			aliasNames := []string{}
-			for _, a := range cfg.Aliases {
-				if !a.Enabled {
-					continue
-				}
-				aliasNames = append(aliasNames, a.Alias)
-			}
+			aliasNames := cfg.AvailableAliasNames()
 			baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
 			changed := opencode.EnsureOLPXProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
 			if setModel != "" {

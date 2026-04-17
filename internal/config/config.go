@@ -29,11 +29,12 @@ type Alias struct {
 
 // Provider is one upstream OpenAI-compatible endpoint.
 type Provider struct {
-	ID      string            `json:"id"`
-	Name    string            `json:"name,omitempty"`
-	BaseURL string            `json:"base_url"`
-	APIKey  string            `json:"api_key"`
-	Headers map[string]string `json:"headers,omitempty"`
+	ID       string            `json:"id"`
+	Name     string            `json:"name,omitempty"`
+	BaseURL  string            `json:"base_url"`
+	APIKey   string            `json:"api_key"`
+	Headers  map[string]string `json:"headers,omitempty"`
+	Disabled bool              `json:"disabled,omitempty"`
 }
 
 // Server holds proxy listen settings.
@@ -51,6 +52,11 @@ type Config struct {
 
 	path string
 	mu   sync.RWMutex
+}
+
+// IsEnabled reports whether the provider can be used for routing.
+func (p Provider) IsEnabled() bool {
+	return !p.Disabled
 }
 
 // ValidateProviderBaseURL checks the MVP requirement that upstream base URLs
@@ -166,6 +172,10 @@ func (c *Config) Save() error {
 func (c *Config) FindProvider(id string) *Provider {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	return c.findProviderLocked(id)
+}
+
+func (c *Config) findProviderLocked(id string) *Provider {
 	for i := range c.Providers {
 		if c.Providers[i].ID == id {
 			return &c.Providers[i]
@@ -283,6 +293,47 @@ func (c *Config) RemoveTarget(alias, provider, model string) error {
 	return fmt.Errorf("alias %q not found", alias)
 }
 
+// AvailableTargets returns alias targets that are individually enabled and point
+// at providers that still exist and are enabled.
+func (c *Config) AvailableTargets(alias Alias) []Target {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.availableTargetsLocked(alias)
+}
+
+func (c *Config) availableTargetsLocked(alias Alias) []Target {
+	targets := make([]Target, 0, len(alias.Targets))
+	for _, t := range alias.Targets {
+		if !t.Enabled {
+			continue
+		}
+		provider := c.findProviderLocked(t.Provider)
+		if provider == nil || !provider.IsEnabled() {
+			continue
+		}
+		targets = append(targets, t)
+	}
+	return targets
+}
+
+// AvailableAliasNames returns alias names that are enabled and still have at
+// least one routable target after provider availability is applied.
+func (c *Config) AvailableAliasNames() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	names := make([]string, 0, len(c.Aliases))
+	for _, a := range c.Aliases {
+		if !a.Enabled {
+			continue
+		}
+		if len(c.availableTargetsLocked(a)) == 0 {
+			continue
+		}
+		names = append(names, a.Alias)
+	}
+	return names
+}
+
 // Validate returns a non-nil error slice for every structural issue found.
 func (c *Config) Validate() []error {
 	c.mu.RLock()
@@ -325,12 +376,10 @@ func (c *Config) Validate() []error {
 			if !ids[t.Provider] {
 				errs = append(errs, fmt.Errorf("alias %q references unknown provider %q", a.Alias, t.Provider))
 			}
-			if t.Enabled {
-				enabled++
-			}
 		}
+		enabled = len(c.availableTargetsLocked(a))
 		if a.Enabled && enabled == 0 {
-			errs = append(errs, fmt.Errorf("alias %q has no enabled targets", a.Alias))
+			errs = append(errs, fmt.Errorf("alias %q has no available targets", a.Alias))
 		}
 	}
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {

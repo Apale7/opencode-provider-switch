@@ -157,6 +157,109 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	}
 }
 
+func TestHandleResponsesSkipsDisabledProviders(t *testing.T) {
+	t.Parallel()
+
+	calledDisabled := false
+	disabled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledDisabled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer disabled.Close()
+
+	var seenModel string
+	enabled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		seenModel, _ = payload["model"].(string)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer enabled.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: "olpx-local"},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: disabled.URL + "/v1", Disabled: true},
+			{ID: "p2", BaseURL: enabled.URL + "/v1"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer olpx-local")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if calledDisabled {
+		t.Fatal("disabled provider should be skipped before any upstream call")
+	}
+	if seenModel != "up-2" {
+		t.Fatalf("enabled upstream model = %q, want up-2", seenModel)
+	}
+	if got := rr.Header().Get("X-OLPX-Attempt"); got != "1" {
+		t.Fatalf("X-OLPX-Attempt = %q, want 1", got)
+	}
+	if got := rr.Header().Get("X-OLPX-Failover-Count"); got != "0" {
+		t.Fatalf("X-OLPX-Failover-Count = %q, want 0", got)
+	}
+	if got := rr.Header().Get("X-OLPX-Provider"); got != "p2" {
+		t.Fatalf("X-OLPX-Provider = %q, want p2", got)
+	}
+	if body := rr.Body.String(); body != "data: ok\n\n" {
+		t.Fatalf("body = %q, want SSE payload", body)
+	}
+}
+
+func TestHandleModelsSkipsAliasesWithoutAvailableTargets(t *testing.T) {
+	t.Parallel()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: "olpx-local"},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: "https://p1.example.com/v1"},
+			{ID: "p2", BaseURL: "https://p2.example.com/v1", Disabled: true},
+		},
+		Aliases: []config.Alias{
+			{Alias: "ok", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}},
+			{Alias: "no-route", Enabled: true, Targets: []config.Target{{Provider: "p2", Model: "up-2", Enabled: true}}},
+			{Alias: "alias-disabled", Enabled: false, Targets: []config.Target{{Provider: "p1", Model: "up-3", Enabled: true}}},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer olpx-local")
+	rr := httptest.NewRecorder()
+
+	srv.handleModels(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, `"id":"ok"`) {
+		t.Fatalf("models body = %q, want alias ok", body)
+	}
+	if body := rr.Body.String(); strings.Contains(body, `"id":"no-route"`) {
+		t.Fatalf("models body = %q, disabled-provider alias should be hidden", body)
+	}
+	if body := rr.Body.String(); strings.Contains(body, `"id":"alias-disabled"`) {
+		t.Fatalf("models body = %q, disabled alias should be hidden", body)
+	}
+}
+
 func TestReadFirstChunk(t *testing.T) {
 	t.Parallel()
 

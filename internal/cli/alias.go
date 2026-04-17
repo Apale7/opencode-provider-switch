@@ -85,7 +85,15 @@ func newAliasListCmd() *cobra.Command {
 					if !t.Enabled {
 						mark = " "
 					}
-					fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %d. %s/%s\n", mark, i+1, t.Provider, t.Model)
+					note := ""
+					provider := cfg.FindProvider(t.Provider)
+					switch {
+					case provider == nil:
+						note = " (missing provider)"
+					case !provider.IsEnabled():
+						note = " (provider disabled)"
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %d. %s/%s%s\n", mark, i+1, t.Provider, t.Model, note)
 				}
 			}
 			return nil

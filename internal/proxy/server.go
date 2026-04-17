@@ -105,12 +105,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := []map[string]any{}
-	for _, a := range s.cfg.Aliases {
-		if !a.Enabled {
-			continue
-		}
+	for _, aliasName := range s.cfg.AvailableAliasNames() {
 		data = append(data, map[string]any{
-			"id":       a.Alias,
+			"id":       aliasName,
 			"object":   "model",
 			"owned_by": "olpx",
 		})
@@ -177,23 +174,18 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
 		return
 	}
-	var targets []config.Target
-	for _, t := range alias.Targets {
-		if t.Enabled {
-			targets = append(targets, t)
-		}
-	}
+	targets := s.cfg.AvailableTargets(*alias)
 	if len(targets) == 0 {
-		s.logger.Printf("req=%d alias=%q has no enabled targets", reqID, aliasName)
-		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("alias %q has no enabled targets", aliasName))
+		s.logger.Printf("req=%d alias=%q has no available targets", reqID, aliasName)
+		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("alias %q has no available targets", aliasName))
 		return
 	}
 
 	failoverCount := 0
 	for attempt, t := range targets {
 		p := s.cfg.FindProvider(t.Provider)
-		if p == nil {
-			s.logger.Printf("req=%d alias=%s attempt=%d target provider %q missing, skipping", reqID, aliasName, attempt+1, t.Provider)
+		if p == nil || !p.IsEnabled() {
+			s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt+1, t.Provider)
 			failoverCount++
 			continue
 		}

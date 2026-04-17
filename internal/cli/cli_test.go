@@ -17,11 +17,12 @@ func TestProviderAddPreservesExistingFields(t *testing.T) {
 		t.Fatalf("loadCfg: %v", err)
 	}
 	cfg.UpsertProvider(config.Provider{
-		ID:      "p1",
-		Name:    "Old",
-		BaseURL: "https://old.example.com/v1",
-		APIKey:  "sk-old",
-		Headers: map[string]string{"X-Test": "1"},
+		ID:       "p1",
+		Name:     "Old",
+		BaseURL:  "https://old.example.com/v1",
+		APIKey:   "sk-old",
+		Headers:  map[string]string{"X-Test": "1"},
+		Disabled: true,
 	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -52,6 +53,9 @@ func TestProviderAddPreservesExistingFields(t *testing.T) {
 	}
 	if p.BaseURL != "https://new.example.com/v1" {
 		t.Fatalf("BaseURL = %q, want updated URL", p.BaseURL)
+	}
+	if !p.Disabled {
+		t.Fatal("Disabled = false, want true to preserve provider state")
 	}
 }
 
@@ -114,5 +118,50 @@ func TestAliasAddPreservesExistingFields(t *testing.T) {
 	}
 	if len(a.Targets) != 1 || a.Targets[0].Provider != "p1" || a.Targets[0].Model != "up-1" {
 		t.Fatalf("Targets = %#v, want preserved target", a.Targets)
+	}
+}
+
+func TestProviderEnableDisableCommands(t *testing.T) {
+	t.Setenv("OLPX_CONFIG", filepath.Join(t.TempDir(), "olpx.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "p1",
+		BaseURL: "https://example.com/v1",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	disableCmd := newProviderDisableCmd()
+	disableCmd.SetArgs([]string{"p1"})
+	if err := disableCmd.Execute(); err != nil {
+		t.Fatalf("execute provider disable: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload after disable: %v", err)
+	}
+	if provider := cfg.FindProvider("p1"); provider == nil || !provider.Disabled {
+		t.Fatalf("provider after disable = %#v, want disabled=true", provider)
+	}
+
+	enableCmd := newProviderEnableCmd()
+	enableCmd.SetArgs([]string{"p1"})
+	if err := enableCmd.Execute(); err != nil {
+		t.Fatalf("execute provider enable: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload after enable: %v", err)
+	}
+	if provider := cfg.FindProvider("p1"); provider == nil || provider.Disabled {
+		t.Fatalf("provider after enable = %#v, want disabled=false", provider)
 	}
 }
