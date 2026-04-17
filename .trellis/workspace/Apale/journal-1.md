@@ -89,3 +89,36 @@ Implemented the Go-based OPS MVP: local config, provider and alias CLI, OpenCode
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Support disabling providers in olpx
+
+**Date**: 2026-04-17
+**Task**: Support disabling providers in olpx
+**Branch**: `master`
+
+### Summary
+
+Added provider-level disable/enable support, made failover skip disabled providers without mutating alias target state, and aligned doctor/opencode sync/models exposure with routable aliases.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `HEAD` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
