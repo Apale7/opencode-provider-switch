@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
+- **Total Sessions**: 12
 - **Last Active**: 2026-04-18
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~420 | Active |
+| `journal-1.md` | ~525 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-04-18 | Wails desktop shell integration | - | `master` |
+| 11 | 2026-04-18 | Desktop control panel implementation | - | `master` |
 | 10 | 2026-04-18 | Desktop shell skeleton implementation | - | `master` |
 | 9 | 2026-04-18 | GUI desktop direction and architecture decision | - | `master` |
 | 8 | 2026-04-18 | Provider discovery and model ref hardening | `09d0c1f` | `master` |

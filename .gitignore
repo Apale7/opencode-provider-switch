@@ -2,3 +2,5 @@
 /dist/
 *.tmp
 output
+frontend/dist/
+frontend/node_modules/

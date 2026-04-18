@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -219,7 +218,7 @@ func TestSaveLinearizesConcurrentWriters(t *testing.T) {
 		t.Fatalf("OpenFile(lock): %v", err)
 	}
 	defer lockFile.Close()
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockTestFile(lockFile); err != nil {
 		t.Fatalf("Flock(lock): %v", err)
 	}
 
@@ -255,7 +254,7 @@ func TestSaveLinearizesConcurrentWriters(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil {
+	if err := unlockTestFile(lockFile); err != nil {
 		t.Fatalf("Flock(unlock): %v", err)
 	}
 

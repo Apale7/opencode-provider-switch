@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 )
 
 func newDoctorCmd() *cobra.Command {
@@ -25,48 +23,32 @@ aliases, or local server settings.`,
 		Example: `  ocswitch doctor
   ocswitch --config /path/to/config.json doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
+			report, err := appService().RunDoctor(cmd.Context())
 			if err != nil {
+				for _, issue := range report.Issues {
+					fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", issue.Message)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "  providers: %d\n", report.ProviderCount)
+				fmt.Fprintf(cmd.OutOrStdout(), "  aliases:   %d\n", report.AliasCount)
+				marker := "(will be created)"
+				if report.OpenCodeTargetFound {
+					marker = "(exists)"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "  opencode config target: %s %s\n", report.OpenCodeTargetPath, marker)
+				fmt.Fprintf(cmd.OutOrStdout(), "  provider.ocswitch preview: valid=%v\n", report.OK)
+				fmt.Fprintf(cmd.OutOrStdout(), "  proxy bind: %s\n", report.ProxyBindAddress)
 				return err
 			}
-			issues := cfg.Validate()
-
-			path, existed := opencode.ResolveGlobalConfigPath()
-			raw, err := opencode.Load(path)
-			if err != nil {
-				issues = append(issues, fmt.Errorf("load opencode config target: %w", err))
-			} else {
-				aliasNames := cfg.AvailableAliasNames()
-				baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
-				opencode.EnsureOcswitchProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
-				if err := opencode.ValidateOcswitchProvider(raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {
-					issues = append(issues, fmt.Errorf("opencode provider.ocswitch invalid: %w", err))
-				}
-			}
-			ok := len(issues) == 0
-			if ok {
-				fmt.Fprintf(cmd.OutOrStdout(), "✓ config loaded: %s\n", cfg.Path())
-			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "✗ config has %d issue(s):\n", len(issues))
-				for _, e := range issues {
-					fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", e)
-				}
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  providers: %d\n", len(cfg.Providers))
-			fmt.Fprintf(cmd.OutOrStdout(), "  aliases:   %d\n", len(cfg.Aliases))
-
-			// Preview resolved opencode config target
+			fmt.Fprintf(cmd.OutOrStdout(), "✓ config loaded: %s\n", report.ConfigPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "  providers: %d\n", report.ProviderCount)
+			fmt.Fprintf(cmd.OutOrStdout(), "  aliases:   %d\n", report.AliasCount)
 			marker := "(will be created)"
-			if existed {
+			if report.OpenCodeTargetFound {
 				marker = "(exists)"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  opencode config target: %s %s\n", path, marker)
-			fmt.Fprintf(cmd.OutOrStdout(), "  provider.ocswitch preview: valid=%v\n", ok)
-
-			fmt.Fprintf(cmd.OutOrStdout(), "  proxy bind: %s:%d\n", cfg.Server.Host, cfg.Server.Port)
-			if !ok {
-				return fmt.Errorf("%d config issue(s)", len(issues))
-			}
+			fmt.Fprintf(cmd.OutOrStdout(), "  opencode config target: %s %s\n", report.OpenCodeTargetPath, marker)
+			fmt.Fprintf(cmd.OutOrStdout(), "  provider.ocswitch preview: valid=%v\n", report.OK)
+			fmt.Fprintf(cmd.OutOrStdout(), "  proxy bind: %s\n", report.ProxyBindAddress)
 			return nil
 		},
 	}

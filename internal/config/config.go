@@ -56,9 +56,17 @@ type Server struct {
 	APIKey string `json:"api_key"`
 }
 
+// Desktop holds desktop-shell user preferences.
+type Desktop struct {
+	LaunchAtLogin  bool `json:"launch_at_login,omitempty"`
+	MinimizeToTray bool `json:"minimize_to_tray,omitempty"`
+	Notifications  bool `json:"notifications,omitempty"`
+}
+
 // Config is the on-disk ocswitch config.
 type Config struct {
 	Server    Server     `json:"server"`
+	Desktop   Desktop    `json:"desktop,omitempty"`
 	Providers []Provider `json:"providers"`
 	Aliases   []Alias    `json:"aliases"`
 
@@ -98,6 +106,7 @@ func Default() *Config {
 			Port:   9982,
 			APIKey: DefaultLocalAPIKey,
 		},
+		Desktop:   Desktop{},
 		Providers: []Provider{},
 		Aliases:   []Alias{},
 	}
@@ -176,9 +185,10 @@ func (c *Config) Save() error {
 		sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
 		snap := struct {
 			Server    Server     `json:"server"`
+			Desktop   Desktop    `json:"desktop,omitempty"`
 			Providers []Provider `json:"providers"`
 			Aliases   []Alias    `json:"aliases"`
-		}{c.Server, providers, aliases}
+		}{c.Server, c.Desktop, providers, aliases}
 		data, err := json.MarshalIndent(snap, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal: %w", err)

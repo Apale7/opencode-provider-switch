@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 type LockedFile struct {
@@ -61,7 +60,7 @@ func acquireLock(path string) (*LockedFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open lock: %w", err)
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockFile(file); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("lock file: %w", err)
 	}
@@ -72,25 +71,13 @@ func (l *LockedFile) Close() error {
 	if l == nil || l.file == nil {
 		return nil
 	}
-	unlockErr := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
+	unlockErr := unlockFile(l.file)
 	closeErr := l.file.Close()
 	if unlockErr != nil {
 		return fmt.Errorf("unlock file: %w", unlockErr)
 	}
 	if closeErr != nil {
 		return fmt.Errorf("close lock: %w", closeErr)
-	}
-	return nil
-}
-
-func syncDir(dir string) error {
-	f, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("open dir: %w", err)
-	}
-	defer f.Close()
-	if err := f.Sync(); err != nil {
-		return fmt.Errorf("sync dir: %w", err)
 	}
 	return nil
 }

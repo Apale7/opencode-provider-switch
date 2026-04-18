@@ -418,3 +418,108 @@ Implemented the first desktop-shell skeleton by introducing a shared internal/ap
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Desktop control panel implementation
+
+**Date**: 2026-04-18
+**Task**: Desktop control panel implementation
+**Branch**: `master`
+
+### Summary
+
+Extended the desktop-shell skeleton into a minimal usable local control panel by adding an embedded web UI, desktop HTTP bindings, alias/provider overview surfaces, proxy controls, desktop preference editing, and OpenCode sync/doctor actions while keeping the shared Go application layer intact.
+
+### Main Changes
+
+- Upgraded `cmd/ocswitch-desktop/main.go` from a skeleton print-only bootstrap into a runnable local desktop control panel entrypoint with `--config`, `--listen`, and `--no-open` flags.
+- Added `internal/desktop/http.go` as a lightweight desktop shell runtime that:
+  - serves embedded frontend assets
+  - exposes JSON endpoints for overview, providers, aliases, proxy status/start/stop, desktop prefs, doctor, and OpenCode sync preview/apply
+  - opens the browser by default and shuts down cleanly on SIGINT/SIGTERM
+- Added `web/` embedded assets (`web/assets.go`, `web/dist/index.html`, `web/dist/app.css`, `web/dist/app.js`) to provide a minimal control-panel UI without introducing Wails/WebKit runtime dependencies into the current repo.
+- Expanded `internal/app`/`internal/desktop` bindings with alias DTOs and alias listing so the GUI can show both routable provider state and alias routing state.
+- Added `internal/desktop/http_test.go` to verify the desktop control panel serves the app shell, returns overview JSON, and persists desktop preferences through the HTTP API.
+- Verified with:
+  - `gofmt -w cmd/ocswitch-desktop/main.go internal/app/service.go internal/app/types.go internal/desktop/bindings.go internal/desktop/http.go internal/desktop/http_test.go web/assets.go`
+  - `rtk go test ./...`
+  - `rtk go build ./...`
+  - `go run ./cmd/ocswitch-desktop --no-open` followed by live HTTP checks against `/` and `/api/overview`
+- Constraint note: the PRD still recommends Wails as the long-term native shell, but the current environment lacks `wails` CLI and desktop system dependencies, so this implementation deliberately ships a dependency-light local control panel first while keeping `internal/app` and `internal/desktop` ready for a future Wails swap-in.
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 12: Wails desktop shell integration
+
+**Date**: 2026-04-18
+**Task**: Wails desktop shell integration
+**Branch**: `master`
+
+### Summary
+
+Migrated the desktop control panel onto a formal Wails + React/TypeScript structure while preserving a browser fallback shell, added real Linux XDG launch-at-login support, and verified both default and desktop_wails Go paths. Native desktop compilation now fails only on missing Linux system packages rather than repository structure issues.
+
+### Main Changes
+
+- Added Wails v2.12.0 to `go.mod` and introduced `wails.json` so the repository has a formal desktop-shell project structure.
+- Split desktop entrypoints by build tag:
+  - `cmd/ocswitch-desktop/main_fallback.go` keeps the browser fallback shell for default builds.
+  - `cmd/ocswitch-desktop/main_wails.go` and root `main_wails.go` provide the real `desktop_wails` Wails entry path expected by the Wails CLI.
+- Added `internal/desktop/wails.go` to centralize Wails startup configuration, bind the desktop app object, and serve `frontend/dist` assets from the same source used by the browser fallback shell.
+- Expanded `internal/desktop/app.go` into a real desktop composition root with startup, shutdown, close-to-background, preference sync, metadata, and Wails-callable facade methods.
+- Replaced the ad-hoc `web/` assets with a formal `frontend/` Vite + React + TypeScript app:
+  - `frontend/src/App.tsx` now owns the GUI.
+  - `frontend/src/api.ts` bridges both Wails-bound calls and fallback HTTP `/api/*` calls.
+  - `frontend/src/types.ts` mirrors the Go DTOs.
+  - `frontend/src/env.d.ts` declares the Wails bridge surface.
+  - `frontend/src/styles.css` carries forward the control-panel styling.
+- Updated the fallback HTTP shell in `internal/desktop/http.go` to serve `frontendassets.DistFS()` and to align doctor/meta responses with the Wails bridge semantics.
+- Implemented real Linux XDG launch-at-login handling in `internal/desktop/autostart.go` and added `internal/desktop/autostart_test.go` to cover write/remove behavior.
+- Wired `MinimizeToTray` into close-to-background behavior through `internal/desktop/tray.go` using public Wails window lifecycle APIs only; intentionally did not depend on private Wails tray internals because the pinned Wails version does not expose a stable public tray API.
+- Added tag-specific runtime helpers:
+  - `internal/desktop/runtime_wails.go` hides the Wails window.
+  - `internal/desktop/runtime_fallback.go` is a no-op for browser fallback mode.
+- Removed the obsolete `web/` embedded assets directory after the frontend migration because all code now serves assets from `frontend/`.
+- Verified with:
+  - `rtk npm install` (frontend dependencies)
+  - `rtk npm run build`
+  - `rtk go test ./...`
+  - `rtk go test -tags desktop_wails ./...`
+  - `wails build -tags desktop_wails -debug`
+- Verification outcome:
+  - repository structure, bindings generation, frontend build, and tagged Go compilation all succeed
+  - `wails build` now reaches native Linux compilation and stops only at missing system packages (`pkg-config`, and likely GTK/WebKit dev packages)
+  - native tray menus and native notifications remain intentionally incomplete because the current pinned Wails release does not provide a stable public tray API and no notification backend has been integrated yet
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

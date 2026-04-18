@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -211,23 +210,21 @@ This command does not modify config and does not contact upstream providers.`,
 		Example: `  ocswitch provider list
   ocswitch --config /path/to/config.json provider list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
+			providers, err := appService().ListProviders(cmd.Context())
 			if err != nil {
 				return err
 			}
-			providers := append([]config.Provider(nil), cfg.Providers...)
-			sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
 			if len(providers) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "(no providers)")
 				return nil
 			}
 			for _, p := range providers {
 				key := "(none)"
-				if p.APIKey != "" {
-					key = maskKey(p.APIKey)
+				if p.APIKeySet {
+					key = p.APIKeyMasked
 				}
 				state := "enabled"
-				if !p.IsEnabled() {
+				if p.Disabled {
 					state = "disabled"
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%-20s [%s] %s  apiKey=%s\n", p.ID, state, p.BaseURL, key)

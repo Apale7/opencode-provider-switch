@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Apale7/opencode-provider-switch/internal/opencode"
+	"github.com/Apale7/opencode-provider-switch/internal/app"
 )
 
 func newOpencodeCmd() *cobra.Command {
@@ -61,58 +61,24 @@ needed.`,
   ocswitch opencode sync --set-model ocswitch/gpt-5.4 --set-small-model ocswitch/gpt-5.4-mini
   ocswitch opencode sync --target /path/to/opencode.jsonc`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
+			result, err := appService().ApplyOpenCodeSync(cmd.Context(), app.SyncInput{
+				Target:        target,
+				SetModel:      setModel,
+				SetSmallModel: setSmallModel,
+				DryRun:        dryRun,
+			})
 			if err != nil {
 				return err
 			}
-			if errs := cfg.Validate(); len(errs) > 0 {
-				for _, e := range errs {
-					cmd.PrintErrln("config error:", e)
-				}
-				return errs[0]
-			}
-			path := target
-			if path == "" {
-				p, _ := opencode.ResolveGlobalConfigPath()
-				path = p
-			}
-			raw, err := opencode.Load(path)
-			if err != nil {
-				return err
-			}
-			aliasNames := cfg.AvailableAliasNames()
-			if setModel != "" {
-				if err := validateSyncedModelSelection(setModel, aliasNames, "--set-model"); err != nil {
-					return err
-				}
-			}
-			if setSmallModel != "" {
-				if err := validateSyncedModelSelection(setSmallModel, aliasNames, "--set-small-model"); err != nil {
-					return err
-				}
-			}
-			baseURL := fmt.Sprintf("http://%s:%d/v1", cfg.Server.Host, cfg.Server.Port)
-			changed := opencode.EnsureOcswitchProvider(raw, baseURL, cfg.Server.APIKey, aliasNames)
-			if setModel != "" && raw["model"] != setModel {
-				raw["model"] = setModel
-				changed = true
-			}
-			if setSmallModel != "" && raw["small_model"] != setSmallModel {
-				raw["small_model"] = setSmallModel
-				changed = true
-			}
-			if !changed {
-				fmt.Fprintf(cmd.OutOrStdout(), "✓ no changes required at %s\n", path)
+			if !result.Changed {
+				fmt.Fprintf(cmd.OutOrStdout(), "✓ no changes required at %s\n", result.TargetPath)
 				return nil
 			}
-			if dryRun {
-				fmt.Fprintf(cmd.OutOrStdout(), "would write %s (dry-run)\n", path)
+			if result.DryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "would write %s (dry-run)\n", result.TargetPath)
 				return nil
 			}
-			if err := opencode.Save(path, raw); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "synced provider.ocswitch into %s (%d alias(es))\n", path, len(aliasNames))
+			fmt.Fprintf(cmd.OutOrStdout(), "synced provider.ocswitch into %s (%d alias(es))\n", result.TargetPath, len(result.AliasNames))
 			if setModel != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "  model = %s\n", setModel)
 			}

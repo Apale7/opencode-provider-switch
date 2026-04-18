@@ -1,0 +1,380 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"reflect"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/opencode"
+)
+
+func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (ProviderSaveResult, error) {
+	_ = ctx
+	if strings.TrimSpace(in.ID) == "" {
+		return ProviderSaveResult{}, fmt.Errorf("provider id is required")
+	}
+	if err := config.ValidateProviderBaseURL(in.BaseURL); err != nil {
+		return ProviderSaveResult{}, fmt.Errorf("invalid baseUrl: %w", err)
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return ProviderSaveResult{}, err
+	}
+	warnings := []string{}
+	provider := config.Provider{
+		ID:       strings.TrimSpace(in.ID),
+		Name:     strings.TrimSpace(in.Name),
+		BaseURL:  config.NormalizeProviderBaseURL(in.BaseURL),
+		APIKey:   in.APIKey,
+		Headers:  normalizeProviderHeaders(in.Headers),
+		Disabled: in.Disabled,
+	}
+	var existing *config.Provider
+	if cur := cfg.FindProvider(provider.ID); cur != nil {
+		existing = cur
+		if provider.Name == "" {
+			provider.Name = cur.Name
+		}
+		if provider.APIKey == "" {
+			provider.APIKey = cur.APIKey
+		}
+		if len(provider.Headers) == 0 && !in.ClearHeaders && len(cur.Headers) > 0 {
+			provider.Headers = cloneHeaders(cur.Headers)
+		}
+		provider.Models = append([]string(nil), cur.Models...)
+		provider.ModelsSource = cur.ModelsSource
+		if !providerConnectionEqual(*cur, provider) {
+			provider.ModelsSource = ""
+		}
+	}
+	if !in.SkipModels {
+		models, err := opencode.FetchProviderModels(provider.BaseURL, provider.APIKey, provider.Headers)
+		if err != nil {
+			if existing != nil && !providerConnectionEqual(*existing, provider) {
+				provider.Models = append([]string(nil), existing.Models...)
+				provider.ModelsSource = ""
+				warnings = append(warnings, "provider connection changed and model discovery failed; keeping existing model catalog as untrusted")
+			}
+			warnings = append(warnings, fmt.Sprintf("could not discover provider models: %v", err))
+		} else if normalized := config.NormalizeProviderModels(models); len(normalized) > 0 {
+			provider.Models = normalized
+			provider.ModelsSource = "discovered"
+		} else if existing != nil && !providerConnectionEqual(*existing, provider) {
+			provider.Models = append([]string(nil), existing.Models...)
+			provider.ModelsSource = ""
+			warnings = append(warnings, "provider connection changed and model discovery returned no models; keeping existing model catalog as untrusted")
+		} else {
+			warnings = append(warnings, "provider model discovery returned no models; keeping existing model catalog")
+		}
+	} else if existing != nil && !providerConnectionEqual(*existing, provider) {
+		provider.Models = append([]string(nil), existing.Models...)
+		provider.ModelsSource = ""
+		warnings = append(warnings, "provider connection changed with skip models enabled; keeping existing model catalog as untrusted")
+	}
+	cfg.UpsertProvider(provider)
+	if err := cfg.Save(); err != nil {
+		return ProviderSaveResult{}, err
+	}
+	return ProviderSaveResult{Provider: providerView(provider), Warnings: warnings}, nil
+}
+
+func (s *Service) RemoveProvider(ctx context.Context, id string) error {
+	_ = ctx
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return err
+	}
+	if !cfg.RemoveProvider(strings.TrimSpace(id)) {
+		return fmt.Errorf("provider %q not found", id)
+	}
+	return cfg.Save()
+}
+
+func (s *Service) SetAliasTargetDisabled(ctx context.Context, in AliasTargetInput) (AliasView, error) {
+	_ = ctx
+	alias := strings.TrimSpace(in.Alias)
+	providerID := strings.TrimSpace(in.Provider)
+	model := strings.TrimSpace(in.Model)
+	if alias == "" || providerID == "" || model == "" {
+		return AliasView{}, fmt.Errorf("alias, provider and model are required")
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return AliasView{}, err
+	}
+	current := cfg.FindAlias(alias)
+	if current == nil {
+		return AliasView{}, fmt.Errorf("alias %q not found", alias)
+	}
+	updated := *current
+	found := false
+	for i := range updated.Targets {
+		if updated.Targets[i].Provider == providerID && updated.Targets[i].Model == model {
+			updated.Targets[i].Enabled = !in.Disabled
+			found = true
+			break
+		}
+	}
+	if !found {
+		return AliasView{}, fmt.Errorf("target %s/%s not found on alias %s", providerID, model, alias)
+	}
+	cfg.UpsertAlias(updated)
+	if err := cfg.Save(); err != nil {
+		return AliasView{}, err
+	}
+	return aliasView(cfg, updated), nil
+}
+
+func (s *Service) SetProviderDisabled(ctx context.Context, in ProviderStateInput) (ProviderView, error) {
+	_ = ctx
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return ProviderView{}, err
+	}
+	existing := cfg.FindProvider(strings.TrimSpace(in.ID))
+	if existing == nil {
+		return ProviderView{}, fmt.Errorf("provider %q not found", in.ID)
+	}
+	updated := *existing
+	updated.Disabled = in.Disabled
+	cfg.UpsertProvider(updated)
+	if err := cfg.Save(); err != nil {
+		return ProviderView{}, err
+	}
+	return providerView(updated), nil
+}
+
+func (s *Service) ImportProviders(ctx context.Context, in ProviderImportInput) (ProviderImportResult, error) {
+	_ = ctx
+	sourcePath := strings.TrimSpace(in.SourcePath)
+	if sourcePath == "" {
+		p, existed := opencode.ResolveGlobalConfigPath()
+		if !existed {
+			return ProviderImportResult{}, fmt.Errorf("no OpenCode config found at %s; use sourcePath to specify", p)
+		}
+		sourcePath = p
+	}
+	raw, err := opencode.Load(sourcePath)
+	if err != nil {
+		return ProviderImportResult{}, err
+	}
+	imports := opencode.ImportCustomProviders(raw)
+	result := ProviderImportResult{SourcePath: sourcePath}
+	if len(imports) == 0 {
+		return result, nil
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return ProviderImportResult{}, err
+	}
+	for _, ip := range imports {
+		if !in.Overwrite && cfg.FindProvider(ip.ID) != nil {
+			result.Skipped++
+			result.Warnings = append(result.Warnings, fmt.Sprintf("skip %q (already exists, enable overwrite to replace it)", ip.ID))
+			continue
+		}
+		baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
+		if err := config.ValidateProviderBaseURL(baseURL); err != nil {
+			result.Skipped++
+			result.Warnings = append(result.Warnings, fmt.Sprintf("skip %q (invalid baseURL %q: %v)", ip.ID, ip.BaseURL, err))
+			continue
+		}
+		merged := mergeImportedProvider(cfg.FindProvider(ip.ID), opencode.ImportableProvider{
+			ID:      ip.ID,
+			Name:    ip.Name,
+			BaseURL: baseURL,
+			APIKey:  ip.APIKey,
+			Models:  ip.Models,
+		})
+		cfg.UpsertProvider(merged)
+		result.Imported++
+	}
+	if result.Imported > 0 {
+		if err := cfg.Save(); err != nil {
+			return ProviderImportResult{}, err
+		}
+	}
+	return result, nil
+}
+
+func (s *Service) UpsertAlias(ctx context.Context, in AliasUpsertInput) (AliasView, error) {
+	_ = ctx
+	name := strings.TrimSpace(in.Alias)
+	if name == "" {
+		return AliasView{}, fmt.Errorf("alias name is required")
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return AliasView{}, err
+	}
+	a := config.Alias{Alias: name, DisplayName: strings.TrimSpace(in.DisplayName), Enabled: !in.Disabled}
+	if existing := cfg.FindAlias(name); existing != nil {
+		if a.DisplayName == "" {
+			a.DisplayName = existing.DisplayName
+		}
+		a.Targets = existing.Targets
+	}
+	cfg.UpsertAlias(a)
+	if err := cfg.Save(); err != nil {
+		return AliasView{}, err
+	}
+	return aliasView(cfg, a), nil
+}
+
+func (s *Service) RemoveAlias(ctx context.Context, name string) error {
+	_ = ctx
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return err
+	}
+	if !cfg.RemoveAlias(strings.TrimSpace(name)) {
+		return fmt.Errorf("alias %q not found", name)
+	}
+	return cfg.Save()
+}
+
+func (s *Service) BindAliasTarget(ctx context.Context, in AliasTargetInput) (AliasView, error) {
+	_ = ctx
+	alias := strings.TrimSpace(in.Alias)
+	providerID := strings.TrimSpace(in.Provider)
+	model := strings.TrimSpace(in.Model)
+	if alias == "" || providerID == "" || model == "" {
+		return AliasView{}, fmt.Errorf("alias, provider and model are required")
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return AliasView{}, err
+	}
+	p := cfg.FindProvider(providerID)
+	if p == nil {
+		return AliasView{}, fmt.Errorf("provider %q does not exist; add it first", providerID)
+	}
+	if err := validateProviderModelKnown(providerID, p.Models, p.ModelsSource, model); err != nil {
+		return AliasView{}, err
+	}
+	if cfg.FindAlias(alias) == nil {
+		cfg.UpsertAlias(config.Alias{Alias: alias, Enabled: true})
+	}
+	if err := cfg.AddTarget(alias, config.Target{Provider: providerID, Model: model, Enabled: !in.Disabled}); err != nil {
+		return AliasView{}, err
+	}
+	if err := cfg.Save(); err != nil {
+		return AliasView{}, err
+	}
+	current := cfg.FindAlias(alias)
+	if current == nil {
+		return AliasView{}, fmt.Errorf("alias %q not found", alias)
+	}
+	return aliasView(cfg, *current), nil
+}
+
+func (s *Service) UnbindAliasTarget(ctx context.Context, in AliasTargetInput) (AliasView, error) {
+	_ = ctx
+	alias := strings.TrimSpace(in.Alias)
+	providerID := strings.TrimSpace(in.Provider)
+	model := strings.TrimSpace(in.Model)
+	if alias == "" || providerID == "" || model == "" {
+		return AliasView{}, fmt.Errorf("alias, provider and model are required")
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return AliasView{}, err
+	}
+	if err := cfg.RemoveTarget(alias, providerID, model); err != nil {
+		return AliasView{}, err
+	}
+	if err := cfg.Save(); err != nil {
+		return AliasView{}, err
+	}
+	current := cfg.FindAlias(alias)
+	if current == nil {
+		return AliasView{}, fmt.Errorf("alias %q not found", alias)
+	}
+	return aliasView(cfg, *current), nil
+}
+
+func providerConnectionEqual(a, b config.Provider) bool {
+	return config.NormalizeProviderBaseURL(a.BaseURL) == config.NormalizeProviderBaseURL(b.BaseURL) &&
+		a.APIKey == b.APIKey &&
+		reflect.DeepEqual(normalizeProviderHeaders(a.Headers), normalizeProviderHeaders(b.Headers))
+}
+
+func normalizeProviderHeaders(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		key := strings.ToLower(strings.TrimSpace(k))
+		if key == "" {
+			continue
+		}
+		out[key] = strings.TrimSpace(v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProvider) config.Provider {
+	importedModels := config.NormalizeProviderModels(ip.Models)
+	merged := config.Provider{
+		ID:           ip.ID,
+		Name:         ip.Name,
+		BaseURL:      config.NormalizeProviderBaseURL(ip.BaseURL),
+		APIKey:       ip.APIKey,
+		Models:       importedModels,
+		ModelsSource: "imported",
+	}
+	if len(importedModels) == 0 {
+		merged.ModelsSource = ""
+	}
+	if existing == nil {
+		return merged
+	}
+	merged.Headers = cloneHeaders(existing.Headers)
+	merged.Disabled = existing.Disabled
+	if merged.Name == "" {
+		merged.Name = existing.Name
+	}
+	if existing.ModelsSource == "discovered" {
+		prospective := merged
+		prospective.Headers = cloneHeaders(existing.Headers)
+		prospective.Disabled = existing.Disabled
+		if providerConnectionEqual(*existing, prospective) {
+			merged.Models = append([]string(nil), existing.Models...)
+			merged.ModelsSource = existing.ModelsSource
+			return merged
+		}
+		if len(importedModels) == 0 {
+			merged.Models = append([]string(nil), existing.Models...)
+			merged.ModelsSource = ""
+			return merged
+		}
+	}
+	if len(importedModels) == 0 {
+		merged.Models = nil
+		merged.ModelsSource = ""
+	}
+	return merged
+}
+
+func validateProviderModelKnown(providerID string, known []string, source string, model string) error {
+	if source != "discovered" || len(known) == 0 {
+		return nil
+	}
+	if slices.Contains(known, model) {
+		return nil
+	}
+	choices := make([]string, 0, len(known))
+	for _, item := range known {
+		choices = append(choices, providerID+"/"+item)
+	}
+	sort.Strings(choices)
+	return fmt.Errorf("model %q is not in provider %q discovered models; available: %s", model, providerID, strings.Join(choices, ", "))
+}

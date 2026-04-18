@@ -1,0 +1,80 @@
+{
+  "id": "windows-desktop-integrations",
+  "name": "windows-desktop-integrations",
+  "title": "Finish Windows desktop integrations",
+  "description": "Finish the desktop-shell implementation for Windows by wiring the Wails bridge correctly, adding tray controls, native notifications, and launch-at-login support without breaking the browser fallback shell.",
+  "status": "completed",
+  "dev_type": "feature",
+  "scope": "desktop",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-18",
+  "completedAt": "2026-04-18",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-18-windows-desktop-integrations/prd.md",
+    "internal/desktop/app.go",
+    "internal/desktop/tray.go",
+    "internal/desktop/tray_wails.go",
+    "internal/desktop/notify.go",
+    "internal/desktop/autostart.go",
+    "internal/desktop/autostart_test.go",
+    "internal/desktop/runtime_wails.go",
+    "internal/desktop/runtime_fallback.go",
+    "internal/fileutil/fileutil.go",
+    "internal/fileutil/lock_unix.go",
+    "internal/fileutil/lock_windows.go",
+    "internal/config/config_test.go",
+    "internal/config/file_lock_testhelper_unix_test.go",
+    "internal/config/file_lock_testhelper_windows_test.go",
+    "frontend/index.html",
+    "frontend/src/api.ts",
+    "frontend/src/env.d.ts",
+    "frontend/tsconfig.json",
+    "frontend/dist/index.html",
+    "frontend/dist/assets/"
+  ],
+  "notes": "Completed the Windows desktop integration pass on top of the existing desktop shell GUI. Fixed the Wails frontend bridge namespace mismatch, added a real Wails-only tray implementation with systray, wired native notifications through Wails runtime, added Windows Startup-folder launch-at-login support, and fixed file locking so Windows desktop/config flows can build and test. Verification passed for `npm run build`, `go test ./internal/desktop`, `go test -tags desktop_wails ./internal/desktop`, and `go test ./internal/config ./internal/opencode`.",
+  "meta": {
+    "wailsBridgeNamespace": "window.go.desktop.App",
+    "trayImplementation": "github.com/getlantern/systray",
+    "notificationImplementation": "wails runtime notifications",
+    "windowsAutostart": "Startup folder .cmd launcher"
+  }
+}

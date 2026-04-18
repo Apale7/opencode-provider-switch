@@ -1,12 +1,11 @@
 package cli
 
 import (
+	"context"
 	"os/signal"
 	"syscall"
 
 	"github.com/spf13/cobra"
-
-	"github.com/Apale7/opencode-provider-switch/internal/proxy"
 )
 
 func newServeCmd() *cobra.Command {
@@ -25,20 +24,17 @@ OpenCode can see the same aliases that the proxy can route.`,
 		Example: `  ocswitch serve
   ocswitch --config /path/to/config.json serve`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
-			if err != nil {
-				return err
-			}
-			if errs := cfg.Validate(); len(errs) > 0 {
-				for _, e := range errs {
-					cmd.PrintErrln("config error:", e)
-				}
-				return errs[0]
-			}
-			srv := proxy.New(cfg)
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
-			return srv.ListenAndServe(ctx)
+			svc := appService()
+			if err := svc.StartProxy(context.Background()); err != nil {
+				return err
+			}
+			go func() {
+				<-ctx.Done()
+				_ = svc.StopProxy(context.Background())
+			}()
+			return svc.WaitProxy(context.Background())
 		},
 	}
 }

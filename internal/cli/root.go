@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
@@ -16,6 +17,10 @@ var configPath string
 // loadCfg opens the active ocswitch config, with the selected path.
 func loadCfg() (*config.Config, error) {
 	return config.Load(configPath)
+}
+
+func appService() *app.Service {
+	return app.NewService(configPath)
 }
 
 // NewRootCmd builds the root ocswitch command.

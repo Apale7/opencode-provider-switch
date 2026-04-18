@@ -1,0 +1,259 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0b1020;
+  color: #eef2ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top, rgba(96, 165, 250, 0.18), transparent 28%),
+    linear-gradient(180deg, #0b1020 0%, #0f172a 100%);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.85);
+  color: #eef2ff;
+  padding: 0.75rem 1rem;
+}
+
+button.primary {
+  background: linear-gradient(135deg, #2563eb, #22c55e);
+  border: none;
+}
+
+button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+input[type='text'],
+textarea {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.75);
+  color: #eef2ff;
+  padding: 0.75rem 0.9rem;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 5.5rem;
+}
+
+.shell {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.hero h1,
+.panel h2 {
+  margin: 0;
+}
+
+.eyebrow {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #93c5fd;
+}
+
+.subtle {
+  color: #94a3b8;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel {
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 18px;
+  padding: 1rem;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.35);
+}
+
+.wide,
+.overview-panel {
+  grid-column: 1 / -1;
+}
+
+.panel-header,
+.toolbar,
+.hero-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.hero-actions,
+.toolbar {
+  flex-wrap: wrap;
+}
+
+.stats {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
+.stat {
+  padding: 0.9rem;
+  border-radius: 14px;
+  background: rgba(30, 41, 59, 0.88);
+}
+
+.stat-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.stat-value {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1.45rem;
+  font-weight: 600;
+}
+
+.badge {
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+}
+
+.badge.live {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
+.badge.idle {
+  background: rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+}
+
+.stack {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.stack label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.checkbox-row {
+  display: flex !important;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.details {
+  margin: 0;
+  padding: 0.9rem;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #cbd5e1;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.compact-list {
+  margin-top: 0;
+}
+
+.split-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.item-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem;
+  border-radius: 14px;
+  background: rgba(30, 41, 59, 0.82);
+}
+
+.item-card strong {
+  font-size: 1rem;
+}
+
+.item-card code {
+  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+}
+
+.item-meta {
+  color: #cbd5e1;
+}
+
+.nested-card {
+  background: rgba(15, 23, 42, 0.74);
+  padding: 0.7rem 0.85rem;
+}
+
+.tone-error {
+  color: #fca5a5;
+}
+
+.tone-ok {
+  color: #86efac;
+}
+
+@media (max-width: 860px) {
+  .hero,
+  .panel-header,
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .grid,
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .split-layout {
+    grid-template-columns: 1fr;
+  }
+}
