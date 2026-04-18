@@ -295,3 +295,36 @@ Recorded the deep code review findings in Trellis, including 2 high-risk, 4 medi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Provider discovery and model ref hardening
+
+**Date**: 2026-04-18
+**Task**: Provider discovery and model ref hardening
+**Branch**: `master`
+
+### Summary
+
+Completed provider model discovery hardening, provider/model parsing improvements, README/help sync, follow-up review fixes, and final test-name cleanup.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `09d0c1f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
