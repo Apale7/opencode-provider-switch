@@ -328,3 +328,93 @@ Completed provider model discovery hardening, provider/model parsing improvement
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: GUI desktop direction and architecture decision
+
+**Date**: 2026-04-18
+**Task**: forwarding-log-viewer-gui
+**Branch**: `master`
+
+### Summary
+
+Recorded the GUI direction change from a local web-only surface to a desktop-shell follow-up, driven by explicit requirements for launch at login, native menu/tray integration, and native notifications.
+
+### Main Changes
+
+- Confirmed the existing Trellis task `04-17-forwarding-log-viewer-gui` remains historically correct as a completed local web log-viewer design task and should not be retrofitted in place.
+- Recorded follow-up product guidance that desktop capabilities now justify a separate native-shell track rather than a browser-only UI.
+- Captured the recommended follow-up stack as `Wails + React + TypeScript + Tailwind CSS + react-hook-form + zod`.
+- Captured the preferred layering so existing Go logic is not rewritten into desktop-specific code:
+  - `internal/config` continues config IO and validation
+  - `internal/proxy` continues proxy runtime and failover
+  - `internal/opencode` continues OpenCode sync
+  - new `internal/app` application service layer is shared by CLI and GUI
+  - Wails desktop shell owns window, tray/menu, notifications, autostart, and frontend hosting only
+- Recorded the frontend recommendation that React is a better fit than Vue for this project because the desktop control panel is form-heavy and aligns better with the chosen `react-hook-form + zod` stack.
+
+### Git Commits
+
+(No commits - Trellis documentation update only)
+
+### Testing
+
+- [OK] No code changes; updated Trellis task metadata and workspace journal only
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Create a separate Trellis task for the desktop shell if implementation should proceed
+
+
+## Session 10: Desktop shell skeleton implementation
+
+**Date**: 2026-04-18
+**Task**: Desktop shell skeleton implementation
+**Branch**: `master`
+
+### Summary
+
+Implemented the first desktop-shell skeleton by introducing a shared internal/app layer, desktop preference persistence, CLI reuse of shared workflows, and a minimal desktop bootstrap with passing Go tests/builds.
+
+### Main Changes
+
+- Added `config.Desktop` to persist desktop-shell preferences (`launch_at_login`, `minimize_to_tray`, `notifications`) without coupling core runtime logic to a desktop framework.
+- Added `internal/app/types.go` and `internal/app/service.go` as the shared application-service layer described in the PRD.
+- Implemented shared DTOs and workflows for:
+  - overview
+  - provider listing
+  - doctor report generation
+  - OpenCode sync preview/apply plumbing
+  - proxy lifecycle management
+  - desktop preference read/write
+- Refactored CLI reuse points so `doctor`, `opencode sync`, `provider list`, and `serve` now delegate through `internal/app` instead of keeping those orchestration paths CLI-only.
+- Preserved CLI output behavior closely while centralizing the orchestration logic that future desktop bindings can call.
+- Added `internal/desktop/` skeleton adapters (`app`, `bindings`, `tray`, `notify`, `autostart`) as placeholders for a future Wails/native shell integration, keeping desktop-only concerns outside `internal/app`.
+- Added `cmd/ocswitch-desktop/main.go` as a minimal desktop bootstrap binary that exercises the shared bindings and confirms the skeleton is wired.
+- Added `internal/app/service_test.go` to cover desktop preference persistence and proxy start/stop status flow.
+- Verified the implementation with:
+  - `gofmt -w ...`
+  - `rtk go test ./...`
+  - `rtk go build ./...`
+- Scope intentionally stayed at the PRD's recommended “skeleton wiring only” level: no Wails dependency, no React frontend, and no tray/autostart implementation yet.
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

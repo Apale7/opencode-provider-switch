@@ -1,0 +1,83 @@
+{
+  "id": "desktop-shell-gui",
+  "name": "desktop-shell-gui",
+  "title": "Design desktop shell for ocswitch",
+  "description": "Define a desktop-shell architecture for ocswitch that adds launch-at-login, tray/menu, notifications, and a GUI control surface without rewriting existing Go core logic into desktop-specific code.",
+  "status": "completed",
+  "dev_type": "docs",
+  "scope": "desktop",
+  "package": null,
+  "priority": "P2",
+  "creator": "Apale",
+  "assignee": "Apale",
+  "createdAt": "2026-04-18",
+  "completedAt": "2026-04-18",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-18-desktop-shell-gui/prd.md",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/app/types.go",
+    "internal/app/service.go",
+    "internal/app/service_test.go",
+    "internal/proxy/server.go",
+    "internal/opencode/opencode.go",
+    "internal/cli/root.go",
+    "internal/cli/provider.go",
+    "internal/cli/opencode.go",
+    "internal/cli/doctor.go",
+    "internal/cli/serve.go",
+    "internal/desktop/app.go",
+    "internal/desktop/bindings.go",
+    "internal/desktop/tray.go",
+    "internal/desktop/notify.go",
+    "internal/desktop/autostart.go",
+    "cmd/ocswitch-desktop/main.go"
+  ],
+  "notes": "Implemented the first desktop-shell skeleton instead of a full Wails UI: added config-backed desktop preferences, a shared internal/app service layer, CLI reuse of shared workflows for doctor/opencode sync/provider list/serve, a minimal internal/desktop composition root, and a cmd/ocswitch-desktop bootstrap entrypoint. Verification passed with gofmt, go test ./..., and go build ./....",
+  "meta": {
+    "desktopShellRequired": true,
+    "recommendedShell": "wails",
+    "recommendedFrontend": "react",
+    "requiredDesktopCapabilities": [
+      "launch-at-login",
+      "tray-menu",
+      "native-notifications"
+    ],
+    "sharedServiceLayer": "internal/app"
+  }
+}

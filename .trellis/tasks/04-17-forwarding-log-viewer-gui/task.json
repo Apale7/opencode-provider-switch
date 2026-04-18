@@ -54,9 +54,25 @@
     "internal/cli/serve.go",
     "README.md"
   ],
-  "notes": "Design-only task completed. The PRD recommends a same-process local web viewer with append-only JSONL request logs and no new frontend build system.",
+  "notes": "Design-only task completed. The PRD recommends a same-process local web viewer with append-only JSONL request logs and no new frontend build system. Follow-up product discussion on 2026-04-18 introduced explicit desktop requirements (launch at login, native menu/tray, native notifications). That direction should be handled as a separate desktop-shell task instead of rewriting this completed web-UI/log-viewer design task.",
   "meta": {
     "recommendedSurface": "local-web-ui",
+    "desktopFollowupRecommended": true,
+    "desktopFollowupStack": [
+      "wails",
+      "react",
+      "typescript",
+      "tailwindcss",
+      "react-hook-form",
+      "zod"
+    ],
+    "desktopArchitecture": [
+      "internal/config for config IO and validation",
+      "internal/proxy for proxy runtime",
+      "internal/opencode for OpenCode sync",
+      "internal/app as shared application service layer for CLI and GUI",
+      "desktop shell handles window tray menu notification autostart only"
+    ],
     "protocolScope": [
       "openai-responses"
     ],
