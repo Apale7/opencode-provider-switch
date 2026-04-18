@@ -38,7 +38,7 @@ writes OpenCode config. For exact command behavior, defaults, and side effects,
 prefer command-local --help over README summaries.`,
 		Example: `  ocswitch provider add --id su8 --base-url https://cn2.su8.codes/v1 --api-key sk-example
   ocswitch alias add --name gpt-5.4 --display-name "GPT 5.4"
-  ocswitch alias bind --alias gpt-5.4 --provider su8 --model gpt-5.4
+  ocswitch alias bind --alias gpt-5.4 --model su8/gpt-5.4
   ocswitch doctor
   ocswitch opencode sync
   ocswitch serve

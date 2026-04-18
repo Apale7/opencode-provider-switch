@@ -39,12 +39,14 @@ type Alias struct {
 
 // Provider is one upstream OpenAI-compatible endpoint.
 type Provider struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name,omitempty"`
-	BaseURL  string            `json:"base_url"`
-	APIKey   string            `json:"api_key"`
-	Headers  map[string]string `json:"headers,omitempty"`
-	Disabled bool              `json:"disabled,omitempty"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name,omitempty"`
+	BaseURL      string            `json:"base_url"`
+	APIKey       string            `json:"api_key"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	Models       []string          `json:"models,omitempty"`
+	ModelsSource string            `json:"models_source,omitempty"`
+	Disabled     bool              `json:"disabled,omitempty"`
 }
 
 // Server holds proxy listen settings.
@@ -69,10 +71,16 @@ func (p Provider) IsEnabled() bool {
 	return !p.Disabled
 }
 
+// NormalizeProviderBaseURL canonicalizes equivalent /v1 roots for comparisons
+// and persisted config values.
+func NormalizeProviderBaseURL(baseURL string) string {
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
+}
+
 // ValidateProviderBaseURL checks the MVP requirement that upstream base URLs
 // point at an OpenAI-compatible /v1 root.
 func ValidateProviderBaseURL(baseURL string) error {
-	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	trimmed := NormalizeProviderBaseURL(baseURL)
 	if trimmed == "" {
 		return fmt.Errorf("missing base_url")
 	}
@@ -144,34 +152,38 @@ func Load(path string) (*Config, error) {
 }
 
 // Path returns the on-disk path of this config.
-func (c *Config) Path() string { return c.path }
+func (c *Config) Path() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.path
+}
 
 // Save writes config atomically.
 func (c *Config) Save() error {
-	c.mu.RLock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.path == "" {
 		c.path = DefaultPath()
 	}
 	path := c.path
-	providers := append([]Provider(nil), c.Providers...)
-	sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
-	aliases := append([]Alias(nil), c.Aliases...)
-	sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
-	snap := struct {
-		Server    Server     `json:"server"`
-		Providers []Provider `json:"providers"`
-		Aliases   []Alias    `json:"aliases"`
-	}{c.Server, providers, aliases}
-	c.mu.RUnlock()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	data = append(data, '\n')
 	return fileutil.WithLockedFile(path, func() error {
+		providers := cloneProviders(c.Providers)
+		sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
+		aliases := cloneAliases(c.Aliases)
+		sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
+		snap := struct {
+			Server    Server     `json:"server"`
+			Providers []Provider `json:"providers"`
+			Aliases   []Alias    `json:"aliases"`
+		}{c.Server, providers, aliases}
+		data, err := json.MarshalIndent(snap, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal: %w", err)
+		}
+		data = append(data, '\n')
 		return fileutil.AtomicWriteFile(path, data, 0o600)
 	})
 }
@@ -180,7 +192,12 @@ func (c *Config) Save() error {
 func (c *Config) FindProvider(id string) *Provider {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.findProviderLocked(id)
+	p := c.findProviderLocked(id)
+	if p == nil {
+		return nil
+	}
+	clone := cloneProvider(*p)
+	return &clone
 }
 
 func (c *Config) findProviderLocked(id string) *Provider {
@@ -196,13 +213,14 @@ func (c *Config) findProviderLocked(id string) *Provider {
 func (c *Config) UpsertProvider(p Provider) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	cloned := cloneProvider(p)
 	for i := range c.Providers {
 		if c.Providers[i].ID == p.ID {
-			c.Providers[i] = p
+			c.Providers[i] = cloned
 			return
 		}
 	}
-	c.Providers = append(c.Providers, p)
+	c.Providers = append(c.Providers, cloned)
 }
 
 // RemoveProvider deletes a provider and returns true if removed.
@@ -224,7 +242,8 @@ func (c *Config) FindAlias(name string) *Alias {
 	defer c.mu.RUnlock()
 	for i := range c.Aliases {
 		if c.Aliases[i].Alias == name {
-			return &c.Aliases[i]
+			clone := cloneAlias(c.Aliases[i])
+			return &clone
 		}
 	}
 	return nil
@@ -234,13 +253,14 @@ func (c *Config) FindAlias(name string) *Alias {
 func (c *Config) UpsertAlias(a Alias) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	cloned := cloneAlias(a)
 	for i := range c.Aliases {
 		if c.Aliases[i].Alias == a.Alias {
-			c.Aliases[i] = a
+			c.Aliases[i] = cloned
 			return
 		}
 	}
-	c.Aliases = append(c.Aliases, a)
+	c.Aliases = append(c.Aliases, cloned)
 }
 
 // RemoveAlias deletes an alias.
@@ -364,6 +384,26 @@ func (c *Config) Validate() []error {
 		if err := ValidateProviderBaseURL(p.BaseURL); err != nil {
 			errs = append(errs, fmt.Errorf("provider %q %s", p.ID, err))
 		}
+		seenModels := map[string]bool{}
+		for _, model := range p.Models {
+			trimmed := strings.TrimSpace(model)
+			if trimmed == "" {
+				errs = append(errs, fmt.Errorf("provider %q has empty model entry", p.ID))
+				continue
+			}
+			if seenModels[trimmed] {
+				errs = append(errs, fmt.Errorf("provider %q has duplicate model %q", p.ID, trimmed))
+				continue
+			}
+			seenModels[trimmed] = true
+		}
+		validModelsSource := p.ModelsSource == "" || p.ModelsSource == "discovered" || p.ModelsSource == "imported"
+		if !validModelsSource {
+			errs = append(errs, fmt.Errorf("provider %q has invalid models_source %q", p.ID, p.ModelsSource))
+		}
+		if validModelsSource && p.ModelsSource != "" && len(p.Models) == 0 {
+			errs = append(errs, fmt.Errorf("provider %q has models_source %q but no models", p.ID, p.ModelsSource))
+		}
 	}
 	seen := map[string]bool{}
 	for _, a := range c.Aliases {
@@ -405,4 +445,54 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func cloneProvider(p Provider) Provider {
+	p.Headers = cloneStringMap(p.Headers)
+	p.Models = cloneStrings(p.Models)
+	return p
+}
+
+func cloneAlias(a Alias) Alias {
+	a.Targets = cloneTargets(a.Targets)
+	return a
+}
+
+func cloneProviders(in []Provider) []Provider {
+	out := make([]Provider, len(in))
+	for i := range in {
+		out[i] = cloneProvider(in[i])
+	}
+	return out
+}
+
+func cloneAliases(in []Alias) []Alias {
+	out := make([]Alias, len(in))
+	for i := range in {
+		out[i] = cloneAlias(in[i])
+	}
+	return out
+}
+
+func cloneTargets(in []Target) []Target {
+	out := make([]Target, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneStrings(in []string) []string {
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

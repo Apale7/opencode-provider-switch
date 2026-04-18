@@ -23,7 +23,7 @@ English README: `README_EN.md`
 ## 当前能力
 
 - 本地维护 `ocswitch` 配置文件：上游 provider、alias、监听地址
-- 支持手动添加 provider
+- 支持手动添加 provider，并自动发现其 `/v1/models` 模型列表
 - 支持从 OpenCode 配置导入 `@ai-sdk/openai` 自定义 provider
 - 支持创建 alias，并按顺序绑定多个上游 target
 - 支持把 alias 同步到 OpenCode 的 `provider.ocswitch.models`
@@ -58,8 +58,7 @@ go run ./cmd/ocswitch --help
 
 ### 1. 添加上游 provider
 
-`ocswitch` 要求上游是 OpenAI 兼容接口，并且 `--base-url` 需要带上 `/v1`。
-
+`ocswitch` 要求上游是 OpenAI 兼容接口，并且 `--base-url` 需要带上 `/v1`。默认会自动调用上游 `/v1/models` 拉取模型列表并缓存到本地配置，后续绑定 alias 时可用于校验模型名、减少手写 typo；如果发现失败，只会输出 warning，不会阻止连接信息保存。如果某些 provider 不开放该接口，可以显式加 `--skip-models` 仅保存连接信息。
 ```bash
 ocswitch provider add --id su8 --base-url https://cn2.su8.codes/v1 --api-key sk-xxx
 ocswitch provider add --id codex --base-url https://api-vip.codex-for.me/v1 --api-key sk-yyy
@@ -76,6 +75,12 @@ ocswitch provider add \
   --header "X-Workspace=my-team"
 ```
 
+如果你之后想把这些额外 header 全部清空，可以显式传：
+
+```bash
+ocswitch provider add --id relay --base-url https://example.com/v1 --clear-headers --skip-models
+```
+
 查看当前 provider：
 
 ```bash
@@ -84,14 +89,13 @@ ocswitch provider list
 
 ### 2. 创建 alias，并绑定多个上游 target
 
-下面这个例子表示：当你使用 `ocswitch/gpt-5.4` 时，优先走 `su8/gpt-5.4`，失败后再走 `codex/GPT-5.4`。
+下面这个例子表示：当你使用 `ocswitch/gpt-5.4` 时，优先走 `su8/gpt-5.4`，失败后再走 `codex/GPT-5.4`。推荐在未传 `--provider` 时直接把上游 target 写成 `Provider/Model`；旧的 `--provider` + `--model` 写法仍然保留作为兼容兜底，而且 `model` 本身即使包含 `/` 也不会被强行改判。
 
 ```bash
 ocswitch alias add --name gpt-5.4 --display-name "GPT 5.4"
-ocswitch alias bind --alias gpt-5.4 --provider su8 --model gpt-5.4
-ocswitch alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
+ocswitch alias bind --alias gpt-5.4 --model su8/gpt-5.4
+ocswitch alias bind --alias gpt-5.4 --model codex/GPT-5.4
 ```
-
 查看当前 alias：
 
 ```bash
@@ -208,9 +212,9 @@ curl -sN -X POST http://127.0.0.1:9982/v1/responses \
   -d '{"model":"gpt-5.4","stream":true,"input":"hello"}'
 ```
 
-注意这里请求体里的 `model` 是 alias 本身，例如 `gpt-5.4`，不是 `ocswitch/gpt-5.4`。
+注意这里请求体里的 `model` 可以直接写 alias 本身，例如 `gpt-5.4`；也兼容 `ocswitch/gpt-5.4` 这种带前缀的写法。
 
-因为 `ocswitch/gpt-5.4` 是 OpenCode 侧的模型选择写法；真正发到本地 provider 的请求里，模型名会是 alias 自身。
+因为 `ocswitch/gpt-5.4` 是 OpenCode 侧常见的模型选择写法；真正路由到本地时，工具会统一解析成 alias 自身。
 
 ## 从现有 OpenCode 配置导入 provider
 
@@ -230,14 +234,18 @@ ocswitch provider import-opencode --from ./examples/opencode.jsonc
 
 - `npm: @ai-sdk/openai`
 - 有 `options.baseURL`
-- `options.apiKey` 可以为空；导入后由 `ocswitch doctor` / `serve` 前校验帮助你发现风险
+- `options.apiKey` 可以为空；当前静态校验不会单独拦截空上游 API Key，这类问题通常会在真实请求上游时暴露
 注意：
 
 - 这不是完整迁移工具
 - 默认导入源也只看全局用户配置目录，不跟随 `OPENCODE_CONFIG_DIR`
 - 如果你要导入别的 OpenCode 配置文件，请显式传 `--from`
-- 当前只导入 provider 的基本连接信息
-- 如果你的旧配置依赖额外自定义 header，需要导入后自己用 `ocswitch provider add --header ...` 补齐
+- 导入时仍要求 `baseURL` 满足 `/v1` 约束；不合法的 provider 会被跳过
+- 如果源 OpenCode 配置已经声明 `models`，导入时会一并保留，但这类导入值默认只作为展示/迁移信息，不会像主动发现到的 catalog 那样做硬校验
+- 如果你修改了 provider 的连接信息，但本次 discovery 被跳过、失败或返回空列表，旧 catalog 会降级成“不可信元数据”：仍保留在配置里，但不会继续用于强校验
+- 如果你的 provider 不开放 `/v1/models`，后续可用 `ocswitch provider add --skip-models ...` 仅保存连接信息
+- `--overwrite` 会更新导入到的基本连接信息，但仍保留本地的 disabled 状态、额外 header，以及仍然可信的 discovered catalog
+- 如果你的旧配置依赖额外自定义 header，首次导入后仍可能需要自己用 `ocswitch provider add --header ...` 补齐
 - `ocswitch` 自己不会被反向导入
 
 覆盖已存在的 provider：
@@ -254,7 +262,13 @@ ocswitch provider import-opencode --overwrite
 
 ```bash
 ocswitch provider add --id <id> --base-url <url-with-/v1> --api-key <key>
+ocswitch provider add --id <id> --base-url <url-with-/v1> --api-key ""
+ocswitch provider add --id <id> --base-url <url-with-/v1> --clear-headers
+ocswitch provider add --id <id> --base-url <url-with-/v1> --skip-models
 ```
+
+如果你需要把已保存的上游 API key 清空，显式传 `--api-key ""` 即可。
+如果你需要把已保存的额外 header 清空，显式传 `--clear-headers` 即可。
 
 查看 provider：
 
@@ -293,12 +307,14 @@ ocswitch alias add --name <alias>
 给 alias 追加一个 target：
 
 ```bash
+ocswitch alias bind --alias <alias> --model <provider-id>/<upstream-model>
 ocswitch alias bind --alias <alias> --provider <provider-id> --model <upstream-model>
 ```
 
 解绑 target：
 
 ```bash
+ocswitch alias unbind --alias <alias> --model <provider-id>/<upstream-model>
 ocswitch alias unbind --alias <alias> --provider <provider-id> --model <upstream-model>
 ```
 
@@ -436,7 +452,7 @@ ocswitch --config /path/to/config.json doctor
 
 ## 调试响应头
 
-每次成功代理或透传上游错误时，响应里都会附带这些头：
+当请求已经选定某个上游并开始向客户端返回该次尝试的结果时，响应里会附带这些头：
 
 - `X-OCSWITCH-Alias`
 - `X-OCSWITCH-Provider`
@@ -491,6 +507,7 @@ ocswitch --config /path/to/config.json doctor
 因为 alias 里的 target 还是旧引用。需要继续执行：
 
 ```bash
+ocswitch alias unbind --alias <alias> --model <provider-id>/<model>
 ocswitch alias unbind --alias <alias> --provider <provider-id> --model <model>
 ```
 

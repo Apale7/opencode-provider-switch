@@ -24,9 +24,9 @@ response bytes are sent downstream.
 Common workflow: create an alias, bind primary and fallback targets, inspect the
 result with alias list, then run doctor and opencode sync.`,
 		Example: `  ocswitch alias add --name gpt-5.4 --display-name "GPT 5.4"
-  ocswitch alias bind --alias gpt-5.4 --provider su8 --model gpt-5.4
-  ocswitch alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
-  ocswitch alias list`,
+	  ocswitch alias bind --alias gpt-5.4 --model su8/gpt-5.4
+	  ocswitch alias bind --alias gpt-5.4 --model codex/GPT-5.4
+	  ocswitch alias list`,
 	}
 	c.AddCommand(newAliasAddCmd(), newAliasListCmd(), newAliasBindCmd(), newAliasUnbindCmd(), newAliasRemoveCmd())
 	return c
@@ -146,27 +146,42 @@ func newAliasBindCmd() *cobra.Command {
 chain in local ocswitch config.
 
 The provider must already exist. If the alias does not exist yet, this command
-auto-creates an enabled alias for convenience. Binding does not test upstream
-health or credentials.
+auto-creates an enabled alias for convenience. You can pass the target either as
+--provider <id> --model <name> or in the more natural combined form --model
+<provider>/<model> when --provider is omitted; the combined form is recommended
+and the explicit --provider flag remains as fallback compatibility. If the
+provider has a stored model catalog discovered from /v1/models, bind validates
+the model name against that discovered list.
 
 Order matters: the first bound target is tried first, the second is fallback,
 and so on. Typical next step: inspect with alias list, then run doctor.`,
-		Example: `  ocswitch alias bind --alias gpt-5.4 --provider su8 --model gpt-5.4
-  ocswitch alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
+		Example: `  ocswitch alias bind --alias gpt-5.4 --model su8/gpt-5.4
+  ocswitch alias bind --alias gpt-5.4 --model codex/GPT-5.4
   ocswitch alias bind --alias gpt-5.4 --provider relay --model gpt-5.4 --disabled`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if alias == "" || provider == "" || model == "" {
-				return fmt.Errorf("--alias, --provider and --model are required")
+			if alias == "" || model == "" {
+				return fmt.Errorf("--alias and --model are required")
+			}
+			combinedProvider, combinedModel, combined := parseProviderModelRef(model)
+			if provider == "" {
+				if !combined {
+					return fmt.Errorf("--model must use <provider>/<model> when --provider is omitted")
+				}
+				provider = combinedProvider
+				model = combinedModel
 			}
 			cfg, err := loadCfg()
 			if err != nil {
 				return err
 			}
-			if cfg.FindProvider(provider) == nil {
+			p := cfg.FindProvider(provider)
+			if p == nil {
 				return fmt.Errorf("provider %q does not exist; add it first", provider)
 			}
+			if err := validateProviderModelKnown(provider, p.Models, p.ModelsSource, model); err != nil {
+				return err
+			}
 			if cfg.FindAlias(alias) == nil {
-				// auto-create enabled alias for ergonomics
 				cfg.UpsertAlias(config.Alias{Alias: alias, Enabled: true})
 			}
 			if err := cfg.AddTarget(alias, config.Target{Provider: provider, Model: model, Enabled: !disabled}); err != nil {
@@ -180,12 +195,11 @@ and so on. Typical next step: inspect with alias list, then run doctor.`,
 		},
 	}
 	cmd.Flags().StringVar(&alias, "alias", "", "alias name (required)")
-	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (required)")
-	cmd.Flags().StringVar(&model, "model", "", "upstream model id (required)")
+	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (fallback; prefer --model provider/model)")
+	cmd.Flags().StringVar(&model, "model", "", "upstream target model, or provider/model when --provider is omitted (required)")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "add target in disabled state")
 	return cmd
 }
-
 func newAliasUnbindCmd() *cobra.Command {
 	var alias, provider, model string
 	cmd := &cobra.Command{
@@ -198,13 +212,26 @@ It does not delete the alias itself. Removing a target can leave the alias with
 no routable targets, which doctor and opencode sync will then treat as invalid
 or unavailable.
 
+You can identify the target either as --provider <id> --model <name> or in the
+recommended combined form --model <provider>/<model> when --provider is omitted.
+The explicit --provider flag remains available as a compatibility fallback.
+
 Typical next step: run alias list or doctor to confirm the remaining target
 chain.`,
-		Example: `  ocswitch alias unbind --alias gpt-5.4 --provider codex --model GPT-5.4
+		Example: `  ocswitch alias unbind --alias gpt-5.4 --model codex/GPT-5.4
+  ocswitch alias unbind --alias gpt-5.4 --provider codex --model GPT-5.4
   ocswitch doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if alias == "" || provider == "" || model == "" {
-				return fmt.Errorf("--alias, --provider and --model are required")
+			if alias == "" || model == "" {
+				return fmt.Errorf("--alias and --model are required")
+			}
+			combinedProvider, combinedModel, combined := parseProviderModelRef(model)
+			if provider == "" {
+				if !combined {
+					return fmt.Errorf("--model must use <provider>/<model> when --provider is omitted")
+				}
+				provider = combinedProvider
+				model = combinedModel
 			}
 			cfg, err := loadCfg()
 			if err != nil {
@@ -221,8 +248,8 @@ chain.`,
 		},
 	}
 	cmd.Flags().StringVar(&alias, "alias", "", "alias name (required)")
-	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (required)")
-	cmd.Flags().StringVar(&model, "model", "", "upstream model id (required)")
+	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (fallback; prefer --model provider/model)")
+	cmd.Flags().StringVar(&model, "model", "", "upstream target model, or provider/model when --provider is omitted (required)")
 	return cmd
 }
 

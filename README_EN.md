@@ -24,14 +24,14 @@ go build -o ocswitch ./cmd/ocswitch
 ## Quick start
 
 ```bash
-# 1. add upstream providers
+# 1. add upstream providers (models are discovered from /v1/models by default; warnings do not block saving)
 ocswitch provider add --id su8   --base-url https://cn2.su8.codes/v1 --api-key sk-...
 ocswitch provider add --id codex --base-url https://api-vip.codex-for.me/v1 --api-key sk-...
 
-# 2. create alias and bind targets in priority order
+# 2. create alias and bind targets in priority order (preferred Provider/Model form)
 ocswitch alias add --name gpt-5.4
-ocswitch alias bind --alias gpt-5.4 --provider su8   --model gpt-5.4
-ocswitch alias bind --alias gpt-5.4 --provider codex --model GPT-5.4
+ocswitch alias bind --alias gpt-5.4 --model su8/gpt-5.4
+ocswitch alias bind --alias gpt-5.4 --model codex/GPT-5.4
 
 # 3. push alias exposure into OpenCode global config
 ocswitch opencode sync
@@ -42,7 +42,6 @@ ocswitch provider disable su8
 # 4. run the proxy
 ocswitch serve
 ```
-
 Inside OpenCode you can now pick `ocswitch/gpt-5.4`.
 
 ### Import providers from an existing OpenCode config
@@ -58,7 +57,15 @@ different file.
 
 Only `@ai-sdk/openai` custom providers with a `baseURL` are imported. An empty
 `apiKey` is allowed and kept as-is so you can complete credentials later.
-### Doctor (static)
+Imported provider model lists are preserved when the source config already
+declares `models`, and `provider add` will otherwise refresh them from
+`/v1/models` by default. Imported lists are kept for migration context, while
+hard typo validation only uses catalogs actively discovered from `/v1/models`.
+If connection details change but discovery is skipped, fails, or returns an
+empty list, any old catalog is retained only as untrusted metadata and no longer
+used for strict validation.
+
+### Validate before serving
 
 ```bash
 ocswitch doctor
@@ -100,11 +107,18 @@ is the authoritative local execution contract.
 - `ocswitch alias {add,list,bind,unbind,remove}`
 - `ocswitch opencode sync [--target FILE] [--set-model ALIAS] [--set-small-model ALIAS] [--dry-run]`
 
-Global flag: `--config PATH` (default `$OCSWITCH_CONFIG`, else `$XDG_CONFIG_HOME/ocswitch/config.json`).
+Preferred bind form: `ocswitch alias bind --alias <alias> --model <provider>/<model>` when `--provider` is omitted.
+The legacy `--provider <id> --model <model>` form is still accepted as a fallback, including models whose names already contain `/`.
+The same combined form also works for `alias unbind`.
+
+To clear a previously saved upstream API key, pass `--api-key ""` explicitly on `provider add`.
+To clear previously saved extra provider headers, pass `--clear-headers` on `provider add`.
+
+Global flag: `--config PATH` (default `$OCSWITCH_CONFIG`, else `$XDG_CONFIG_HOME/ocswitch/config.json`, else `~/.config/ocswitch/config.json`).
 
 ## Debug headers
 
-Every proxied response includes:
+Responses include these debug headers once a concrete upstream attempt is being returned to the client:
 
 - `X-OCSWITCH-Alias`
 - `X-OCSWITCH-Provider`
@@ -115,7 +129,6 @@ Every proxied response includes:
 ## Scope
 
 Out of MVP: Anthropic native, multi-protocol routing, dashboard, billing,
-latency-based routing, full `/v1/models` provider discovery, full OpenCode
-config takeover.
+latency-based routing, and full OpenCode config takeover.
 See `.trellis/tasks/archive/2026-04/04-17-04-17-ops-mvp-design-review/prd.md`
 for the authoritative design notes.

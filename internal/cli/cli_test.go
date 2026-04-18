@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +35,7 @@ func TestProviderAddPreservesExistingFields(t *testing.T) {
 	}
 
 	cmd := newProviderAddCmd()
-	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://new.example.com/v1"})
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://new.example.com/v1", "--skip-models"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute provider add: %v", err)
 	}
@@ -79,6 +81,575 @@ func TestProviderAddRejectsInvalidBaseURL(t *testing.T) {
 	}
 	if _, statErr := os.Stat(configFile); !os.IsNotExist(statErr) {
 		t.Fatalf("expected no config file write, stat err = %v", statErr)
+	}
+}
+
+func TestProviderAddDiscoverySuccessStoresCatalog(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("path = %s, want /v1/models", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4.1"},{"id":"gpt-4o"}]}`))
+	}))
+	defer srv.Close()
+
+	cmd := newProviderAddCmd()
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", srv.URL + "/v1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if got := strings.Join(p.Models, ","); got != "gpt-4.1,gpt-4o" {
+		t.Fatalf("Models = %q", got)
+	}
+	if p.ModelsSource != "discovered" {
+		t.Fatalf("ModelsSource = %q, want discovered", p.ModelsSource)
+	}
+}
+
+func TestProviderAddDiscoveryFailureStillSavesProvider(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	cmd := newProviderAddCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", srv.URL + "/v1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "warning: could not discover provider models") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if p.BaseURL != srv.URL+"/v1" {
+		t.Fatalf("BaseURL = %q", p.BaseURL)
+	}
+}
+
+func TestProviderAddDiscoveryFailureMarksCatalogUntrustedAfterConnectionChange(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://old.example.com/v1",
+		Models:       []string{"old-model"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	cmd := newProviderAddCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", srv.URL + "/v1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if got := strings.Join(p.Models, ","); got != "old-model" {
+		t.Fatalf("Models = %q, want old-model preserved", got)
+	}
+	if p.ModelsSource != "" {
+		t.Fatalf("ModelsSource = %q, want empty to disable strict validation", p.ModelsSource)
+	}
+	if !strings.Contains(stderr.String(), "keeping existing model catalog as untrusted") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestProviderAddSkipModelsMarksCatalogUntrustedAfterConnectionChange(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://old.example.com/v1",
+		Models:       []string{"old-model"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://new.example.com/v1", "--skip-models"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if got := strings.Join(p.Models, ","); got != "old-model" {
+		t.Fatalf("Models = %q, want old-model preserved", got)
+	}
+	if p.ModelsSource != "" {
+		t.Fatalf("ModelsSource = %q, want empty to disable strict validation", p.ModelsSource)
+	}
+	if !strings.Contains(stderr.String(), "connection changed with --skip-models") || !strings.Contains(stderr.String(), "untrusted") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenConnectionEquivalent(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      " https://example.com/v1/ ",
+		Models:       []string{"old-model"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/v1", "--skip-models"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+	if strings.Contains(stderr.String(), "untrusted") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if got := strings.Join(p.Models, ","); got != "old-model" {
+		t.Fatalf("Models = %q", got)
+	}
+	if p.ModelsSource != "discovered" {
+		t.Fatalf("ModelsSource = %q, want discovered", p.ModelsSource)
+	}
+	if p.BaseURL != "https://example.com/v1" {
+		t.Fatalf("BaseURL = %q, want normalized", p.BaseURL)
+	}
+}
+
+func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenHeadersEquivalent(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://example.com/v1",
+		Headers:      nil,
+		Models:       []string{"old-model"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/v1", "--skip-models"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+	if strings.Contains(stderr.String(), "untrusted") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if p.ModelsSource != "discovered" {
+		t.Fatalf("ModelsSource = %q, want discovered", p.ModelsSource)
+	}
+}
+
+func TestProviderAddDiscoveryEmptyKeepsDiscoveredCatalogWhenConnectionUnchanged(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer srv.Close()
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      srv.URL + "/v1",
+		Models:       []string{"gpt-4.1"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", srv.URL + "/v1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "keeping existing model catalog") || strings.Contains(stderr.String(), "untrusted") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if got := strings.Join(p.Models, ","); got != "gpt-4.1" {
+		t.Fatalf("Models = %q", got)
+	}
+	if p.ModelsSource != "discovered" {
+		t.Fatalf("ModelsSource = %q, want discovered", p.ModelsSource)
+	}
+}
+
+func TestProviderAddDiscoveryEmptyMarksCatalogUntrustedAfterConnectionChange(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://old.example.com/v1",
+		Models:       []string{"gpt-4.1"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer srv.Close()
+
+	cmd := newProviderAddCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", srv.URL + "/v1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "keeping existing model catalog") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if got := strings.Join(p.Models, ","); got != "gpt-4.1" {
+		t.Fatalf("Models = %q", got)
+	}
+	if p.ModelsSource != "" {
+		t.Fatalf("ModelsSource = %q, want empty to disable strict validation after connection change", p.ModelsSource)
+	}
+}
+
+func TestProviderAddRejectsEmptyHeaderName(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://example.com/v1",
+		Headers:      map[string]string{"X-Test": "1"},
+		Models:       []string{"known-model"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/v1", "--header", "=x"})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("expected invalid --header error")
+	}
+	if got := err.Error(); got != `invalid --header "=x" (header name must not be empty)` {
+		t.Fatalf("error = %q", got)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil || p.Headers["X-Test"] != "1" || p.ModelsSource != "discovered" {
+		t.Fatalf("provider after failed header parse = %#v", p)
+	}
+}
+
+func TestProviderAddLastHeaderWinsCaseInsensitive(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Token"); got != "b" {
+			t.Fatalf("X-Token = %q, want b", got)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4.1"}]}`))
+	}))
+	defer srv.Close()
+
+	cmd := newProviderAddCmd()
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", srv.URL + "/v1", "--header", "X-Token=a", "--header", "x-token=b"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if got := p.Headers["x-token"]; got != "b" {
+		t.Fatalf("Headers = %#v, want lower-cased x-token=b", p.Headers)
+	}
+	if len(p.Headers) != 1 {
+		t.Fatalf("Headers = %#v, want single merged header", p.Headers)
+	}
+}
+
+func TestProviderAddAllowsClearingAPIKey(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://example.com/v1", APIKey: "sk-old"})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/v1", "--api-key", "", "--skip-models"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if p.APIKey != "" {
+		t.Fatalf("APIKey = %q, want cleared empty string", p.APIKey)
+	}
+}
+
+func TestProviderAddAllowsClearingHeaders(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "p1",
+		BaseURL: "https://example.com/v1",
+		Headers: map[string]string{"x-token": "abc", "x-workspace": "team"},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/v1", "--clear-headers", "--skip-models"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if p.Headers != nil {
+		t.Fatalf("Headers = %#v, want nil after --clear-headers", p.Headers)
+	}
+}
+
+func TestProviderAddAllowsExplicitEnableViaDisabledFalse(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://example.com/v1", Disabled: true})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/v1", "--disabled=false", "--skip-models"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if p.Disabled {
+		t.Fatal("Disabled = true, want explicit false applied")
+	}
+}
+
+func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenHeaderCaseChangesOnly(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://example.com/v1",
+		Headers:      map[string]string{"X-Test": "1"},
+		Models:       []string{"old-model"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newProviderAddCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/v1", "--header", "x-test=1", "--skip-models"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+	if strings.Contains(stderr.String(), "untrusted") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil || p.ModelsSource != "discovered" {
+		t.Fatalf("provider after update = %#v", p)
 	}
 }
 
@@ -282,16 +853,22 @@ func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 			wantExample: []string{"ocswitch provider add", "ocswitch serve"},
 		},
 		{
+			name:        "alias root",
+			cmd:         newAliasCmd(),
+			wantLong:    []string{"ordered target chain", "Common workflow:"},
+			wantExample: []string{"--model su8/gpt-5.4", "--model codex/GPT-5.4"},
+		},
+		{
 			name:        "provider add",
 			cmd:         newProviderAddCmd(),
-			wantLong:    []string{"--base-url must point at an", "omitted mutable fields keep their current", "values: name, api key, headers"},
-			wantExample: []string{"ocswitch provider add --id relay", "--header X-Workspace=my-team"},
+			wantLong:    []string{"/v1/models endpoint", "stores the discovered", "Use --clear-headers", "Use\n--skip-models"},
+			wantExample: []string{"--skip-models", "--header X-Workspace=my-team"},
 		},
 		{
 			name:        "alias bind",
 			cmd:         newAliasBindCmd(),
-			wantLong:    []string{"auto-creates an enabled alias", "Order matters:"},
-			wantExample: []string{"--provider codex --model GPT-5.4", "--disabled"},
+			wantLong:    []string{"combined form is recommended", "stored model catalog", "Order matters:"},
+			wantExample: []string{"--model codex/GPT-5.4", "--disabled"},
 		},
 		{
 			name:        "opencode sync",
@@ -321,7 +898,6 @@ func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 			}
 		})
 	}
-
 	root := NewRootCmd("test")
 	flag := root.PersistentFlags().Lookup("config")
 	if flag == nil {
@@ -331,5 +907,309 @@ func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 		if !strings.Contains(flag.Usage, want) {
 			t.Fatalf("config flag usage missing %q: %s", want, flag.Usage)
 		}
+	}
+}
+
+func TestAliasBindAcceptsSlashModelWithExplicitProvider(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{ID: "relay", BaseURL: "https://example.com/v1", Models: []string{"openrouter/google/gemini-2.5-pro"}, ModelsSource: "discovered"})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newAliasBindCmd()
+	cmd.SetArgs([]string{"--alias", "gemini", "--provider", "relay", "--model", "openrouter/google/gemini-2.5-pro"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute alias bind: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	a := cfg.FindAlias("gemini")
+	if a == nil || len(a.Targets) != 1 || a.Targets[0].Model != "openrouter/google/gemini-2.5-pro" {
+		t.Fatalf("alias targets = %#v", a)
+	}
+}
+
+func TestAliasUnbindAcceptsSlashModelWithExplicitProvider(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{ID: "relay", BaseURL: "https://example.com/v1"})
+	cfg.UpsertAlias(config.Alias{Alias: "gemini", Enabled: true, Targets: []config.Target{{Provider: "relay", Model: "openrouter/google/gemini-2.5-pro", Enabled: true}}})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newAliasUnbindCmd()
+	cmd.SetArgs([]string{"--alias", "gemini", "--provider", "relay", "--model", "openrouter/google/gemini-2.5-pro"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute alias unbind: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	a := cfg.FindAlias("gemini")
+	if a == nil || len(a.Targets) != 0 {
+		t.Fatalf("alias targets = %#v", a)
+	}
+}
+
+func TestImportedModelsDoNotBlockAliasBind(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://example.com/v1",
+		Models:       []string{"subset-only"},
+		ModelsSource: "imported",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newAliasBindCmd()
+	cmd.SetArgs([]string{"--alias", "gpt", "--provider", "p1", "--model", "different-real-model"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute alias bind: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	a := cfg.FindAlias("gpt")
+	if a == nil || len(a.Targets) != 1 || a.Targets[0].Model != "different-real-model" {
+		t.Fatalf("alias targets = %#v", a)
+	}
+}
+
+func TestProviderImportOpencodeSkipsInvalidBaseURL(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	src := filepath.Join(t.TempDir(), "opencode.json")
+	data := `{
+	  "provider": {
+	    "bad": {
+	      "npm": "@ai-sdk/openai",
+	      "options": {"baseURL": "https://example.com/api", "apiKey": "sk-test"}
+	    }
+	  }
+	}`
+	if err := os.WriteFile(src, []byte(data), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	cmd := newProviderImportCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--from", src})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider import-opencode: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `skip "bad" (invalid baseURL`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if cfg.FindProvider("bad") != nil {
+		t.Fatal("invalid imported provider should not be saved")
+	}
+}
+
+func TestProviderImportOpencodeMissingFromFileReturnsError(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	missing := filepath.Join(t.TempDir(), "missing.jsonc")
+	cmd := newProviderImportCmd()
+	cmd.SetArgs([]string{"--from", missing})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected missing --from file error")
+	}
+	if !strings.Contains(err.Error(), missing) || !strings.Contains(err.Error(), "no such file or directory") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestProviderImportOpencodeOverwritePreservesLocalStateAndDemotesCatalogAfterAPIKeyChange(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		Name:         "Local Name",
+		BaseURL:      "https://old.example.com/v1",
+		APIKey:       "sk-old",
+		Headers:      map[string]string{"X-Test": "1"},
+		Models:       []string{"discovered-model"},
+		ModelsSource: "discovered",
+		Disabled:     true,
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	src := filepath.Join(t.TempDir(), "opencode.json")
+	data := `{
+	  "provider": {
+	    "p1": {
+	      "npm": "@ai-sdk/openai",
+	      "name": "Imported Name",
+	      "options": {"baseURL": "https://old.example.com/v1", "apiKey": "sk-new"},
+	      "models": {"imported-model": {}}
+	    }
+	  }
+	}`
+	if err := os.WriteFile(src, []byte(data), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	cmd := newProviderImportCmd()
+	cmd.SetArgs([]string{"--from", src, "--overwrite"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider import-opencode: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if !p.Disabled {
+		t.Fatal("Disabled = false, want preserved true")
+	}
+	if p.Headers["X-Test"] != "1" {
+		t.Fatalf("Headers = %#v, want preserved local headers", p.Headers)
+	}
+	if p.Name != "Imported Name" {
+		t.Fatalf("Name = %q, want imported name", p.Name)
+	}
+	if p.APIKey != "sk-new" {
+		t.Fatalf("APIKey = %q, want imported value", p.APIKey)
+	}
+	if got := strings.Join(p.Models, ","); got != "imported-model" {
+		t.Fatalf("Models = %q, want imported catalog after API key change", got)
+	}
+	if p.ModelsSource != "imported" {
+		t.Fatalf("ModelsSource = %q, want imported after API key change", p.ModelsSource)
+	}
+}
+
+func TestProviderImportOpencodeOverwriteClearsRemovedImportedModels(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://example.com/v1",
+		Models:       []string{"old-imported-model"},
+		ModelsSource: "imported",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	src := filepath.Join(t.TempDir(), "opencode.json")
+	data := `{
+	  "provider": {
+	    "p1": {
+	      "npm": "@ai-sdk/openai",
+	      "options": {"baseURL": "https://example.com/v1", "apiKey": "sk-test"}
+	    }
+	  }
+	}`
+	if err := os.WriteFile(src, []byte(data), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	cmd := newProviderImportCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--from", src, "--overwrite"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider import-opencode: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `import "p1" → https://example.com/v1 (models: )`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found")
+	}
+	if len(p.Models) != 0 {
+		t.Fatalf("Models = %#v, want empty after imported models removed", p.Models)
+	}
+	if p.ModelsSource != "" {
+		t.Fatalf("ModelsSource = %q, want empty when imported models removed", p.ModelsSource)
+	}
+}
+
+func TestDiscoveredModelsStillBlockUnknownAliasBind(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:           "p1",
+		BaseURL:      "https://example.com/v1",
+		Models:       []string{"known-model"},
+		ModelsSource: "discovered",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newAliasBindCmd()
+	cmd.SetArgs([]string{"--alias", "gpt", "--provider", "p1", "--model", "unknown-model"})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("expected alias bind error")
+	}
+	if !strings.Contains(err.Error(), `model "unknown-model" is not in provider "p1" discovered models`) {
+		t.Fatalf("error = %q", err.Error())
 	}
 }

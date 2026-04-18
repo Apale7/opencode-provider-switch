@@ -205,7 +205,7 @@ func TestValidateOcswitchProviderAllowsCustomModelMetadata(t *testing.T) {
 	}
 }
 
-func TestRenderSaveDataReplacesExistingProviderOnly(t *testing.T) {
+func TestPatchProviderDocumentReplacesExistingProviderOnly(t *testing.T) {
 	raw := Raw{
 		"$schema": "https://opencode.ai/config.json",
 		"model":   "ocswitch/gpt-5.4",
@@ -246,7 +246,7 @@ func TestRenderSaveDataReplacesExistingProviderOnly(t *testing.T) {
 	}
 }
 
-func TestRenderSaveDataInsertsOcswitchWithoutReorderingProviderKeys(t *testing.T) {
+func TestPatchProviderDocumentInsertsOcswitchWithoutReorderingProviderKeys(t *testing.T) {
 	raw := Raw{
 		"provider": map[string]any{
 			"anthropic": map[string]any{"npm": "@ai-sdk/anthropic"},
@@ -273,7 +273,7 @@ func TestRenderSaveDataInsertsOcswitchWithoutReorderingProviderKeys(t *testing.T
 	assertStringOrder(t, string(got), []string{`"anthropic"`, `"openai"`, `"ocswitch"`})
 }
 
-func TestRenderSaveDataInsertsProviderAtTopLevelEnd(t *testing.T) {
+func TestPatchProviderDocumentInsertsProviderAtTopLevelEnd(t *testing.T) {
 	raw := Raw{
 		"model": "ocswitch/gpt-5.4",
 		"provider": map[string]any{
@@ -300,7 +300,7 @@ func TestRenderSaveDataInsertsProviderAtTopLevelEnd(t *testing.T) {
 	assertStringOrder(t, string(got), []string{`"model"`, `"small_model"`, `"provider"`})
 }
 
-func TestRenderSaveDataAcceptsJSONCAndProducesValidJSON(t *testing.T) {
+func TestPatchProviderDocumentAcceptsJSONCAndProducesValidJSON(t *testing.T) {
 	raw := Raw{
 		"provider": map[string]any{
 			ProviderKey: map[string]any{
@@ -351,7 +351,32 @@ func TestImportCustomProvidersAllowsEmptyAPIKey(t *testing.T) {
 		t.Fatalf("api key = %q, want empty", imports[0].APIKey)
 	}
 }
-func TestRenderSaveDataRejectsInvalidJSONC(t *testing.T) {
+
+func TestImportCustomProvidersSortsModels(t *testing.T) {
+	raw := Raw{
+		"provider": map[string]any{
+			"p1": map[string]any{
+				"npm": "@ai-sdk/openai",
+				"options": map[string]any{
+					"baseURL": "https://example.com/v1",
+				},
+				"models": map[string]any{
+					"z-model": map[string]any{},
+					"a-model": map[string]any{},
+				},
+			},
+		},
+	}
+
+	imports := ImportCustomProviders(raw)
+	if len(imports) != 1 {
+		t.Fatalf("len(imports) = %d, want 1", len(imports))
+	}
+	if got := strings.Join(imports[0].Models, ","); got != "a-model,z-model" {
+		t.Fatalf("Models = %q", got)
+	}
+}
+func TestPatchProviderDocumentRejectsInvalidJSONC(t *testing.T) {
 	raw := Raw{
 		"provider": map[string]any{
 			ProviderKey: map[string]any{
@@ -371,7 +396,7 @@ func TestRenderSaveDataRejectsInvalidJSONC(t *testing.T) {
 	}
 }
 
-func TestRenderSaveDataRejectsNonObjectProvider(t *testing.T) {
+func TestPatchProviderDocumentRejectsNonObjectProvider(t *testing.T) {
 	raw := Raw{}
 	EnsureOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
 
@@ -380,7 +405,7 @@ func TestRenderSaveDataRejectsNonObjectProvider(t *testing.T) {
 	}
 }
 
-func TestRenderSaveDataRejectsNonObjectTopLevel(t *testing.T) {
+func TestPatchProviderDocumentRejectsNonObjectTopLevel(t *testing.T) {
 	raw := Raw{}
 	EnsureOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
 
@@ -392,7 +417,7 @@ func TestRenderSaveDataRejectsNonObjectTopLevel(t *testing.T) {
 	}
 }
 
-func TestRenderSaveDataWritesValidJSONToDisk(t *testing.T) {
+func TestSaveWritesValidJSONToDisk(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "opencode.jsonc")
 	if err := os.WriteFile(path, []byte("{\n  \"model\": \"ocswitch/gpt-5.4\",\n  \"provider\": {\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"}\n  }\n}\n"), 0o600); err != nil {
 		t.Fatalf("write seed config: %v", err)

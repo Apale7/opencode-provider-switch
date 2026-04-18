@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -42,7 +44,9 @@ then bind them to aliases with ocswitch alias bind.`,
 func newProviderAddCmd() *cobra.Command {
 	var id, name, baseURL, apiKey string
 	var headers []string
+	var clearHeaders bool
 	var disabled bool
+	var skipModels bool
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add or update an upstream provider",
@@ -50,18 +54,27 @@ func newProviderAddCmd() *cobra.Command {
 config.
 
 It writes only the ocswitch config file. --base-url must point at an
-OpenAI-compatible /v1 root. The command validates that shape, but it does not
-contact the upstream or test credentials.
+OpenAI-compatible /v1 root. By default the command also calls the upstream
+/v1/models endpoint with the supplied credentials and stores the discovered
+model list so later bind operations can catch typos early. Discovery failures
+only emit warnings and do not block saving connection settings. Use
+--skip-models when the upstream blocks model discovery or you only want to save
+connection settings.
 
 When updating an existing provider, omitted mutable fields keep their current
-values: name, api key, headers, and disabled state are preserved unless you
-explicitly pass new values. Repeated --header KEY=VALUE entries replace the
+values: name, api key, headers, and disabled state are preserved unless the
+corresponding flag is explicitly passed. Use --clear-headers to remove all saved
+extra headers before storing the updated provider. Discovered model catalogs are refreshed when
+possible. If connection details changed but discovery was skipped or failed, any
+existing model catalog is kept only as untrusted metadata so later validation no
+longer relies on stale entries. Repeated --header KEY=VALUE entries replace the
 stored header map for this command invocation.
 
 Typical next step: run ocswitch provider list or bind the provider to an alias.`,
 		Example: `  ocswitch provider add --id su8 --base-url https://cn2.su8.codes/v1
   ocswitch provider add --id su8 --base-url https://cn2.su8.codes/v1 --api-key sk-example
   ocswitch provider add --id relay --base-url https://example.com/v1 --api-key sk-example --header X-Token=abc --header X-Workspace=my-team
+  ocswitch provider add --id relay --base-url https://example.com/v1 --skip-models
   ocswitch provider add --id su8 --base-url https://new.example.com/v1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if id == "" || baseURL == "" {
@@ -74,35 +87,76 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 			if err != nil {
 				return err
 			}
-			hdrs := map[string]string{}
+			apiKeyChanged := cmd.Flags().Changed("api-key")
+			headersChanged := cmd.Flags().Changed("header")
+			clearHeadersRequested := cmd.Flags().Changed("clear-headers") && clearHeaders
+			disabledChanged := cmd.Flags().Changed("disabled")
+			var hdrs map[string]string
 			for _, h := range headers {
 				k, v, ok := strings.Cut(h, "=")
 				if !ok {
 					return fmt.Errorf("invalid --header %q (want KEY=VALUE)", h)
 				}
-				hdrs[strings.TrimSpace(k)] = strings.TrimSpace(v)
+				key := strings.ToLower(strings.TrimSpace(k))
+				if key == "" {
+					return fmt.Errorf("invalid --header %q (header name must not be empty)", h)
+				}
+				if hdrs == nil {
+					hdrs = make(map[string]string, len(headers))
+				}
+				hdrs[key] = strings.TrimSpace(v)
 			}
 			p := config.Provider{
 				ID:       id,
 				Name:     name,
-				BaseURL:  baseURL,
+				BaseURL:  config.NormalizeProviderBaseURL(baseURL),
 				APIKey:   apiKey,
-				Headers:  hdrs,
+				Headers:  normalizeProviderHeaders(hdrs),
 				Disabled: disabled,
 			}
+			connectionChanged := false
 			if existing := cfg.FindProvider(id); existing != nil {
 				if p.Name == "" {
 					p.Name = existing.Name
 				}
-				if p.APIKey == "" {
+				if !apiKeyChanged {
 					p.APIKey = existing.APIKey
 				}
-				if len(headers) == 0 && len(existing.Headers) > 0 {
+				if !headersChanged && !clearHeadersRequested && len(existing.Headers) > 0 {
 					p.Headers = cloneHeaders(existing.Headers)
 				}
-				if !disabled {
+				if !disabledChanged {
 					p.Disabled = existing.Disabled
 				}
+				p.Models = append([]string(nil), existing.Models...)
+				p.ModelsSource = existing.ModelsSource
+				connectionChanged = !providerConnectionEqual(*existing, p)
+			}
+			if !skipModels {
+				models, err := opencode.FetchProviderModels(p.BaseURL, p.APIKey, p.Headers)
+				if err != nil {
+					if connectionChanged {
+						p.Models = append([]string(nil), p.Models...)
+						p.ModelsSource = ""
+						fmt.Fprintln(cmd.ErrOrStderr(), "warning: provider connection changed and model discovery failed; keeping existing model catalog as untrusted")
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not discover provider models: %v\n", err)
+				} else if normalized := config.NormalizeProviderModels(models); len(normalized) > 0 {
+					p.Models = normalized
+					p.ModelsSource = "discovered"
+				} else {
+					if connectionChanged {
+						p.Models = append([]string(nil), p.Models...)
+						p.ModelsSource = ""
+						fmt.Fprintln(cmd.ErrOrStderr(), "warning: provider connection changed and model discovery returned no models; keeping existing model catalog as untrusted")
+					} else {
+						fmt.Fprintln(cmd.ErrOrStderr(), "warning: provider model discovery returned no models; keeping existing model catalog")
+					}
+				}
+			} else if connectionChanged {
+				p.Models = append([]string(nil), p.Models...)
+				p.ModelsSource = ""
+				fmt.Fprintln(cmd.ErrOrStderr(), "warning: provider connection changed with --skip-models; keeping existing model catalog as untrusted")
 			}
 			cfg.UpsertProvider(p)
 			if err := cfg.Save(); err != nil {
@@ -113,6 +167,9 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 				state = "disabled"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q [%s] → %s\n", id, state, baseURL)
+			if !skipModels && p.ModelsSource == "discovered" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  discovered %d model(s)\n", len(p.Models))
+			}
 			return nil
 		},
 	}
@@ -121,10 +178,14 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "OpenAI-compatible base URL, including /v1 (required)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "upstream API key")
 	cmd.Flags().StringArrayVar(&headers, "header", nil, "extra header KEY=VALUE (repeatable)")
+	cmd.Flags().BoolVar(&clearHeaders, "clear-headers", false, "remove all saved extra headers before applying updates")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "save provider in disabled state")
+	cmd.Flags().BoolVar(&skipModels, "skip-models", false, "skip provider /v1/models discovery")
+	if err := cmd.Flags().SetAnnotation("skip-models", cobra.BashCompOneRequiredFlag, []string{"false"}); err != nil {
+		panic(err)
+	}
 	return cmd
 }
-
 func cloneHeaders(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
@@ -271,20 +332,26 @@ aware). It does not follow OPENCODE_CONFIG_DIR for this default source; use
 --from when you want a different file.
 
 Only config-defined @ai-sdk/openai custom providers with baseURL are imported.
-Providers with an empty apiKey are allowed and kept as-is. Unsupported provider
-shapes are skipped by design. Existing ocswitch providers are skipped unless
---overwrite is given.
+Imported baseURL values must still satisfy the local /v1 requirement. Providers
+with an empty apiKey are allowed and kept as-is. Unsupported provider shapes are
+skipped by design. Existing ocswitch providers are skipped unless --overwrite is
+given.
 Typical next step: run ocswitch provider list, then create aliases and bindings.`,
 		Example: `  ocswitch provider import-opencode
   ocswitch provider import-opencode --from /path/to/opencode.jsonc
   ocswitch provider import-opencode --overwrite`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fromChanged := cmd.Flags().Changed("from")
 			if srcPath == "" {
 				p, existed := opencode.ResolveGlobalConfigPath()
 				if !existed {
 					return fmt.Errorf("no OpenCode config found at %s; use --from to specify", p)
 				}
 				srcPath = p
+			} else if fromChanged {
+				if _, err := os.Stat(srcPath); err != nil {
+					return fmt.Errorf("read %s: %w", srcPath, err)
+				}
 			}
 			raw, err := opencode.Load(srcPath)
 			if err != nil {
@@ -307,15 +374,23 @@ Typical next step: run ocswitch provider list, then create aliases and bindings.
 					fmt.Fprintf(cmd.OutOrStdout(), "skip %q (already exists, use --overwrite)\n", ip.ID)
 					continue
 				}
-				cfg.UpsertProvider(config.Provider{
-					ID:       ip.ID,
-					Name:     ip.Name,
-					BaseURL:  ip.BaseURL,
-					APIKey:   ip.APIKey,
-					Disabled: false,
+				baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
+				if err := config.ValidateProviderBaseURL(baseURL); err != nil {
+					skipped++
+					fmt.Fprintf(cmd.OutOrStdout(), "skip %q (invalid baseURL %q: %v)\n", ip.ID, ip.BaseURL, err)
+					continue
+				}
+				existing := cfg.FindProvider(ip.ID)
+				merged := mergeImportedProvider(existing, opencode.ImportableProvider{
+					ID:      ip.ID,
+					Name:    ip.Name,
+					BaseURL: baseURL,
+					APIKey:  ip.APIKey,
+					Models:  ip.Models,
 				})
+				cfg.UpsertProvider(merged)
 				imported++
-				fmt.Fprintf(cmd.OutOrStdout(), "import %q → %s (models: %s)\n", ip.ID, ip.BaseURL, strings.Join(ip.Models, ","))
+				fmt.Fprintf(cmd.OutOrStdout(), "import %q → %s (models: %s)\n", ip.ID, baseURL, strings.Join(merged.Models, ","))
 			}
 			if imported > 0 {
 				if err := cfg.Save(); err != nil {
@@ -329,6 +404,79 @@ Typical next step: run ocswitch provider list, then create aliases and bindings.
 	cmd.Flags().StringVar(&srcPath, "from", "", "OpenCode config to read (default: global user config)")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "overwrite existing provider entries")
 	return cmd
+}
+
+func normalizeProviderHeaders(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		key := strings.ToLower(strings.TrimSpace(k))
+		if key == "" {
+			continue
+		}
+		out[key] = strings.TrimSpace(v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func providerConnectionEqual(a, b config.Provider) bool {
+	return config.NormalizeProviderBaseURL(a.BaseURL) == config.NormalizeProviderBaseURL(b.BaseURL) &&
+		a.APIKey == b.APIKey &&
+		reflect.DeepEqual(normalizeProviderHeaders(a.Headers), normalizeProviderHeaders(b.Headers))
+}
+
+func providerCatalogEndpointEqual(a, b config.Provider) bool {
+	return config.NormalizeProviderBaseURL(a.BaseURL) == config.NormalizeProviderBaseURL(b.BaseURL) &&
+		a.APIKey == b.APIKey &&
+		reflect.DeepEqual(normalizeProviderHeaders(a.Headers), normalizeProviderHeaders(b.Headers))
+}
+
+func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProvider) config.Provider {
+	importedModels := config.NormalizeProviderModels(ip.Models)
+	merged := config.Provider{
+		ID:           ip.ID,
+		Name:         ip.Name,
+		BaseURL:      config.NormalizeProviderBaseURL(ip.BaseURL),
+		APIKey:       ip.APIKey,
+		Models:       importedModels,
+		ModelsSource: "imported",
+	}
+	if len(importedModels) == 0 {
+		merged.ModelsSource = ""
+	}
+	if existing == nil {
+		return merged
+	}
+	merged.Headers = cloneHeaders(existing.Headers)
+	merged.Disabled = existing.Disabled
+	if merged.Name == "" {
+		merged.Name = existing.Name
+	}
+	if existing.ModelsSource == "discovered" {
+		prospective := merged
+		prospective.Headers = cloneHeaders(existing.Headers)
+		prospective.Disabled = existing.Disabled
+		if providerCatalogEndpointEqual(*existing, prospective) {
+			merged.Models = append([]string(nil), existing.Models...)
+			merged.ModelsSource = existing.ModelsSource
+			return merged
+		}
+		if len(importedModels) == 0 {
+			merged.Models = append([]string(nil), existing.Models...)
+			merged.ModelsSource = ""
+			return merged
+		}
+	}
+	if len(importedModels) == 0 {
+		merged.Models = nil
+		merged.ModelsSource = ""
+	}
+	return merged
 }
 
 // maskKey redacts middle characters of an API key for display.

@@ -1,8 +1,14 @@
 package config
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestValidateProviderBaseURL(t *testing.T) {
@@ -37,6 +43,14 @@ func TestValidateProviderBaseURL(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNormalizeProviderBaseURL(t *testing.T) {
+	t.Parallel()
+
+	if got := NormalizeProviderBaseURL("  https://example.com/v1/  "); got != "https://example.com/v1" {
+		t.Fatalf("NormalizeProviderBaseURL() = %q", got)
 	}
 }
 
@@ -125,5 +139,136 @@ func TestValidateReportsAliasWithoutAvailableTargets(t *testing.T) {
 	}
 	if got := errs[0].Error(); got != `alias "gpt-5.4" has no available targets` {
 		t.Fatalf("Validate() error = %q", got)
+	}
+}
+
+func TestValidateRejectsInvalidModelsSource(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Server:    Server{Host: "127.0.0.1", Port: 9982, APIKey: DefaultLocalAPIKey},
+		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", ModelsSource: "manual"}},
+	}
+
+	err := cfg.Validate()
+	if len(err) != 1 {
+		t.Fatalf("Validate() errors = %v, want 1 error", err)
+	}
+	if got := err[0].Error(); got != `provider "p1" has invalid models_source "manual"` {
+		t.Fatalf("Validate() error = %q", got)
+	}
+}
+
+func TestValidateRejectsModelsSourceWithoutModels(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Server:    Server{Host: "127.0.0.1", Port: 9982, APIKey: DefaultLocalAPIKey},
+		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", ModelsSource: "discovered"}},
+	}
+
+	err := cfg.Validate()
+	if len(err) != 1 {
+		t.Fatalf("Validate() errors = %v, want 1 error", err)
+	}
+	if got := err[0].Error(); got != `provider "p1" has models_source "discovered" but no models` {
+		t.Fatalf("Validate() error = %q", got)
+	}
+}
+
+func TestSavePreservesEmptyCollectionsAsArrays(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.path = t.TempDir() + "/config.json"
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := Load(cfg.path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Providers == nil || loaded.Aliases == nil {
+		t.Fatalf("round-trip nil slices: providers=%#v aliases=%#v", loaded.Providers, loaded.Aliases)
+	}
+
+	var raw map[string]any
+	data, err := os.ReadFile(cfg.path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if _, ok := raw["providers"].([]any); !ok {
+		t.Fatalf("providers JSON = %#v, want array", raw["providers"])
+	}
+	if _, ok := raw["aliases"].([]any); !ok {
+		t.Fatalf("aliases JSON = %#v, want array", raw["aliases"])
+	}
+}
+
+func TestSaveLinearizesConcurrentWriters(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.path = filepath.Join(t.TempDir(), "config.json")
+	lockFile, err := os.OpenFile(cfg.path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("OpenFile(lock): %v", err)
+	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatalf("Flock(lock): %v", err)
+	}
+
+	startedFirst := make(chan struct{})
+	secondDone := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		cfg.UpsertProvider(Provider{ID: "first", BaseURL: "https://first.example.com/v1"})
+		close(startedFirst)
+		if err := cfg.Save(); err != nil {
+			t.Errorf("first Save() error = %v", err)
+		}
+	}()
+
+	<-startedFirst
+	time.Sleep(20 * time.Millisecond)
+
+	go func() {
+		defer wg.Done()
+		cfg.UpsertProvider(Provider{ID: "second", BaseURL: "https://second.example.com/v1"})
+		if err := cfg.Save(); err != nil {
+			t.Errorf("second Save() error = %v", err)
+		}
+		close(secondDone)
+	}()
+
+	select {
+	case <-secondDone:
+		t.Fatal("second Save() completed before external file lock was released")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatalf("Flock(unlock): %v", err)
+	}
+
+	wg.Wait()
+
+	loaded, err := Load(cfg.path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.FindProvider("first") == nil {
+		t.Fatalf("final config = %#v, want first provider persisted", loaded.Providers)
+	}
+	if loaded.FindProvider("second") == nil {
+		t.Fatalf("final config = %#v, want latest provider persisted", loaded.Providers)
 	}
 }

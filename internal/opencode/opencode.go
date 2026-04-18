@@ -600,6 +600,7 @@ func ImportCustomProviders(raw Raw) []ImportableProvider {
 			for k := range models {
 				ip.Models = append(ip.Models, k)
 			}
+			sort.Strings(ip.Models)
 		}
 		out = append(out, ip)
 	}
