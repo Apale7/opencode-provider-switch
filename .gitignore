@@ -2,5 +2,6 @@
 /dist/
 *.tmp
 output
+build/
 frontend/dist/
 frontend/node_modules/

@@ -12,7 +12,7 @@
   "assignee": "OpenCode",
   "createdAt": "2026-04-18",
   "completedAt": "2026-04-18",
-  "branch": null,
+  "branch": "master",
   "base_branch": "master",
   "worktree_path": null,
   "current_phase": 6,
@@ -42,7 +42,7 @@
       "action": "record-session"
     }
   ],
-  "commit": null,
+  "commit": "5c4f60f",
   "pr_url": null,
   "subtasks": [],
   "children": [],
