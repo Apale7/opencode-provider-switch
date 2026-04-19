@@ -1,0 +1,138 @@
+name: release-assets
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            runs-on: windows-latest
+            artifact_name: ocswitch-desktop-windows-amd64
+            package: release/ocswitch-desktop-windows-amd64.zip
+            output: build/bin/ocswitch-desktop.exe
+          - name: macos
+            runs-on: macos-13
+            artifact_name: ocswitch-desktop-darwin-amd64
+            package: release/ocswitch-desktop-darwin-amd64.zip
+            output: build/bin/ocswitch-desktop.app
+          - name: linux
+            runs-on: ubuntu-22.04
+            artifact_name: ocswitch-desktop-linux-amd64
+            package: release/ocswitch-desktop-linux-amd64.zip
+            output: build/bin/ocswitch-desktop
+
+    runs-on: ${{ matrix.runs-on }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm install
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev build-essential pkg-config
+
+      - name: Verify Wails output name
+        shell: bash
+        env:
+          EXPECTED_OUTPUT: ${{ matrix.output }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+
+          expected = pathlib.Path(os.environ["EXPECTED_OUTPUT"])
+          print(f"expected output: {expected.as_posix()}")
+          PY
+
+      - name: Build desktop app
+        run: wails build -tags desktop_wails
+
+      - name: Package artifact
+        shell: bash
+        env:
+          SOURCE_PATH: ${{ matrix.output }}
+          DEST_PATH: ${{ matrix.package }}
+        run: |
+          mkdir -p release
+          python - <<'PY'
+          import hashlib
+          import os
+          import pathlib
+          import zipfile
+
+          source = pathlib.Path(os.environ["SOURCE_PATH"])
+          dest = pathlib.Path(os.environ["DEST_PATH"])
+          dest.parent.mkdir(parents=True, exist_ok=True)
+
+          with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              if source.is_dir():
+                  for path in source.rglob("*"):
+                      if path.is_file():
+                          zf.write(path, arcname=f"{source.name}/{path.relative_to(source).as_posix()}")
+              else:
+                  zf.write(source, arcname=source.name)
+
+          digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+          dest.with_suffix(dest.suffix + ".sha256").write_text(f"{digest}  {dest.name}\n", encoding="ascii")
+          PY
+
+      - name: List packaged files
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib
+
+          for path in sorted(pathlib.Path("release").glob("**/*")):
+              if path.is_file():
+                  print(path.as_posix())
+          PY
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.package }}
+            ${{ matrix.package }}.sha256
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/**
