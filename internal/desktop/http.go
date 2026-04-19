@@ -298,6 +298,32 @@ func newHandler(instance *App, version string, baseURL string) (http.Handler, er
 		writeResult(w, data, err)
 	})
 
+	api.HandleFunc("/api/proxy/settings", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			data, err := b.GetProxySettings(r.Context())
+			writeResult(w, data, err)
+		case http.MethodPost:
+			var in appcore.ProxySettingsInput
+			if !decodeJSONBody(w, r, &in) {
+				return
+			}
+			data, err := b.SaveProxySettings(r.Context(), in)
+			writeResult(w, data, err)
+		default:
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	})
+
+	api.HandleFunc("/api/proxy/traces", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		data, err := b.ListRequestTraces(r.Context(), 100)
+		writeResult(w, data, err)
+	})
+
 	api.HandleFunc("/api/proxy/start", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, http.MethodPost)

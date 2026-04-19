@@ -51,14 +51,28 @@ type Provider struct {
 
 // Server holds proxy listen settings.
 type Server struct {
-	Host   string `json:"host"`
-	Port   int    `json:"port"`
-	APIKey string `json:"api_key"`
+	Host                    string `json:"host"`
+	Port                    int    `json:"port"`
+	APIKey                  string `json:"api_key"`
+	ConnectTimeoutMs        int    `json:"connect_timeout_ms,omitempty"`
+	ResponseHeaderTimeoutMs int    `json:"response_header_timeout_ms,omitempty"`
+	FirstByteTimeoutMs      int    `json:"first_byte_timeout_ms,omitempty"`
+	RequestReadTimeoutMs    int    `json:"request_read_timeout_ms,omitempty"`
+	StreamIdleTimeoutMs     int    `json:"stream_idle_timeout_ms,omitempty"`
 }
+
+const (
+	DefaultConnectTimeoutMs        = 10_000
+	DefaultResponseHeaderTimeoutMs = 15_000
+	DefaultFirstByteTimeoutMs      = 15_000
+	DefaultRequestReadTimeoutMs    = 30_000
+	DefaultStreamIdleTimeoutMs     = 60_000
+)
 
 // Desktop holds desktop-shell user preferences.
 type Desktop struct {
 	LaunchAtLogin  bool   `json:"launch_at_login,omitempty"`
+	AutoStartProxy bool   `json:"auto_start_proxy,omitempty"`
 	MinimizeToTray bool   `json:"minimize_to_tray,omitempty"`
 	Notifications  bool   `json:"notifications,omitempty"`
 	Theme          string `json:"theme,omitempty"`
@@ -104,9 +118,14 @@ func ValidateProviderBaseURL(baseURL string) error {
 func Default() *Config {
 	return &Config{
 		Server: Server{
-			Host:   "127.0.0.1",
-			Port:   9982,
-			APIKey: DefaultLocalAPIKey,
+			Host:                    "127.0.0.1",
+			Port:                    9982,
+			APIKey:                  DefaultLocalAPIKey,
+			ConnectTimeoutMs:        DefaultConnectTimeoutMs,
+			ResponseHeaderTimeoutMs: DefaultResponseHeaderTimeoutMs,
+			FirstByteTimeoutMs:      DefaultFirstByteTimeoutMs,
+			RequestReadTimeoutMs:    DefaultRequestReadTimeoutMs,
+			StreamIdleTimeoutMs:     DefaultStreamIdleTimeoutMs,
 		},
 		Desktop:   Desktop{},
 		Providers: []Provider{},
@@ -158,6 +177,7 @@ func Load(path string) (*Config, error) {
 	if c.Server.APIKey == "" {
 		c.Server.APIKey = DefaultLocalAPIKey
 	}
+	normalizeServerTimeouts(&c.Server)
 	c.path = path
 	return c, nil
 }
@@ -448,7 +468,40 @@ func (c *Config) Validate() []error {
 	if c.Server.APIKey == DefaultLocalAPIKey && !isLoopbackHost(c.Server.Host) {
 		errs = append(errs, fmt.Errorf("server.api_key must not use the default value when listening on non-loopback host %q", c.Server.Host))
 	}
+	if c.Server.ConnectTimeoutMs <= 0 {
+		errs = append(errs, fmt.Errorf("server.connect_timeout_ms must be greater than 0"))
+	}
+	if c.Server.ResponseHeaderTimeoutMs <= 0 {
+		errs = append(errs, fmt.Errorf("server.response_header_timeout_ms must be greater than 0"))
+	}
+	if c.Server.FirstByteTimeoutMs <= 0 {
+		errs = append(errs, fmt.Errorf("server.first_byte_timeout_ms must be greater than 0"))
+	}
+	if c.Server.RequestReadTimeoutMs <= 0 {
+		errs = append(errs, fmt.Errorf("server.request_read_timeout_ms must be greater than 0"))
+	}
+	if c.Server.StreamIdleTimeoutMs <= 0 {
+		errs = append(errs, fmt.Errorf("server.stream_idle_timeout_ms must be greater than 0"))
+	}
 	return errs
+}
+
+func normalizeServerTimeouts(server *Server) {
+	if server == nil {
+		return
+	}
+	server.ConnectTimeoutMs = normalizeServerTimeoutMs(server.ConnectTimeoutMs, DefaultConnectTimeoutMs)
+	server.ResponseHeaderTimeoutMs = normalizeServerTimeoutMs(server.ResponseHeaderTimeoutMs, DefaultResponseHeaderTimeoutMs)
+	server.FirstByteTimeoutMs = normalizeServerTimeoutMs(server.FirstByteTimeoutMs, DefaultFirstByteTimeoutMs)
+	server.RequestReadTimeoutMs = normalizeServerTimeoutMs(server.RequestReadTimeoutMs, DefaultRequestReadTimeoutMs)
+	server.StreamIdleTimeoutMs = normalizeServerTimeoutMs(server.StreamIdleTimeoutMs, DefaultStreamIdleTimeoutMs)
+}
+
+func normalizeServerTimeoutMs(value int, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
 }
 func isLoopbackHost(host string) bool {
 	host = strings.TrimSpace(host)

@@ -22,7 +22,10 @@ declare global {
           UnbindTarget: (input: import('./types').AliasTargetInput) => Promise<import('./types').AliasView>
           DoctorRun: () => Promise<import('./types').DoctorRunResult>
           ProxyStatus: () => Promise<import('./types').ProxyStatusView>
+          ProxySettings: () => Promise<import('./types').ProxySettingsView>
+          RequestTraces: (limit: number) => Promise<import('./types').RequestTrace[]>
           StartProxy: () => Promise<import('./types').ProxyStatusView>
+          SaveProxySettings: (input: import('./types').ProxySettingsView) => Promise<import('./types').ProxySettingsSaveResult>
           StopProxy: () => Promise<import('./types').ProxyStatusView>
           DesktopPrefs: () => Promise<import('./types').DesktopPrefsView>
           SavePrefs: (input: import('./types').DesktopPrefsView) => Promise<import('./types').DesktopPrefsSaveResult>

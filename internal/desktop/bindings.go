@@ -89,6 +89,18 @@ func (b *Bindings) GetProxyStatus(ctx context.Context) (app.ProxyStatusView, err
 	return b.service.GetProxyStatus(ctx)
 }
 
+func (b *Bindings) ListRequestTraces(ctx context.Context, limit int) ([]app.RequestTrace, error) {
+	return b.service.ListRequestTraces(ctx, limit)
+}
+
+func (b *Bindings) GetProxySettings(ctx context.Context) (app.ProxySettingsView, error) {
+	return b.service.GetProxySettings(ctx)
+}
+
+func (b *Bindings) SaveProxySettings(ctx context.Context, in app.ProxySettingsInput) (app.ProxySettingsSaveResult, error) {
+	return b.service.SaveProxySettings(ctx, in)
+}
+
 func (b *Bindings) StartProxy(ctx context.Context) (app.ProxyStatusView, error) {
 	if err := b.service.StartProxy(ctx); err != nil {
 		return app.ProxyStatusView{}, err
@@ -165,6 +177,18 @@ func (b *Bindings) Doctor() (app.DoctorReport, error) {
 
 func (b *Bindings) ProxyStatus() (app.ProxyStatusView, error) {
 	return b.GetProxyStatus(context.Background())
+}
+
+func (b *Bindings) RequestTraces(limit int) ([]app.RequestTrace, error) {
+	return b.ListRequestTraces(context.Background(), limit)
+}
+
+func (b *Bindings) ProxySettings() (app.ProxySettingsView, error) {
+	return b.GetProxySettings(context.Background())
+}
+
+func (b *Bindings) SaveProxyConfig(in app.ProxySettingsInput) (app.ProxySettingsSaveResult, error) {
+	return b.SaveProxySettings(context.Background(), in)
 }
 
 func (b *Bindings) StartProxyNow() (app.ProxyStatusView, error) {

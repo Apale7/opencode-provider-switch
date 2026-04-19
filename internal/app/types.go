@@ -1,6 +1,6 @@
 package app
 
-import "time"
+import "github.com/Apale7/opencode-provider-switch/internal/proxy"
 
 type Overview struct {
 	ConfigPath       string           `json:"configPath"`
@@ -12,10 +12,123 @@ type Overview struct {
 }
 
 type ProxyStatusView struct {
-	Running     bool      `json:"running"`
-	BindAddress string    `json:"bindAddress"`
-	StartedAt   time.Time `json:"startedAt,omitempty"`
-	LastError   string    `json:"lastError,omitempty"`
+	Running     bool   `json:"running"`
+	BindAddress string `json:"bindAddress"`
+	StartedAt   string `json:"startedAt,omitempty"`
+	LastError   string `json:"lastError,omitempty"`
+}
+
+type ProxySettingsView struct {
+	ConnectTimeoutMs        int `json:"connectTimeoutMs"`
+	ResponseHeaderTimeoutMs int `json:"responseHeaderTimeoutMs"`
+	FirstByteTimeoutMs      int `json:"firstByteTimeoutMs"`
+	RequestReadTimeoutMs    int `json:"requestReadTimeoutMs"`
+	StreamIdleTimeoutMs     int `json:"streamIdleTimeoutMs"`
+}
+
+type ProxySettingsInput struct {
+	ConnectTimeoutMs        int `json:"connectTimeoutMs"`
+	ResponseHeaderTimeoutMs int `json:"responseHeaderTimeoutMs"`
+	FirstByteTimeoutMs      int `json:"firstByteTimeoutMs"`
+	RequestReadTimeoutMs    int `json:"requestReadTimeoutMs"`
+	StreamIdleTimeoutMs     int `json:"streamIdleTimeoutMs"`
+}
+
+type ProxySettingsSaveResult struct {
+	Settings ProxySettingsView `json:"settings"`
+	Warnings []string          `json:"warnings,omitempty"`
+}
+
+type RequestTrace struct {
+	ID             uint64            `json:"id"`
+	StartedAt      string            `json:"startedAt"`
+	FinishedAt     string            `json:"finishedAt,omitempty"`
+	DurationMs     int64             `json:"durationMs"`
+	FirstByteMs    int64             `json:"firstByteMs,omitempty"`
+	RawModel       string            `json:"rawModel,omitempty"`
+	Alias          string            `json:"alias,omitempty"`
+	Stream         bool              `json:"stream"`
+	Success        bool              `json:"success"`
+	StatusCode     int               `json:"statusCode,omitempty"`
+	Error          string            `json:"error,omitempty"`
+	FinalProvider  string            `json:"finalProvider,omitempty"`
+	FinalModel     string            `json:"finalModel,omitempty"`
+	FinalURL       string            `json:"finalUrl,omitempty"`
+	Failover       bool              `json:"failover"`
+	AttemptCount   int               `json:"attemptCount"`
+	RequestHeaders map[string]string `json:"requestHeaders,omitempty"`
+	RequestParams  any               `json:"requestParams,omitempty"`
+	Attempts       []TraceAttempt    `json:"attempts"`
+}
+
+type TraceAttempt struct {
+	Attempt         int               `json:"attempt"`
+	Provider        string            `json:"provider,omitempty"`
+	Model           string            `json:"model,omitempty"`
+	URL             string            `json:"url,omitempty"`
+	StartedAt       string            `json:"startedAt"`
+	DurationMs      int64             `json:"durationMs"`
+	FirstByteMs     int64             `json:"firstByteMs,omitempty"`
+	StatusCode      int               `json:"statusCode,omitempty"`
+	Success         bool              `json:"success"`
+	Retryable       bool              `json:"retryable"`
+	Skipped         bool              `json:"skipped"`
+	Result          string            `json:"result,omitempty"`
+	Error           string            `json:"error,omitempty"`
+	RequestHeaders  map[string]string `json:"requestHeaders,omitempty"`
+	RequestParams   any               `json:"requestParams,omitempty"`
+	ResponseHeaders map[string]string `json:"responseHeaders,omitempty"`
+	ResponseBody    string            `json:"responseBody,omitempty"`
+}
+
+func requestTraceView(trace proxy.RequestTrace) RequestTrace {
+	attempts := make([]TraceAttempt, 0, len(trace.Attempts))
+	for _, attempt := range trace.Attempts {
+		attempts = append(attempts, traceAttemptView(attempt))
+	}
+	return RequestTrace{
+		ID:             trace.ID,
+		StartedAt:      formatTimestamp(trace.StartedAt),
+		FinishedAt:     formatTimestamp(trace.FinishedAt),
+		DurationMs:     trace.DurationMs,
+		FirstByteMs:    trace.FirstByteMs,
+		RawModel:       trace.RawModel,
+		Alias:          trace.Alias,
+		Stream:         trace.Stream,
+		Success:        trace.Success,
+		StatusCode:     trace.StatusCode,
+		Error:          trace.Error,
+		FinalProvider:  trace.FinalProvider,
+		FinalModel:     trace.FinalModel,
+		FinalURL:       trace.FinalURL,
+		Failover:       trace.Failover,
+		AttemptCount:   trace.AttemptCount,
+		RequestHeaders: trace.RequestHeaders,
+		RequestParams:  trace.RequestParams,
+		Attempts:       attempts,
+	}
+}
+
+func traceAttemptView(attempt proxy.TraceAttempt) TraceAttempt {
+	return TraceAttempt{
+		Attempt:         attempt.Attempt,
+		Provider:        attempt.Provider,
+		Model:           attempt.Model,
+		URL:             attempt.URL,
+		StartedAt:       formatTimestamp(attempt.StartedAt),
+		DurationMs:      attempt.DurationMs,
+		FirstByteMs:     attempt.FirstByteMs,
+		StatusCode:      attempt.StatusCode,
+		Success:         attempt.Success,
+		Retryable:       attempt.Retryable,
+		Skipped:         attempt.Skipped,
+		Result:          attempt.Result,
+		Error:           attempt.Error,
+		RequestHeaders:  attempt.RequestHeaders,
+		RequestParams:   attempt.RequestParams,
+		ResponseHeaders: attempt.ResponseHeaders,
+		ResponseBody:    attempt.ResponseBody,
+	}
 }
 
 type ProviderView struct {
@@ -96,6 +209,7 @@ type SyncResult struct {
 
 type DesktopPrefsView struct {
 	LaunchAtLogin  bool   `json:"launchAtLogin"`
+	AutoStartProxy bool   `json:"autoStartProxy"`
 	MinimizeToTray bool   `json:"minimizeToTray"`
 	Notifications  bool   `json:"notifications"`
 	Theme          string `json:"theme"`
@@ -109,6 +223,7 @@ type DesktopPrefsSaveResult struct {
 
 type DesktopPrefsInput struct {
 	LaunchAtLogin  bool   `json:"launchAtLogin"`
+	AutoStartProxy bool   `json:"autoStartProxy"`
 	MinimizeToTray bool   `json:"minimizeToTray"`
 	Notifications  bool   `json:"notifications"`
 	Theme          string `json:"theme"`

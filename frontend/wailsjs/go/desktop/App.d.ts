@@ -36,7 +36,11 @@ export function PreviewSync(arg1:app.SyncInput):Promise<app.SyncPreview>;
 
 export function Providers():Promise<Array<app.ProviderView>>;
 
+export function ProxySettings():Promise<app.ProxySettingsView>;
+
 export function ProxyStatus():Promise<app.ProxyStatusView>;
+
+export function RequestTraces(arg1:number):Promise<Array<app.RequestTrace>>;
 
 export function SaveAlias(arg1:app.AliasUpsertInput):Promise<app.AliasView>;
 
@@ -45,6 +49,8 @@ export function SaveDesktopPrefs(arg1:context.Context,arg2:app.DesktopPrefsInput
 export function SavePrefs(arg1:app.DesktopPrefsInput):Promise<app.DesktopPrefsSaveResult>;
 
 export function SaveProvider(arg1:app.ProviderUpsertInput):Promise<app.ProviderSaveResult>;
+
+export function SaveProxySettings(arg1:app.ProxySettingsInput):Promise<app.ProxySettingsSaveResult>;
 
 export function Service():Promise<app.Service>;
 

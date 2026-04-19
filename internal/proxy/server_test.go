@@ -105,6 +105,16 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p2" {
 		t.Fatalf("X-OCSWITCH-Provider = %q, want p2", got)
 	}
+	traces := srv.traces.List(10)
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if !traces[0].Failover || traces[0].FinalProvider != "p2" || traces[0].AttemptCount != 2 {
+		t.Fatalf("trace = %#v", traces[0])
+	}
+	if got := traces[0].RequestHeaders["Authorization"]; got == "Bearer "+config.DefaultLocalAPIKey || got == "" {
+		t.Fatalf("trace auth header = %q, want masked value", got)
+	}
 }
 
 func TestHandleResponsesFailsOverOnEmptySSE200(t *testing.T) {
@@ -156,10 +166,6 @@ func TestHandleResponsesFailsOverOnEmptySSE200(t *testing.T) {
 }
 
 func TestHandleResponsesSSEBypassesIdleTimeout(t *testing.T) {
-	oldTimeout := streamIdleTimeout
-	streamIdleTimeout = 30 * time.Millisecond
-	defer func() { streamIdleTimeout = oldTimeout }()
-
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -176,7 +182,7 @@ func TestHandleResponsesSSEBypassesIdleTimeout(t *testing.T) {
 	defer upstream.Close()
 
 	srv := New(&config.Config{
-		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 30},
 		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -198,6 +204,87 @@ func TestHandleResponsesSSEBypassesIdleTimeout(t *testing.T) {
 	}
 	if body := rr.Body.String(); body != "data: first\n\ndata: second\n\n" {
 		t.Fatalf("body = %q, want both SSE chunks", body)
+	}
+}
+
+func TestHandleResponsesMarksBrokenStreamAsFailure(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: first\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("response writer does not support hijacking")
+		}
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Fatalf("Hijack() error = %v", err)
+		}
+		_ = conn.Close()
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	traces := srv.traces.List(10)
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if traces[0].Success {
+		t.Fatalf("trace = %#v, want failed trace", traces[0])
+	}
+	if traces[0].Error == "" {
+		t.Fatalf("trace = %#v, want error", traces[0])
+	}
+	if len(traces[0].Attempts) != 1 {
+		t.Fatalf("attempts = %#v, want 1", traces[0].Attempts)
+	}
+	if traces[0].Attempts[0].Success {
+		t.Fatalf("attempt = %#v, want failed attempt", traces[0].Attempts[0])
+	}
+	if traces[0].Attempts[0].Result != "stream_error" {
+		t.Fatalf("attempt result = %q, want stream_error", traces[0].Attempts[0].Result)
+	}
+}
+
+func TestNewUsesConfiguredTimeouts(t *testing.T) {
+	t.Parallel()
+
+	srv := New(&config.Config{Server: config.Server{
+		ConnectTimeoutMs:        12000,
+		ResponseHeaderTimeoutMs: 21000,
+		FirstByteTimeoutMs:      22000,
+		RequestReadTimeoutMs:    33000,
+		StreamIdleTimeoutMs:     70000,
+	}})
+
+	transport, ok := srv.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T", srv.client.Transport)
+	}
+	if transport.ResponseHeaderTimeout != 21*time.Second {
+		t.Fatalf("ResponseHeaderTimeout = %s, want 21s", transport.ResponseHeaderTimeout)
 	}
 }
 

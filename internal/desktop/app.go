@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -62,7 +63,25 @@ func (a *App) Startup(ctx context.Context) {
 	a.notify.Attach(ctx)
 	a.auto.Attach(ctx)
 	_ = a.SyncDesktopPreferences(ctx)
+	if prefs, err := a.bindings.GetDesktopPrefs(ctx); err == nil && prefs.AutoStartProxy {
+		_, _ = a.bindings.StartProxy(ctx)
+		a.watchAutoStartProxyFailure()
+	}
 	a.tray.RefreshProxyStatus(ctx)
+}
+
+func (a *App) watchAutoStartProxyFailure() {
+	go func() {
+		waitCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		err := a.service.WaitProxy(waitCtx)
+		if err == nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return
+		}
+		callCtx := a.callContext()
+		a.tray.RefreshProxyStatus(callCtx)
+		_ = a.notify.Send(callCtx, "Proxy failed to start", err.Error())
+	}()
 }
 
 func (a *App) BeforeClose(ctx context.Context) bool {
@@ -192,6 +211,18 @@ func (a *App) DoctorRun() (app.DoctorRunResult, error) {
 
 func (a *App) ProxyStatus() (app.ProxyStatusView, error) {
 	return a.bindings.GetProxyStatus(a.callContext())
+}
+
+func (a *App) RequestTraces(limit int) ([]app.RequestTrace, error) {
+	return a.bindings.ListRequestTraces(a.callContext(), limit)
+}
+
+func (a *App) ProxySettings() (app.ProxySettingsView, error) {
+	return a.bindings.GetProxySettings(a.callContext())
+}
+
+func (a *App) SaveProxySettings(in app.ProxySettingsInput) (app.ProxySettingsSaveResult, error) {
+	return a.bindings.SaveProxySettings(a.callContext(), in)
 }
 
 func (a *App) StartProxy() (app.ProxyStatusView, error) {

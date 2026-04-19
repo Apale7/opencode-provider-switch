@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
@@ -76,8 +78,89 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 		}
 	})
 
+	t.Run("request traces api", func(t *testing.T) {
+		instance.Service().ListRequestTraces(context.Background(), 10)
+		req := httptest.NewRequest(http.MethodGet, "/api/proxy/traces", nil)
+		resp := httptest.NewRecorder()
+		h.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", resp.Code, http.StatusOK)
+		}
+		var payload struct {
+			Data []app.RequestTrace `json:"data"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if len(payload.Data) != 0 {
+			t.Fatalf("traces = %#v, want empty list", payload.Data)
+		}
+	})
+
+	t.Run("proxy settings api", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/proxy/settings", nil)
+		resp := httptest.NewRecorder()
+		h.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", resp.Code, http.StatusOK)
+		}
+		var payload struct {
+			Data app.ProxySettingsView `json:"data"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if payload.Data.ConnectTimeoutMs != config.DefaultConnectTimeoutMs || payload.Data.FirstByteTimeoutMs != config.DefaultFirstByteTimeoutMs {
+			t.Fatalf("proxy settings = %#v", payload.Data)
+		}
+	})
+
+	t.Run("save proxy settings", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/proxy/settings", strings.NewReader(`{"connectTimeoutMs":12000,"responseHeaderTimeoutMs":21000,"firstByteTimeoutMs":22000,"requestReadTimeoutMs":33000,"streamIdleTimeoutMs":70000}`))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		h.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d body=%s", resp.Code, http.StatusOK, resp.Body.String())
+		}
+		loaded, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("config.Load() error = %v", err)
+		}
+		if loaded.Server.ConnectTimeoutMs != 12000 || loaded.Server.ResponseHeaderTimeoutMs != 21000 || loaded.Server.FirstByteTimeoutMs != 22000 || loaded.Server.RequestReadTimeoutMs != 33000 || loaded.Server.StreamIdleTimeoutMs != 70000 {
+			t.Fatalf("persisted server settings = %#v", loaded.Server)
+		}
+	})
+
+	t.Run("save proxy settings normalizes non-positive values", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/proxy/settings", strings.NewReader(`{"connectTimeoutMs":0,"responseHeaderTimeoutMs":-1,"firstByteTimeoutMs":0,"requestReadTimeoutMs":-50,"streamIdleTimeoutMs":0}`))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		h.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d body=%s", resp.Code, http.StatusOK, resp.Body.String())
+		}
+		var payload struct {
+			Data app.ProxySettingsSaveResult `json:"data"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if payload.Data.Settings.ConnectTimeoutMs != config.DefaultConnectTimeoutMs ||
+			payload.Data.Settings.ResponseHeaderTimeoutMs != config.DefaultResponseHeaderTimeoutMs ||
+			payload.Data.Settings.FirstByteTimeoutMs != config.DefaultFirstByteTimeoutMs ||
+			payload.Data.Settings.RequestReadTimeoutMs != config.DefaultRequestReadTimeoutMs ||
+			payload.Data.Settings.StreamIdleTimeoutMs != config.DefaultStreamIdleTimeoutMs {
+			t.Fatalf("proxy settings payload = %#v", payload.Data.Settings)
+		}
+	})
+
 	t.Run("save desktop prefs", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/api/desktop-prefs", strings.NewReader(`{"launchAtLogin":true,"minimizeToTray":true,"notifications":true,"theme":"dark","language":"zh-CN"}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/desktop-prefs", strings.NewReader(`{"launchAtLogin":true,"autoStartProxy":true,"minimizeToTray":true,"notifications":true,"theme":"dark","language":"zh-CN"}`))
 		req.Header.Set("Content-Type", "application/json")
 		resp := httptest.NewRecorder()
 		h.ServeHTTP(resp, req)
@@ -89,8 +172,145 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("config.Load() error = %v", err)
 		}
-		if !loaded.Desktop.LaunchAtLogin || !loaded.Desktop.MinimizeToTray || !loaded.Desktop.Notifications || loaded.Desktop.Theme != "dark" || loaded.Desktop.Language != "zh-CN" {
+		if !loaded.Desktop.LaunchAtLogin || !loaded.Desktop.AutoStartProxy || !loaded.Desktop.MinimizeToTray || !loaded.Desktop.Notifications || loaded.Desktop.Theme != "dark" || loaded.Desktop.Language != "zh-CN" {
 			t.Fatalf("persisted desktop prefs = %#v", loaded.Desktop)
+		}
+	})
+
+	t.Run("startup auto starts proxy when enabled", func(t *testing.T) {
+		port := freePort(t)
+		cfg, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("config.Load() error = %v", err)
+		}
+		cfg.Server.Host = "127.0.0.1"
+		cfg.Server.Port = port
+		cfg.Server.APIKey = config.DefaultLocalAPIKey
+		cfg.Desktop.AutoStartProxy = true
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("cfg.Save() error = %v", err)
+		}
+
+		tray := &spyTray{}
+		notify := &spyNotifier{}
+		originalTray := instance.tray
+		originalNotify := instance.notify
+		defer func() {
+			instance.tray = originalTray
+			instance.notify = originalNotify
+			_ = instance.Service().StopProxy(context.Background())
+		}()
+		instance.tray = tray
+		instance.notify = notify
+
+		instance.Startup(context.Background())
+
+		status, err := instance.Service().GetProxyStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetProxyStatus() error = %v", err)
+		}
+		if !status.Running {
+			t.Fatalf("status = %#v, want running", status)
+		}
+		if tray.refreshCalls != 1 {
+			t.Fatalf("tray refreshCalls = %d, want 1", tray.refreshCalls)
+		}
+		if len(notify.sends) != 0 {
+			t.Fatalf("startup notifications = %#v, want none", notify.sends)
+		}
+	})
+
+	t.Run("startup auto start surfaces failure without success toast", func(t *testing.T) {
+		port := freePort(t)
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			t.Fatalf("net.Listen() error = %v", err)
+		}
+		defer listener.Close()
+
+		cfg, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("config.Load() error = %v", err)
+		}
+		cfg.Server.Host = "127.0.0.1"
+		cfg.Server.Port = port
+		cfg.Server.APIKey = config.DefaultLocalAPIKey
+		cfg.Desktop.AutoStartProxy = true
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("cfg.Save() error = %v", err)
+		}
+
+		tray := &spyTray{}
+		notify := &spyNotifier{}
+		originalTray := instance.tray
+		originalNotify := instance.notify
+		defer func() {
+			instance.tray = originalTray
+			instance.notify = originalNotify
+			_ = instance.Service().StopProxy(context.Background())
+		}()
+		instance.tray = tray
+		instance.notify = notify
+
+		instance.Startup(context.Background())
+
+		assertEventually(t, func() bool {
+			return len(notify.sends) == 1
+		})
+
+		status, err := instance.Service().GetProxyStatus(context.Background())
+		if err != nil {
+			t.Fatalf("GetProxyStatus() error = %v", err)
+		}
+		if status.Running {
+			t.Fatalf("status = %#v, want stopped after failure", status)
+		}
+		if status.LastError == "" {
+			t.Fatalf("status = %#v, want last error", status)
+		}
+		if len(notify.sends) != 1 {
+			t.Fatalf("notifications = %#v, want 1 failure notice", notify.sends)
+		}
+		if notify.sends[0].Title != "Proxy failed to start" {
+			t.Fatalf("notification = %#v, want failure title", notify.sends[0])
+		}
+		if !strings.Contains(strings.ToLower(notify.sends[0].Body), "bind") {
+			t.Fatalf("notification = %#v, want bind error", notify.sends[0])
+		}
+		if tray.refreshCalls < 2 {
+			t.Fatalf("tray refreshCalls = %d, want refresh after failure", tray.refreshCalls)
+		}
+	})
+
+	t.Run("proxy start api surfaces bind failure", func(t *testing.T) {
+		port := freePort(t)
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			t.Fatalf("net.Listen() error = %v", err)
+		}
+		defer listener.Close()
+
+		cfg, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("config.Load() error = %v", err)
+		}
+		cfg.Server.Host = "127.0.0.1"
+		cfg.Server.Port = port
+		cfg.Server.APIKey = config.DefaultLocalAPIKey
+		cfg.Desktop.AutoStartProxy = false
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("cfg.Save() error = %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/proxy/start", nil)
+		resp := httptest.NewRecorder()
+		h.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d body=%s", resp.Code, http.StatusBadRequest, resp.Body.String())
+		}
+		if !strings.Contains(strings.ToLower(resp.Body.String()), "bind") {
+			t.Fatalf("body = %q, want bind error", resp.Body.String())
 		}
 	})
 
@@ -407,6 +627,7 @@ func (s *spyTray) BeforeClose(_ context.Context) (bool, error) {
 type spyNotifier struct {
 	syncCalls int
 	lastPrefs app.DesktopPrefsView
+	sends     []notifyCall
 }
 
 func (s *spyNotifier) Attach(_ context.Context) {}
@@ -418,6 +639,34 @@ func (s *spyNotifier) Sync(_ context.Context, prefs app.DesktopPrefsView) {
 	s.lastPrefs = prefs
 }
 
-func (s *spyNotifier) Send(_ context.Context, _ string, _ string) error {
+func (s *spyNotifier) Send(_ context.Context, title string, body string) error {
+	s.sends = append(s.sends, notifyCall{Title: title, Body: body})
 	return nil
+}
+
+type notifyCall struct {
+	Title string
+	Body  string
+}
+
+func assertEventually(t *testing.T, fn func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("condition not satisfied before timeout")
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
 }

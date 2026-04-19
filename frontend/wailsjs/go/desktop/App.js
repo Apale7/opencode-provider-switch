@@ -66,8 +66,16 @@ export function Providers() {
   return window['go']['desktop']['App']['Providers']();
 }
 
+export function ProxySettings() {
+  return window['go']['desktop']['App']['ProxySettings']();
+}
+
 export function ProxyStatus() {
   return window['go']['desktop']['App']['ProxyStatus']();
+}
+
+export function RequestTraces(arg1) {
+  return window['go']['desktop']['App']['RequestTraces'](arg1);
 }
 
 export function SaveAlias(arg1) {
@@ -84,6 +92,10 @@ export function SavePrefs(arg1) {
 
 export function SaveProvider(arg1) {
   return window['go']['desktop']['App']['SaveProvider'](arg1);
+}
+
+export function SaveProxySettings(arg1) {
+  return window['go']['desktop']['App']['SaveProxySettings'](arg1);
 }
 
 export function Service() {

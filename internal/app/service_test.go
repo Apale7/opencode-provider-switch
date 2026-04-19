@@ -23,6 +23,7 @@ func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
 
 	prefs, err := svc.SaveDesktopPrefs(context.Background(), DesktopPrefsInput{
 		LaunchAtLogin:  true,
+		AutoStartProxy: true,
 		MinimizeToTray: true,
 		Notifications:  true,
 		Theme:          "dark",
@@ -31,7 +32,7 @@ func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveDesktopPrefs() error = %v", err)
 	}
-	if !prefs.LaunchAtLogin || !prefs.MinimizeToTray || !prefs.Notifications || prefs.Theme != "dark" || prefs.Language != "zh-CN" {
+	if !prefs.LaunchAtLogin || !prefs.AutoStartProxy || !prefs.MinimizeToTray || !prefs.Notifications || prefs.Theme != "dark" || prefs.Language != "zh-CN" {
 		t.Fatalf("SaveDesktopPrefs() = %#v", prefs)
 	}
 
@@ -39,7 +40,7 @@ func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	if !cfg.Desktop.LaunchAtLogin || !cfg.Desktop.MinimizeToTray || !cfg.Desktop.Notifications || cfg.Desktop.Theme != "dark" || cfg.Desktop.Language != "zh-CN" {
+	if !cfg.Desktop.LaunchAtLogin || !cfg.Desktop.AutoStartProxy || !cfg.Desktop.MinimizeToTray || !cfg.Desktop.Notifications || cfg.Desktop.Theme != "dark" || cfg.Desktop.Language != "zh-CN" {
 		t.Fatalf("persisted desktop prefs = %#v", cfg.Desktop)
 	}
 }
@@ -59,6 +60,102 @@ func TestSaveDesktopPrefsNormalizesUnknownThemeAndLanguage(t *testing.T) {
 	}
 	if prefs.Theme != "system" || prefs.Language != "system" {
 		t.Fatalf("normalized prefs = %#v", prefs)
+	}
+}
+
+func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	result, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{
+		ConnectTimeoutMs:        12000,
+		ResponseHeaderTimeoutMs: 21000,
+		FirstByteTimeoutMs:      22000,
+		RequestReadTimeoutMs:    33000,
+		StreamIdleTimeoutMs:     70000,
+	})
+	if err != nil {
+		t.Fatalf("SaveProxySettings() error = %v", err)
+	}
+	if result.Settings.ConnectTimeoutMs != 12000 || result.Settings.ResponseHeaderTimeoutMs != 21000 || result.Settings.FirstByteTimeoutMs != 22000 || result.Settings.RequestReadTimeoutMs != 33000 || result.Settings.StreamIdleTimeoutMs != 70000 {
+		t.Fatalf("SaveProxySettings() = %#v", result.Settings)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	if cfg.Server.ConnectTimeoutMs != 12000 || cfg.Server.ResponseHeaderTimeoutMs != 21000 || cfg.Server.FirstByteTimeoutMs != 22000 || cfg.Server.RequestReadTimeoutMs != 33000 || cfg.Server.StreamIdleTimeoutMs != 70000 {
+		t.Fatalf("persisted server settings = %#v", cfg.Server)
+	}
+}
+
+func TestSaveProxySettingsWarnsWhenProxyRunning(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	port := freePort(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Server.Port = port
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	if err := svc.StartProxy(context.Background()); err != nil {
+		t.Fatalf("StartProxy() error = %v", err)
+	}
+	defer func() { _ = svc.StopProxy(context.Background()) }()
+
+	result, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{ConnectTimeoutMs: 12000})
+	if err != nil {
+		t.Fatalf("SaveProxySettings() error = %v", err)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "restart proxy") {
+		t.Fatalf("warnings = %#v", result.Warnings)
+	}
+}
+
+func TestSaveProxySettingsNormalizesNonPositiveValues(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	result, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{
+		ConnectTimeoutMs:        0,
+		ResponseHeaderTimeoutMs: -1,
+		FirstByteTimeoutMs:      0,
+		RequestReadTimeoutMs:    -50,
+		StreamIdleTimeoutMs:     0,
+	})
+	if err != nil {
+		t.Fatalf("SaveProxySettings() error = %v", err)
+	}
+	if result.Settings.ConnectTimeoutMs != config.DefaultConnectTimeoutMs ||
+		result.Settings.ResponseHeaderTimeoutMs != config.DefaultResponseHeaderTimeoutMs ||
+		result.Settings.FirstByteTimeoutMs != config.DefaultFirstByteTimeoutMs ||
+		result.Settings.RequestReadTimeoutMs != config.DefaultRequestReadTimeoutMs ||
+		result.Settings.StreamIdleTimeoutMs != config.DefaultStreamIdleTimeoutMs {
+		t.Fatalf("normalized settings = %#v", result.Settings)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	if cfg.Server.ConnectTimeoutMs != config.DefaultConnectTimeoutMs ||
+		cfg.Server.ResponseHeaderTimeoutMs != config.DefaultResponseHeaderTimeoutMs ||
+		cfg.Server.FirstByteTimeoutMs != config.DefaultFirstByteTimeoutMs ||
+		cfg.Server.RequestReadTimeoutMs != config.DefaultRequestReadTimeoutMs ||
+		cfg.Server.StreamIdleTimeoutMs != config.DefaultStreamIdleTimeoutMs {
+		t.Fatalf("persisted server settings = %#v", cfg.Server)
 	}
 }
 
@@ -113,6 +210,104 @@ func TestStartStopProxyUpdatesStatus(t *testing.T) {
 	}
 	if status.Running {
 		t.Fatalf("status.Running = true, want false")
+	}
+}
+
+func TestStartProxyReturnsBindErrorWithoutRunningStatus(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	port := freePort(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:"+itoa(port))
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Server.Port = port
+	cfg.Server.APIKey = config.DefaultLocalAPIKey
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	err = svc.StartProxy(context.Background())
+	if err == nil {
+		t.Fatal("StartProxy() error = nil, want bind failure")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "bind") {
+		t.Fatalf("StartProxy() error = %v, want bind failure", err)
+	}
+
+	status, statusErr := svc.GetProxyStatus(context.Background())
+	if statusErr != nil {
+		t.Fatalf("GetProxyStatus() error = %v", statusErr)
+	}
+	if status.Running {
+		t.Fatalf("status = %#v, want stopped", status)
+	}
+	if status.LastError == "" {
+		t.Fatalf("status = %#v, want last error", status)
+	}
+}
+
+func TestConcurrentStartProxyCallsShareStartupResult(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	port := freePort(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:"+itoa(port))
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Server.Port = port
+	cfg.Server.APIKey = config.DefaultLocalAPIKey
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	errCh := make(chan error, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() {
+			<-start
+			errCh <- svc.StartProxy(context.Background())
+		}()
+	}
+	close(start)
+
+	for range 2 {
+		err := <-errCh
+		if err == nil {
+			t.Fatal("StartProxy() error = nil, want bind failure")
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), "bind") {
+			t.Fatalf("StartProxy() error = %v, want bind failure", err)
+		}
+	}
+
+	status, statusErr := svc.GetProxyStatus(context.Background())
+	if statusErr != nil {
+		t.Fatalf("GetProxyStatus() error = %v", statusErr)
+	}
+	if status.Running {
+		t.Fatalf("status = %#v, want stopped", status)
+	}
+	if status.LastError == "" {
+		t.Fatalf("status = %#v, want last error", status)
 	}
 }
 

@@ -132,6 +132,7 @@ export namespace app {
 	}
 	export class DesktopPrefsInput {
 	    launchAtLogin: boolean;
+	    autoStartProxy: boolean;
 	    minimizeToTray: boolean;
 	    notifications: boolean;
 	    theme: string;
@@ -144,6 +145,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.launchAtLogin = source["launchAtLogin"];
+	        this.autoStartProxy = source["autoStartProxy"];
 	        this.minimizeToTray = source["minimizeToTray"];
 	        this.notifications = source["notifications"];
 	        this.theme = source["theme"];
@@ -152,6 +154,7 @@ export namespace app {
 	}
 	export class DesktopPrefsView {
 	    launchAtLogin: boolean;
+	    autoStartProxy: boolean;
 	    minimizeToTray: boolean;
 	    notifications: boolean;
 	    theme: string;
@@ -164,6 +167,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.launchAtLogin = source["launchAtLogin"];
+	        this.autoStartProxy = source["autoStartProxy"];
 	        this.minimizeToTray = source["minimizeToTray"];
 	        this.notifications = source["notifications"];
 	        this.theme = source["theme"];
@@ -294,8 +298,7 @@ export namespace app {
 	export class ProxyStatusView {
 	    running: boolean;
 	    bindAddress: string;
-	    // Go type: time
-	    startedAt?: any;
+	    startedAt?: string;
 	    lastError?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -306,27 +309,9 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.running = source["running"];
 	        this.bindAddress = source["bindAddress"];
-	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.startedAt = source["startedAt"];
 	        this.lastError = source["lastError"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class Overview {
 	    configPath: string;
@@ -501,7 +486,190 @@ export namespace app {
 	    }
 	}
 	
+	export class ProxySettingsInput {
+	    connectTimeoutMs: number;
+	    responseHeaderTimeoutMs: number;
+	    firstByteTimeoutMs: number;
+	    requestReadTimeoutMs: number;
+	    streamIdleTimeoutMs: number;
 	
+	    static createFrom(source: any = {}) {
+	        return new ProxySettingsInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.connectTimeoutMs = source["connectTimeoutMs"];
+	        this.responseHeaderTimeoutMs = source["responseHeaderTimeoutMs"];
+	        this.firstByteTimeoutMs = source["firstByteTimeoutMs"];
+	        this.requestReadTimeoutMs = source["requestReadTimeoutMs"];
+	        this.streamIdleTimeoutMs = source["streamIdleTimeoutMs"];
+	    }
+	}
+	export class ProxySettingsView {
+	    connectTimeoutMs: number;
+	    responseHeaderTimeoutMs: number;
+	    firstByteTimeoutMs: number;
+	    requestReadTimeoutMs: number;
+	    streamIdleTimeoutMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxySettingsView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.connectTimeoutMs = source["connectTimeoutMs"];
+	        this.responseHeaderTimeoutMs = source["responseHeaderTimeoutMs"];
+	        this.firstByteTimeoutMs = source["firstByteTimeoutMs"];
+	        this.requestReadTimeoutMs = source["requestReadTimeoutMs"];
+	        this.streamIdleTimeoutMs = source["streamIdleTimeoutMs"];
+	    }
+	}
+	export class ProxySettingsSaveResult {
+	    settings: ProxySettingsView;
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxySettingsSaveResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.settings = this.convertValues(source["settings"], ProxySettingsView);
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class TraceAttempt {
+	    attempt: number;
+	    provider?: string;
+	    model?: string;
+	    url?: string;
+	    startedAt: string;
+	    durationMs: number;
+	    firstByteMs?: number;
+	    statusCode?: number;
+	    success: boolean;
+	    retryable: boolean;
+	    skipped: boolean;
+	    result?: string;
+	    error?: string;
+	    requestHeaders?: Record<string, string>;
+	    requestParams?: any;
+	    responseHeaders?: Record<string, string>;
+	    responseBody?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TraceAttempt(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.attempt = source["attempt"];
+	        this.provider = source["provider"];
+	        this.model = source["model"];
+	        this.url = source["url"];
+	        this.startedAt = source["startedAt"];
+	        this.durationMs = source["durationMs"];
+	        this.firstByteMs = source["firstByteMs"];
+	        this.statusCode = source["statusCode"];
+	        this.success = source["success"];
+	        this.retryable = source["retryable"];
+	        this.skipped = source["skipped"];
+	        this.result = source["result"];
+	        this.error = source["error"];
+	        this.requestHeaders = source["requestHeaders"];
+	        this.requestParams = source["requestParams"];
+	        this.responseHeaders = source["responseHeaders"];
+	        this.responseBody = source["responseBody"];
+	    }
+	}
+	export class RequestTrace {
+	    id: number;
+	    startedAt: string;
+	    finishedAt?: string;
+	    durationMs: number;
+	    firstByteMs?: number;
+	    rawModel?: string;
+	    alias?: string;
+	    stream: boolean;
+	    success: boolean;
+	    statusCode?: number;
+	    error?: string;
+	    finalProvider?: string;
+	    finalModel?: string;
+	    finalUrl?: string;
+	    failover: boolean;
+	    attemptCount: number;
+	    requestHeaders?: Record<string, string>;
+	    requestParams?: any;
+	    attempts: TraceAttempt[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestTrace(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.startedAt = source["startedAt"];
+	        this.finishedAt = source["finishedAt"];
+	        this.durationMs = source["durationMs"];
+	        this.firstByteMs = source["firstByteMs"];
+	        this.rawModel = source["rawModel"];
+	        this.alias = source["alias"];
+	        this.stream = source["stream"];
+	        this.success = source["success"];
+	        this.statusCode = source["statusCode"];
+	        this.error = source["error"];
+	        this.finalProvider = source["finalProvider"];
+	        this.finalModel = source["finalModel"];
+	        this.finalUrl = source["finalUrl"];
+	        this.failover = source["failover"];
+	        this.attemptCount = source["attemptCount"];
+	        this.requestHeaders = source["requestHeaders"];
+	        this.requestParams = source["requestParams"];
+	        this.attempts = this.convertValues(source["attempts"], TraceAttempt);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Service {
 	
 	

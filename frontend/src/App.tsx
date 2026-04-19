@@ -8,14 +8,17 @@ import {
   exportConfig,
   getMeta,
   getOverview,
+  getProxySettings,
   importConfig,
   importProviders,
+  listRequestTraces,
   listAliases,
   listProviders,
   previewSync,
   runDoctor,
   saveAlias,
   saveDesktopPrefs,
+  saveProxySettings,
   saveProvider,
   setAliasTargetState,
   setProviderState,
@@ -38,6 +41,9 @@ import type {
   ProviderSaveResult,
   ProviderUpsertInput,
   ProviderView,
+  ProxySettingsSaveResult,
+  ProxySettingsView,
+  RequestTrace,
   SyncInput,
   SyncPreview,
   SyncResult,
@@ -67,24 +73,34 @@ type AliasFormState = {
   disabled: boolean
 }
 
-type TabKey = 'overview' | 'providers' | 'aliases' | 'sync' | 'settings'
+type TabKey = 'overview' | 'providers' | 'aliases' | 'log' | 'network' | 'sync' | 'settings'
 type FilterState = 'all' | 'enabled' | 'disabled'
 type ResolvedTheme = 'light' | 'dark'
-type ModalKey = 'provider-form' | 'provider-import' | 'alias-form' | 'alias-target' | null
+type ModalKey = 'provider-import' | 'alias-target' | null
+type DetailMode = 'empty' | 'create' | 'edit'
 type ConfigImportMode = 'text' | 'file'
 type ConfirmIntent =
   | { kind: 'delete-provider'; id: string }
   | { kind: 'delete-alias'; alias: string }
   | { kind: 'unbind-target'; alias: string; provider: string; model: string }
 
-const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'sync', 'settings']
+const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'sync', 'settings']
 
 const emptyPrefs: DesktopPrefsView = {
   launchAtLogin: false,
+  autoStartProxy: false,
   minimizeToTray: false,
   notifications: false,
   theme: 'system',
   language: 'system',
+}
+
+const emptyProxySettings: ProxySettingsView = {
+  connectTimeoutMs: 10000,
+  responseHeaderTimeoutMs: 15000,
+  firstByteTimeoutMs: 15000,
+  requestReadTimeoutMs: 30000,
+  streamIdleTimeoutMs: 60000,
 }
 
 const emptySync: SyncInput = {
@@ -174,6 +190,27 @@ function parseHeadersText(input: string): Record<string, string> | undefined {
   return headers
 }
 
+function providerFormFromView(provider: ProviderView): ProviderFormState {
+  return {
+    id: provider.id,
+    name: provider.name || '',
+    baseUrl: provider.baseUrl,
+    apiKey: '',
+    headersText: headersTextFromMap(provider.headers),
+    disabled: provider.disabled,
+    skipModels: false,
+    clearHeaders: false,
+  }
+}
+
+function aliasFormFromView(alias: AliasView): AliasFormState {
+  return {
+    alias: alias.alias,
+    displayName: alias.displayName || '',
+    disabled: !alias.enabled,
+  }
+}
+
 function joinWarnings(warnings?: string[]): string {
   if (!warnings || warnings.length === 0) {
     return ''
@@ -204,6 +241,10 @@ function desktopPrefsSaveStatus(result: DesktopPrefsSaveResult): string {
   return withWarnings(i18n.t('messages.saved'), result.warnings)
 }
 
+function proxySettingsSaveStatus(result: ProxySettingsSaveResult): string {
+  return withWarnings(i18n.t('messages.saved'), result.warnings)
+}
+
 function normalizeTab(hash: string): TabKey {
   const value = hash.replace(/^#/, '')
   return tabs.includes(value as TabKey) ? (value as TabKey) : 'overview'
@@ -219,6 +260,31 @@ function resolveThemePreference(theme: ThemePreference, systemTheme: ResolvedThe
 function configFileName(configPath: string): string {
   const parts = configPath.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] || 'ocswitch-config.json'
+}
+
+function formatDateTime(value?: string): string {
+  if (!value) {
+    return '-'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return date.toLocaleString()
+}
+
+function formatDuration(value?: number): string {
+  if (value == null) {
+    return '-'
+  }
+  return `${value} ms`
+}
+
+function tracePrimaryText(trace: RequestTrace): string {
+  if (trace.finalProvider && trace.finalModel) {
+    return `${trace.finalProvider}/${trace.finalModel}`
+  }
+  return trace.error || i18n.t('messages.noData')
 }
 
 function downloadTextFile(filename: string, content: string) {
@@ -273,7 +339,9 @@ export default function App() {
   const [providers, setProviders] = useState<ProviderView[]>([])
   const [aliases, setAliases] = useState<AliasView[]>([])
   const [prefs, setPrefs] = useState<DesktopPrefsView>(emptyPrefs)
+  const [proxySettings, setProxySettings] = useState<ProxySettingsView>(emptyProxySettings)
   const [prefsStatus, setPrefsStatus] = useState('')
+  const [proxySettingsStatus, setProxySettingsStatus] = useState('')
   const [doctorStatus, setDoctorStatus] = useState('')
   const [doctorResult, setDoctorResult] = useState<DoctorRunResult | null>(null)
   const [syncStatus, setSyncStatus] = useState('')
@@ -285,12 +353,19 @@ export default function App() {
   const [aliasStatus, setAliasStatus] = useState('')
   const [aliasForm, setAliasForm] = useState<AliasFormState>(emptyAliasForm)
   const [targetForm, setTargetForm] = useState<AliasTargetInput>(emptyTargetForm)
+  const [requestTraces, setRequestTraces] = useState<RequestTrace[]>([])
+  const [traceStatus, setTraceStatus] = useState('')
+  const [selectedTraceId, setSelectedTraceId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [providerQuery, setProviderQuery] = useState('')
   const [providerFilter, setProviderFilter] = useState<FilterState>('all')
   const [aliasQuery, setAliasQuery] = useState('')
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null)
+  const [providerDetailMode, setProviderDetailMode] = useState<DetailMode>('empty')
   const [editingProviderId, setEditingProviderId] = useState('')
+  const [selectedAliasId, setSelectedAliasId] = useState<string | null>(null)
+  const [aliasDetailMode, setAliasDetailMode] = useState<DetailMode>('empty')
   const [editingAliasId, setEditingAliasId] = useState('')
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>('dark')
   const [systemLanguage, setSystemLanguage] = useState('en-US')
@@ -305,20 +380,29 @@ export default function App() {
     setLoading(true)
     setPrefsStatus(i18n.t('messages.refreshing'))
     try {
-      const [metaData, overviewData, providerData, aliasData] = await Promise.all([
+      const [metaData, overviewData, providerData, aliasData, proxySettingsData] = await Promise.all([
         getMeta(),
         getOverview(),
         listProviders(),
         listAliases(),
+        getProxySettings(),
       ])
       setMeta(metaData)
       setOverview(overviewData)
       setProviders(providerData)
       setAliases(aliasData)
       setPrefs(overviewData.desktop)
+      setProxySettings(proxySettingsData)
+      const traces = await listRequestTraces()
+      setRequestTraces(traces)
+      setSelectedTraceId((current) => current ?? traces[0]?.id ?? null)
       setPrefsStatus(i18n.t('messages.fresh'))
+      setProxySettingsStatus(i18n.t('messages.fresh'))
+      setTraceStatus(i18n.t('messages.fresh'))
     } catch (error) {
       setPrefsStatus(formatError(error))
+      setProxySettingsStatus(formatError(error))
+      setTraceStatus(formatError(error))
     } finally {
       setLoading(false)
     }
@@ -366,6 +450,10 @@ export default function App() {
   const aliasSearch = aliasQuery.trim().toLowerCase()
   const filteredProviders = providers.filter((provider) => providerMatches(provider, providerSearch, providerFilter))
   const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch))
+  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null
+  const selectedAlias = aliases.find((alias) => alias.alias === selectedAliasId) || null
+  const selectedTrace = requestTraces.find((trace) => trace.id === selectedTraceId) || requestTraces[0] || null
+  const proxyRunning = overview?.proxy.running ?? false
   const stats = overview
     ? [
         ['overview.providers', String(overview.providerCount)],
@@ -396,6 +484,84 @@ export default function App() {
     ;(firstFocusable || modal).focus()
   }, [activeModal, confirmIntent])
 
+  useEffect(() => {
+    if (activeTab !== 'log' && activeTab !== 'network') {
+      return
+    }
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const traces = await listRequestTraces()
+        if (cancelled) {
+          return
+        }
+        setRequestTraces(traces)
+        setSelectedTraceId((current) => {
+          if (current && traces.some((trace) => trace.id === current)) {
+            return current
+          }
+          return traces[0]?.id ?? null
+        })
+        setTraceStatus(i18n.t('messages.fresh'))
+      } catch (error) {
+        if (!cancelled) {
+          setTraceStatus(formatError(error))
+        }
+      }
+    }
+    void tick()
+    const timer = window.setInterval(() => {
+      void tick()
+    }, 3000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    if (providerDetailMode === 'create') {
+      return
+    }
+    if (selectedProviderId && filteredProviders.some((provider) => provider.id === selectedProviderId)) {
+      return
+    }
+    if (filteredProviders.length > 0) {
+      const next = filteredProviders[0]
+      setSelectedProviderId(next.id)
+      setEditingProviderId(next.id)
+      setProviderForm(providerFormFromView(next))
+      setProviderDetailMode('edit')
+      return
+    }
+    setSelectedProviderId(null)
+    setEditingProviderId('')
+    setProviderForm(emptyProviderForm)
+    setProviderDetailMode('empty')
+  }, [filteredProviders, providerDetailMode, selectedProviderId])
+
+  useEffect(() => {
+    if (aliasDetailMode === 'create') {
+      return
+    }
+    if (selectedAliasId && filteredAliases.some((alias) => alias.alias === selectedAliasId)) {
+      return
+    }
+    if (filteredAliases.length > 0) {
+      const next = filteredAliases[0]
+      setSelectedAliasId(next.alias)
+      setEditingAliasId(next.alias)
+      setAliasForm(aliasFormFromView(next))
+      setTargetForm((current) => ({ ...current, alias: next.alias }))
+      setAliasDetailMode('edit')
+      return
+    }
+    setSelectedAliasId(null)
+    setEditingAliasId('')
+    setAliasForm(emptyAliasForm)
+    setAliasDetailMode('empty')
+  }, [aliasDetailMode, filteredAliases, selectedAliasId])
+
   function selectTab(tab: TabKey) {
     window.location.hash = tab
   }
@@ -410,6 +576,21 @@ export default function App() {
     setAliasForm(emptyAliasForm)
   }
 
+  function selectProviderDetail(provider: ProviderView) {
+    setSelectedProviderId(provider.id)
+    setEditingProviderId(provider.id)
+    setProviderForm(providerFormFromView(provider))
+    setProviderDetailMode('edit')
+  }
+
+  function selectAliasDetail(alias: AliasView) {
+    setSelectedAliasId(alias.alias)
+    setEditingAliasId(alias.alias)
+    setAliasForm(aliasFormFromView(alias))
+    setTargetForm((current) => ({ ...current, alias: alias.alias }))
+    setAliasDetailMode('edit')
+  }
+
   function closeModal() {
     setActiveModal(null)
   }
@@ -420,7 +601,8 @@ export default function App() {
 
   function openProviderCreateModal() {
     resetProviderForm()
-    setActiveModal('provider-form')
+    setSelectedProviderId(null)
+    setProviderDetailMode('create')
   }
 
   function openProviderImportModal() {
@@ -429,7 +611,8 @@ export default function App() {
 
   function openAliasCreateModal() {
     resetAliasForm()
-    setActiveModal('alias-form')
+    setSelectedAliasId(null)
+    setAliasDetailMode('create')
   }
 
   function openAliasTargetModal(alias?: string) {
@@ -485,6 +668,18 @@ export default function App() {
       setPrefsStatus(desktopPrefsSaveStatus(saved))
     } catch (error) {
       setPrefsStatus(formatError(error))
+    }
+  }
+
+  async function onSaveProxySettings() {
+    setProxySettingsStatus(i18n.t('messages.saving'))
+    try {
+      const saved = await saveProxySettings(proxySettings)
+      setProxySettings(saved.settings)
+      await refreshAll()
+      setProxySettingsStatus(proxySettingsSaveStatus(saved))
+    } catch (error) {
+      setProxySettingsStatus(formatError(error))
     }
   }
 
@@ -564,8 +759,10 @@ export default function App() {
         clearHeaders: providerForm.clearHeaders,
       }
       const result = await saveProvider(input)
-      resetProviderForm()
-      closeModal()
+      setSelectedProviderId(result.provider.id)
+      setEditingProviderId(result.provider.id)
+      setProviderForm(providerFormFromView(result.provider))
+      setProviderDetailMode('edit')
       setProviderStatus(providerSaveStatus(result))
       await refreshAll()
     } catch (error) {
@@ -591,19 +788,8 @@ export default function App() {
   }
 
   function onEditProvider(provider: ProviderView) {
-    setEditingProviderId(provider.id)
-    setProviderForm({
-      id: provider.id,
-      name: provider.name || '',
-      baseUrl: provider.baseUrl,
-      apiKey: '',
-      headersText: headersTextFromMap(provider.headers),
-      disabled: provider.disabled,
-      skipModels: false,
-      clearHeaders: false,
-    })
+    selectProviderDetail(provider)
     setProviderStatus(i18n.t('providers.statusEditing', { id: provider.id }))
-    setActiveModal('provider-form')
   }
 
   async function onToggleProvider(provider: ProviderView) {
@@ -625,8 +811,10 @@ export default function App() {
     setProviderStatus(i18n.t('providers.statusDeleting', { id }))
     try {
       await deleteProvider(id)
-      if (editingProviderId === id) {
+      if (selectedProviderId === id) {
+        setSelectedProviderId(null)
         resetProviderForm()
+        setProviderDetailMode('empty')
       }
       setProviderStatus(i18n.t('providers.statusDeleted', { id }))
       await refreshAll()
@@ -645,8 +833,10 @@ export default function App() {
         disabled: aliasForm.disabled,
       }
       await saveAlias(input)
-      resetAliasForm()
-      closeModal()
+      setSelectedAliasId(input.alias)
+      setEditingAliasId(input.alias)
+      setTargetForm((current) => ({ ...current, alias: input.alias }))
+      setAliasDetailMode('edit')
       setAliasStatus(i18n.t('aliases.statusSaved', { alias: input.alias }))
       await refreshAll()
     } catch (error) {
@@ -655,23 +845,18 @@ export default function App() {
   }
 
   function onEditAlias(alias: AliasView) {
-    setEditingAliasId(alias.alias)
-    setAliasForm({
-      alias: alias.alias,
-      displayName: alias.displayName || '',
-      disabled: !alias.enabled,
-    })
-    setTargetForm((current) => ({ ...current, alias: alias.alias }))
+    selectAliasDetail(alias)
     setAliasStatus(i18n.t('aliases.statusEditing', { alias: alias.alias }))
-    setActiveModal('alias-form')
   }
 
   async function onDeleteAlias(alias: string) {
     setAliasStatus(i18n.t('aliases.statusDeleting', { alias }))
     try {
       await deleteAlias(alias)
-      if (editingAliasId === alias) {
+      if (selectedAliasId === alias) {
+        setSelectedAliasId(null)
         resetAliasForm()
+        setAliasDetailMode('empty')
       }
       setAliasStatus(i18n.t('aliases.statusDeleted', { alias }))
       await refreshAll()
@@ -747,6 +932,10 @@ export default function App() {
 
   async function onImportConfig() {
     const content = configImportText.trim()
+    if (configImportMode === 'file' && (!configImportFileName || !content)) {
+      setConfigTransferStatus(i18n.t('settings.fileEmpty'))
+      return
+    }
     if (!content) {
       setConfigTransferStatus(i18n.t('settings.importEmpty'))
       return
@@ -818,9 +1007,7 @@ export default function App() {
     : ''
 
   const importModeLabelId = useId()
-  const providerFormTitleId = useId()
   const providerImportTitleId = useId()
-  const aliasFormTitleId = useId()
   const aliasTargetTitleId = useId()
   const confirmTitleId = useId()
 
@@ -851,43 +1038,6 @@ export default function App() {
       </aside>
 
       <main className="workspace">
-        <header className="workspace-header">
-          <div className="hero-copy">
-            <p className="section-kicker">{t(`nav.${activeTab}.title`)}</p>
-            <h2>{t(`nav.${activeTab}.title`)}</h2>
-            <p className="subtle">{t(`nav.${activeTab}.description`)}</p>
-          </div>
-          {activeTab === 'overview' ? (
-            <div className="hero-actions-wrap">
-              <div className="hero-meta">
-                <div className="hero-meta-card hero-status-card">
-                  <span className="meta-label">{t('overview.proxy')}</span>
-                  <strong>{overview?.proxy.running ? t('status.proxyRunning') : t('status.proxyIdle')}</strong>
-                </div>
-                <div className="hero-meta-card">
-                  <span className="meta-label">{t('overview.lastError')}</span>
-                  <strong>{overview?.proxy.lastError || '-'}</strong>
-                </div>
-              </div>
-              <div className="hero-actions">
-                <button
-                  type="button"
-                  className={overview?.proxy.running ? 'danger' : 'primary'}
-                  onClick={() => void onToggleProxy()}
-                >
-                  {overview?.proxy.running ? t('actions.stopProxy') : t('actions.startProxy')}
-                </button>
-                <button type="button" onClick={() => void refreshAll()} disabled={loading}>
-                  {t('actions.refresh')}
-                </button>
-                <button type="button" onClick={() => void onRunDoctor()}>
-                  {t('actions.runDoctor')}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </header>
-
         {activeTab === 'overview' ? (
           <section className="tab-layout overview-layout">
             <article className="panel">
@@ -927,6 +1077,9 @@ export default function App() {
                 </button>
                 <button type="button" onClick={() => void onRunDoctor()}>
                   {t('actions.runDoctor')}
+                </button>
+                <button type="button" onClick={() => void refreshAll()} disabled={loading}>
+                  {t('actions.refresh')}
                 </button>
                 <button type="button" onClick={() => selectTab('settings')}>
                   {t('nav.settings.title')}
@@ -999,8 +1152,8 @@ export default function App() {
         ) : null}
 
         {activeTab === 'providers' ? (
-          <section className="tab-layout">
-            <article className="panel panel-full panel-fill">
+          <section className="tab-layout providers-layout split-view">
+            <article className="panel panel-fill list-column">
               <div className="panel-header">
                 <div>
                   <h3>{t('providers.title')}</h3>
@@ -1020,120 +1173,226 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="list-column">
-                <div className="list-toolbar">
+              <div className="list-toolbar">
+                <label>
+                  <span>{t('providers.search')}</span>
+                  <input
+                    type="text"
+                    value={providerQuery}
+                    onChange={(event) => setProviderQuery(event.target.value)}
+                    placeholder={t('providers.searchPlaceholder')}
+                  />
+                </label>
+                <label>
+                  <span>{t('providers.filter')}</span>
+                  <select
+                    value={providerFilter}
+                    onChange={(event) => setProviderFilter(event.target.value as FilterState)}
+                  >
+                    <option value="all">{t('providers.filterAll')}</option>
+                    <option value="enabled">{t('providers.filterEnabled')}</option>
+                    <option value="disabled">{t('providers.filterDisabled')}</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="scroll-list compact-list">
+                {providers.length === 0 ? (
+                  <article className="empty-card">
+                    <span className="empty-kicker">{t('providers.title')}</span>
+                    <h4>{t('providers.empty')}</h4>
+                    <p className="subtle">{t('providers.emptyHint')}</p>
+                    <div className="toolbar">
+                      <button type="button" className="primary" onClick={openProviderCreateModal}>
+                        {t('actions.newProvider')}
+                      </button>
+                      <button type="button" onClick={openProviderImportModal}>
+                        {t('actions.import')}
+                      </button>
+                    </div>
+                  </article>
+                ) : null}
+                {providers.length > 0 && filteredProviders.length === 0 ? (
+                  <article className="empty-card compact-empty">
+                    <h4>{t('providers.noMatches')}</h4>
+                    <p className="subtle">{t('providers.noMatchesHint')}</p>
+                  </article>
+                ) : null}
+                {filteredProviders.map((provider) => (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    className={`compact-row ${selectedProviderId === provider.id ? 'active' : ''}`}
+                    onClick={() => onEditProvider(provider)}
+                  >
+                    <div className="compact-row-main">
+                      <div className="compact-row-titleblock">
+                        <strong>{provider.name || provider.id}</strong>
+                        <code>{provider.id}</code>
+                      </div>
+                      <span className={`badge ${provider.disabled ? 'idle' : 'live'}`}>
+                        {provider.disabled ? t('status.disabled') : t('status.enabled')}
+                      </span>
+                    </div>
+                    <div className="compact-row-summary compact-row-summary-grid">
+                      <span>{provider.baseUrl}</span>
+                      <span>{t('providers.modelsCount', { count: provider.models?.length || 0 })}</span>
+                      <span>{provider.apiKeyMasked || t('providers.apiKeyNotSet')}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </article>
+
+            <article className="panel panel-fill detail-panel">
+              <div className="panel-header">
+                <div>
+                  <h3>
+                    {providerDetailMode === 'create'
+                      ? t('providers.formCreateTitle')
+                      : editingProviderId
+                        ? t('providers.formEditTitle', { id: editingProviderId })
+                        : t('providers.listTitle')}
+                  </h3>
+                  <p className="subtle">
+                    {providerDetailMode === 'empty'
+                      ? t('providers.selectHint')
+                      : providerStatus || t('providers.detailHint')}
+                  </p>
+                </div>
+                {providerDetailMode !== 'empty' ? (
+                  <div className="toolbar">
+                    {providerDetailMode === 'edit' && selectedProvider ? (
+                      <button type="button" onClick={() => void onToggleProvider(selectedProvider)}>
+                        {selectedProvider.disabled ? t('actions.enable') : t('actions.disable')}
+                      </button>
+                    ) : null}
+                    {providerDetailMode === 'edit' && selectedProvider ? (
+                      <button
+                        type="button"
+                        className="danger ghost-danger"
+                        onClick={() => setConfirmIntent({ kind: 'delete-provider', id: selectedProvider.id })}
+                      >
+                        {t('actions.delete')}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              {providerDetailMode === 'empty' ? (
+                <article className="empty-card compact-empty">
+                  <h4>{t('providers.selectTitle')}</h4>
+                  <p className="subtle">{t('providers.selectHint')}</p>
+                </article>
+              ) : (
+                <form className="stack-blocks" onSubmit={(event) => void onSaveProvider(event)}>
+                  <div className="inline-meta compact-inline-meta">
+                    <div>
+                      <span className="meta-label">{t('providers.baseUrl')}</span>
+                      <strong>{selectedProvider?.baseUrl || providerForm.baseUrl || '-'}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">{t('providers.models')}</span>
+                      <strong>{selectedProvider?.models?.join(', ') || t('providers.modelsNone')}</strong>
+                    </div>
+                  </div>
                   <label>
-                    <span>{t('providers.search')}</span>
+                    <span>{t('providers.id')}</span>
                     <input
                       type="text"
-                      value={providerQuery}
-                      onChange={(event) => setProviderQuery(event.target.value)}
-                      placeholder={t('providers.searchPlaceholder')}
+                      value={providerForm.id}
+                      onChange={(event) => setProviderForm((current) => ({ ...current, id: event.target.value }))}
+                      placeholder={t('providers.placeholderId')}
                     />
                   </label>
                   <label>
-                    <span>{t('providers.filter')}</span>
-                    <select
-                      value={providerFilter}
-                      onChange={(event) => setProviderFilter(event.target.value as FilterState)}
-                    >
-                      <option value="all">{t('providers.filterAll')}</option>
-                      <option value="enabled">{t('providers.filterEnabled')}</option>
-                      <option value="disabled">{t('providers.filterDisabled')}</option>
-                    </select>
+                    <span>{t('providers.name')}</span>
+                    <input
+                      type="text"
+                      value={providerForm.name}
+                      onChange={(event) => setProviderForm((current) => ({ ...current, name: event.target.value }))}
+                      placeholder={t('providers.placeholderName')}
+                    />
                   </label>
-                </div>
-
-                <div className="scroll-list card-grid-list">
-                  {providers.length === 0 ? (
-                    <article className="empty-card">
-                      <span className="empty-kicker">{t('providers.title')}</span>
-                      <h4>{t('providers.empty')}</h4>
-                      <p className="subtle">{t('providers.emptyHint')}</p>
-                      <div className="toolbar">
-                        <button type="button" className="primary" onClick={openProviderCreateModal}>
-                          {t('actions.newProvider')}
-                        </button>
-                        <button type="button" onClick={openProviderImportModal}>
-                          {t('actions.import')}
-                        </button>
-                      </div>
-                    </article>
-                  ) : null}
-                  {providers.length > 0 && filteredProviders.length === 0 ? (
-                    <article className="empty-card compact-empty">
-                      <h4>{t('providers.noMatches')}</h4>
-                      <p className="subtle">{t('providers.noMatchesHint')}</p>
-                    </article>
-                  ) : null}
-                  {filteredProviders.map((provider) => (
-                    <article className="item-card" key={provider.id}>
-                      <div className="item-heading">
-                        <div className="item-heading-main">
-                          <strong>{provider.name || provider.id}</strong>
-                          <code>{provider.id}</code>
-                        </div>
-                        <span className={`badge ${provider.disabled ? 'idle' : 'live'}`}>
-                          {provider.disabled ? t('status.disabled') : t('status.enabled')}
-                        </span>
-                      </div>
-                      <div className="item-summary">
-                        <span>{provider.baseUrl}</span>
-                        <span>{t('providers.modelsCount', { count: provider.models?.length || 0 })}</span>
-                      </div>
-                      <div className="item-grid">
-                        <div>
-                          <span className="meta-label">{t('providers.baseUrl')}</span>
-                          <code>{provider.baseUrl}</code>
-                        </div>
-                        <div>
-                          <span className="meta-label">{t('providers.apiKeyMasked')}</span>
-                          <span>{provider.apiKeyMasked || t('providers.apiKeyNotSet')}</span>
-                        </div>
-                        <div>
-                          <span className="meta-label">{t('providers.headers')}</span>
-                          <span>{headersTextFromMap(provider.headers) || t('providers.headersNone')}</span>
-                        </div>
-                        <div>
-                          <span className="meta-label">{t('providers.models')}</span>
-                          <span>{provider.models?.join(', ') || t('providers.modelsNone')}</span>
-                        </div>
-                      </div>
-                      {provider.modelsSource ? (
-                        <div className="inline-pills">
-                          <span className="pill">{t('providers.sourceLabel')}: {provider.modelsSource}</span>
-                        </div>
-                      ) : null}
-                      <div className="card-actions">
-                        <div className="toolbar">
-                          <button type="button" onClick={() => onEditProvider(provider)}>
-                            {t('actions.edit')}
-                          </button>
-                          <button type="button" onClick={() => void onToggleProvider(provider)}>
-                            {provider.disabled ? t('actions.enable') : t('actions.disable')}
-                          </button>
-                        </div>
-                        <div className="toolbar toolbar-end">
-                          <button
-                            type="button"
-                            className="danger ghost-danger"
-                            onClick={() => setConfirmIntent({ kind: 'delete-provider', id: provider.id })}
-                          >
-                            {t('actions.delete')}
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
+                  <label>
+                    <span>{t('providers.baseUrl')}</span>
+                    <input
+                      type="text"
+                      value={providerForm.baseUrl}
+                      onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
+                      placeholder={t('providers.placeholderBaseUrl')}
+                    />
+                  </label>
+                  <label>
+                    <span>{t('providers.apiKey')}</span>
+                    <input
+                      type="text"
+                      value={providerForm.apiKey}
+                      onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
+                      placeholder={t('providers.placeholderApiKey')}
+                    />
+                  </label>
+                  <label>
+                    <span>{t('providers.headers')}</span>
+                    <textarea
+                      value={providerForm.headersText}
+                      onChange={(event) => setProviderForm((current) => ({ ...current, headersText: event.target.value }))}
+                      placeholder={t('providers.placeholderHeaders')}
+                      rows={4}
+                    />
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={providerForm.disabled}
+                      onChange={(event) => setProviderForm((current) => ({ ...current, disabled: event.target.checked }))}
+                    />
+                    <span>{t('providers.saveDisabled')}</span>
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={providerForm.skipModels}
+                      onChange={(event) => setProviderForm((current) => ({ ...current, skipModels: event.target.checked }))}
+                    />
+                    <span>{t('providers.skipModels')}</span>
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={providerForm.clearHeaders}
+                      onChange={(event) => setProviderForm((current) => ({ ...current, clearHeaders: event.target.checked }))}
+                    />
+                    <span>{t('providers.clearHeaders')}</span>
+                  </label>
+                  <div className="toolbar">
+                    <button type="submit" className="primary">
+                      {t('actions.save')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedProvider) {
+                          selectProviderDetail(selectedProvider)
+                          return
+                        }
+                        resetProviderForm()
+                        setProviderDetailMode('empty')
+                      }}
+                    >
+                      {t('actions.reset')}
+                    </button>
+                  </div>
+                </form>
+              )}
             </article>
           </section>
         ) : null}
 
         {activeTab === 'aliases' ? (
-          <section className="tab-layout">
-            <article className="panel panel-full panel-fill">
+          <section className="tab-layout aliases-layout split-view">
+            <article className="panel panel-fill list-column">
               <div className="panel-header">
                 <div>
                   <h3>{t('aliases.title')}</h3>
@@ -1152,119 +1411,199 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="list-column">
-                <div className="list-toolbar list-toolbar-single">
-                  <label>
-                    <span>{t('aliases.search')}</span>
-                    <input
-                      type="text"
-                      value={aliasQuery}
-                      onChange={(event) => setAliasQuery(event.target.value)}
-                      placeholder={t('aliases.searchPlaceholder')}
-                    />
-                  </label>
-                </div>
-
-                <div className="scroll-list card-grid-list">
-                  {aliases.length === 0 ? (
-                    <article className="empty-card">
-                      <span className="empty-kicker">{t('aliases.title')}</span>
-                      <h4>{t('aliases.empty')}</h4>
-                      <p className="subtle">{t('aliases.emptyHint')}</p>
-                      <div className="toolbar">
-                        <button type="button" className="primary" onClick={openAliasCreateModal}>
-                          {t('actions.newAlias')}
-                        </button>
-                        <button type="button" onClick={() => openAliasTargetModal()}>
-                          {t('actions.bind')}
-                        </button>
-                      </div>
-                    </article>
-                  ) : null}
-                  {aliases.length > 0 && filteredAliases.length === 0 ? (
-                    <article className="empty-card compact-empty">
-                      <h4>{t('aliases.noMatches')}</h4>
-                      <p className="subtle">{t('aliases.noMatchesHint')}</p>
-                    </article>
-                  ) : null}
-                  {filteredAliases.map((alias) => (
-                    <article className="item-card" key={alias.alias}>
-                      <div className="item-heading">
-                        <div className="item-heading-main">
-                          <strong>{alias.displayName || alias.alias}</strong>
-                          <code>{alias.alias}</code>
-                        </div>
-                        <span className={`badge ${alias.enabled ? 'live' : 'idle'}`}>
-                          {alias.enabled ? t('status.enabled') : t('status.disabled')}
-                        </span>
-                      </div>
-                      <div className="item-summary">
-                        <span>{t('aliases.routable', { available: alias.availableTargetCount, total: alias.targetCount })}</span>
-                        <span>{t('aliases.targetsCount', { count: alias.targets.length })}</span>
-                      </div>
-                      <div className="card-actions">
-                        <div className="toolbar">
-                          <button type="button" onClick={() => onEditAlias(alias)}>
-                            {t('actions.edit')}
-                          </button>
-                          <button type="button" onClick={() => openAliasTargetModal(alias.alias)}>
-                            {t('actions.useInBindForm')}
-                          </button>
-                        </div>
-                        <div className="toolbar toolbar-end">
-                          <button
-                            type="button"
-                            className="danger ghost-danger"
-                            onClick={() => setConfirmIntent({ kind: 'delete-alias', alias: alias.alias })}
-                          >
-                            {t('actions.delete')}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="target-list target-list-compact">
-                        {alias.targets.length === 0 ? <p className="subtle">{t('aliases.noTargets')}</p> : null}
-                        {alias.targets.map((target) => (
-                          <div className="target-card" key={`${alias.alias}-${target.provider}-${target.model}`}>
-                            <div className="target-card-main">
-                              <code>
-                                {target.provider}/{target.model}
-                              </code>
-                              <span className={`badge ${target.enabled ? 'live' : 'idle'}`}>
-                                {target.enabled ? t('status.enabled') : t('status.disabled')}
-                              </span>
-                            </div>
-                            <div className="toolbar toolbar-end">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void onToggleTarget(alias.alias, target.provider, target.model, target.enabled)
-                                }
-                              >
-                                {target.enabled ? t('actions.disable') : t('actions.enable')}
-                              </button>
-                              <button
-                                type="button"
-                                className="danger ghost-danger"
-                                onClick={() =>
-                                  setConfirmIntent({
-                                    kind: 'unbind-target',
-                                    alias: alias.alias,
-                                    provider: target.provider,
-                                    model: target.model,
-                                  })
-                                }
-                              >
-                                {t('actions.unbind')}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </article>
-                  ))}
-                </div>
+              <div className="list-toolbar list-toolbar-single">
+                <label>
+                  <span>{t('aliases.search')}</span>
+                  <input
+                    type="text"
+                    value={aliasQuery}
+                    onChange={(event) => setAliasQuery(event.target.value)}
+                    placeholder={t('aliases.searchPlaceholder')}
+                  />
+                </label>
               </div>
+
+              <div className="scroll-list compact-list">
+                {aliases.length === 0 ? (
+                  <article className="empty-card">
+                    <span className="empty-kicker">{t('aliases.title')}</span>
+                    <h4>{t('aliases.empty')}</h4>
+                    <p className="subtle">{t('aliases.emptyHint')}</p>
+                    <div className="toolbar">
+                      <button type="button" className="primary" onClick={openAliasCreateModal}>
+                        {t('actions.newAlias')}
+                      </button>
+                      <button type="button" onClick={() => openAliasTargetModal()}>
+                        {t('actions.bind')}
+                      </button>
+                    </div>
+                  </article>
+                ) : null}
+                {aliases.length > 0 && filteredAliases.length === 0 ? (
+                  <article className="empty-card compact-empty">
+                    <h4>{t('aliases.noMatches')}</h4>
+                    <p className="subtle">{t('aliases.noMatchesHint')}</p>
+                  </article>
+                ) : null}
+                {filteredAliases.map((alias) => (
+                  <button
+                    key={alias.alias}
+                    type="button"
+                    className={`compact-row ${selectedAliasId === alias.alias ? 'active' : ''}`}
+                    onClick={() => onEditAlias(alias)}
+                  >
+                    <div className="compact-row-main">
+                      <div className="compact-row-titleblock">
+                        <strong>{alias.displayName || alias.alias}</strong>
+                        <code>{alias.alias}</code>
+                      </div>
+                      <span className={`badge ${alias.enabled ? 'live' : 'idle'}`}>
+                        {alias.enabled ? t('status.enabled') : t('status.disabled')}
+                      </span>
+                    </div>
+                    <div className="compact-row-summary compact-row-summary-grid">
+                      <span>{t('aliases.routable', { available: alias.availableTargetCount, total: alias.targetCount })}</span>
+                      <span>{t('aliases.targetsCount', { count: alias.targets.length })}</span>
+                      <span>{alias.targets[0] ? `${alias.targets[0].provider}/${alias.targets[0].model}` : t('aliases.noTargets')}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </article>
+
+            <article className="panel panel-fill detail-panel">
+              <div className="panel-header">
+                <div>
+                  <h3>
+                    {aliasDetailMode === 'create'
+                      ? t('aliases.formCreateTitle')
+                      : editingAliasId
+                        ? t('aliases.formEditTitle', { alias: editingAliasId })
+                        : t('aliases.listTitle')}
+                  </h3>
+                  <p className="subtle">
+                    {aliasDetailMode === 'empty' ? t('aliases.selectHint') : aliasStatus || t('aliases.detailHint')}
+                  </p>
+                </div>
+                {aliasDetailMode !== 'empty' ? (
+                  <div className="toolbar">
+                    <button type="button" onClick={() => openAliasTargetModal(aliasForm.alias || selectedAlias?.alias)}>
+                      {t('actions.bind')}
+                    </button>
+                    {selectedAlias ? (
+                      <button
+                        type="button"
+                        className="danger ghost-danger"
+                        onClick={() => setConfirmIntent({ kind: 'delete-alias', alias: selectedAlias.alias })}
+                      >
+                        {t('actions.delete')}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              {aliasDetailMode === 'empty' ? (
+                <article className="empty-card compact-empty">
+                  <h4>{t('aliases.selectTitle')}</h4>
+                  <p className="subtle">{t('aliases.selectHint')}</p>
+                </article>
+              ) : (
+                <div className="stack-blocks">
+                  <form className="stack" onSubmit={(event) => void onSaveAlias(event)}>
+                    <label>
+                      <span>{t('aliases.alias')}</span>
+                      <input
+                        type="text"
+                        value={aliasForm.alias}
+                        onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
+                        placeholder={t('aliases.placeholderAlias')}
+                      />
+                    </label>
+                    <label>
+                      <span>{t('aliases.displayName')}</span>
+                      <input
+                        type="text"
+                        value={aliasForm.displayName}
+                        onChange={(event) => setAliasForm((current) => ({ ...current, displayName: event.target.value }))}
+                        placeholder={t('aliases.placeholderDisplayName')}
+                      />
+                    </label>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={aliasForm.disabled}
+                        onChange={(event) => setAliasForm((current) => ({ ...current, disabled: event.target.checked }))}
+                      />
+                      <span>{t('aliases.createDisabled')}</span>
+                    </label>
+                    <div className="toolbar">
+                      <button type="submit" className="primary">
+                        {t('actions.save')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedAlias) {
+                            selectAliasDetail(selectedAlias)
+                            return
+                          }
+                          resetAliasForm()
+                          setAliasDetailMode('empty')
+                        }}
+                      >
+                        {t('actions.reset')}
+                      </button>
+                    </div>
+                  </form>
+
+                  <section className="subpanel">
+                    <div className="subpanel-header">
+                      <h4>{t('aliases.targets')}</h4>
+                      {selectedAlias ? <span className="subtle">{t('aliases.targetsCount', { count: selectedAlias.targets.length })}</span> : null}
+                    </div>
+                    <div className="target-list target-list-compact">
+                      {!selectedAlias || selectedAlias.targets.length === 0 ? <p className="subtle">{t('aliases.noTargets')}</p> : null}
+                      {selectedAlias?.targets.map((target) => (
+                        <div className="target-card" key={`${selectedAlias.alias}-${target.provider}-${target.model}`}>
+                          <div className="target-card-main">
+                            <code>
+                              {target.provider}/{target.model}
+                            </code>
+                            <span className={`badge ${target.enabled ? 'live' : 'idle'}`}>
+                              {target.enabled ? t('status.enabled') : t('status.disabled')}
+                            </span>
+                          </div>
+                          <div className="toolbar toolbar-end">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void onToggleTarget(selectedAlias.alias, target.provider, target.model, target.enabled)
+                              }
+                            >
+                              {target.enabled ? t('actions.disable') : t('actions.enable')}
+                            </button>
+                            <button
+                              type="button"
+                              className="danger ghost-danger"
+                              onClick={() =>
+                                setConfirmIntent({
+                                  kind: 'unbind-target',
+                                  alias: selectedAlias.alias,
+                                  provider: target.provider,
+                                  model: target.model,
+                                })
+                              }
+                            >
+                              {t('actions.unbind')}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              )}
             </article>
           </section>
         ) : null}
@@ -1362,6 +1701,272 @@ export default function App() {
           </section>
         ) : null}
 
+        {activeTab === 'log' ? (
+          <section className="tab-layout trace-layout">
+            <article className="panel trace-list-panel">
+              <div className="panel-header">
+                <div>
+                  <h3>{t('log.title')}</h3>
+                  <p className="subtle">{traceStatus || t('log.subtitle')}</p>
+                </div>
+                <span className="subtle">{t('log.count', { count: requestTraces.length })}</span>
+              </div>
+              <div className="trace-list">
+                {requestTraces.length === 0 ? (
+                  <article className="empty-card compact-empty">
+                    <h4>{t('log.empty')}</h4>
+                    <p className="subtle">{t('log.emptyHint')}</p>
+                  </article>
+                ) : null}
+                {requestTraces.map((trace) => (
+                  <button
+                    key={trace.id}
+                    type="button"
+                    className={`trace-row ${selectedTrace?.id === trace.id ? 'active' : ''}`}
+                    onClick={() => setSelectedTraceId(trace.id)}
+                  >
+                    <div className="trace-row-top">
+                      <strong>{trace.alias || trace.rawModel || `#${trace.id}`}</strong>
+                      <span className={`badge ${trace.success ? 'live' : 'idle'}`}>
+                        {trace.success ? t('log.success') : t('log.failed')}
+                      </span>
+                    </div>
+                    <div className="trace-row-summary">
+                      <span>{tracePrimaryText(trace)}</span>
+                      <span>{formatDuration(trace.durationMs)}</span>
+                    </div>
+                    <div className="inline-pills">
+                      <span className="pill">#{trace.id}</span>
+                      <span className="pill">{formatDateTime(trace.startedAt)}</span>
+                      {trace.failover ? <span className="pill trace-pill-warn">{t('log.failover')}</span> : null}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </article>
+
+            <article className="panel panel-fill">
+              <div className="panel-header">
+                <div>
+                  <h3>{t('log.detailTitle')}</h3>
+                  <p className="subtle">{selectedTrace ? t('log.detailSubtitle') : t('messages.noData')}</p>
+                </div>
+              </div>
+              {selectedTrace ? (
+                <div className="stack-blocks">
+                  <div className="trace-hero">
+                    <div>
+                      <span className="meta-label">{t('log.alias')}</span>
+                      <strong>{selectedTrace.alias || selectedTrace.rawModel || '-'}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">{t('log.finalRoute')}</span>
+                      <strong>{tracePrimaryText(selectedTrace)}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">{t('log.status')}</span>
+                      <strong>{selectedTrace.statusCode || '-'}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">{t('log.totalTime')}</span>
+                      <strong>{formatDuration(selectedTrace.durationMs)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="info-grid">
+                    <div>
+                      <dt>{t('log.startedAt')}</dt>
+                      <dd>{formatDateTime(selectedTrace.startedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('log.firstByte')}</dt>
+                      <dd>{formatDuration(selectedTrace.firstByteMs)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('log.stream')}</dt>
+                      <dd>{selectedTrace.stream ? t('status.yes') : t('status.no')}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('log.failover')}</dt>
+                      <dd>{selectedTrace.failover ? t('status.yes') : t('status.no')}</dd>
+                    </div>
+                  </div>
+
+                  {selectedTrace.error ? <p className="tone-error">{selectedTrace.error}</p> : null}
+
+                  <div className="stack">
+                    <div className="panel-header compact-header">
+                      <h4>{t('log.chainTitle')}</h4>
+                    </div>
+                    <div className="chain-list">
+                      {(selectedTrace.attempts || []).map((attempt) => (
+                        <article className="chain-card" key={`${selectedTrace.id}-${attempt.attempt}-${attempt.provider}-${attempt.model}`}>
+                          <div className="trace-row-top">
+                            <strong>{t('log.attemptLabel', { attempt: attempt.attempt })}</strong>
+                            <span className={`badge ${attempt.success ? 'live' : attempt.skipped ? 'outline' : 'idle'}`}>
+                              {attempt.result || '-'}
+                            </span>
+                          </div>
+                          <div className="item-grid">
+                            <div>
+                              <span className="meta-label">{t('log.provider')}</span>
+                              <span>{attempt.provider || '-'}</span>
+                            </div>
+                            <div>
+                              <span className="meta-label">{t('log.model')}</span>
+                              <span>{attempt.model || '-'}</span>
+                            </div>
+                            <div>
+                              <span className="meta-label">{t('log.status')}</span>
+                              <span>{attempt.statusCode || '-'}</span>
+                            </div>
+                            <div>
+                              <span className="meta-label">{t('log.totalTime')}</span>
+                              <span>{formatDuration(attempt.durationMs)}</span>
+                            </div>
+                          </div>
+                          {attempt.error ? <p className="subtle tone-error">{attempt.error}</p> : null}
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="subtle">{t('messages.noData')}</p>
+              )}
+            </article>
+          </section>
+        ) : null}
+
+        {activeTab === 'network' ? (
+          <section className="tab-layout trace-layout">
+            <article className="panel trace-list-panel">
+              <div className="panel-header">
+                <div>
+                  <h3>{t('network.title')}</h3>
+                  <p className="subtle">{traceStatus || t('network.subtitle')}</p>
+                </div>
+              </div>
+              <div className="trace-list">
+                {requestTraces.length === 0 ? (
+                  <article className="empty-card compact-empty">
+                    <h4>{t('log.empty')}</h4>
+                    <p className="subtle">{t('log.emptyHint')}</p>
+                  </article>
+                ) : null}
+                {requestTraces.map((trace) => (
+                  <button
+                    key={trace.id}
+                    type="button"
+                    className={`trace-row ${selectedTrace?.id === trace.id ? 'active' : ''}`}
+                    onClick={() => setSelectedTraceId(trace.id)}
+                  >
+                    <div className="trace-row-top">
+                      <strong>#{trace.id}</strong>
+                      <span className={`badge ${trace.success ? 'live' : 'idle'}`}>{trace.statusCode || '-'}</span>
+                    </div>
+                    <div className="trace-row-summary">
+                      <span>{trace.finalUrl || tracePrimaryText(trace)}</span>
+                      <span>{formatDuration(trace.firstByteMs)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </article>
+
+            <article className="panel panel-fill">
+              <div className="panel-header">
+                <div>
+                  <h3>{t('network.detailTitle')}</h3>
+                  <p className="subtle">{selectedTrace ? t('network.detailSubtitle') : t('messages.noData')}</p>
+                </div>
+              </div>
+              {selectedTrace ? (
+                <div className="stack-blocks">
+                  <div className="trace-hero">
+                    <div>
+                      <span className="meta-label">{t('network.url')}</span>
+                      <strong>{selectedTrace.finalUrl || '-'}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">{t('network.firstByte')}</span>
+                      <strong>{formatDuration(selectedTrace.firstByteMs)}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">{t('network.totalTime')}</span>
+                      <strong>{formatDuration(selectedTrace.durationMs)}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">{t('network.statusCode')}</span>
+                      <strong>{selectedTrace.statusCode || '-'}</strong>
+                    </div>
+                  </div>
+
+                  <details className="details-toggle" open>
+                    <summary>{t('network.requestHeaders')}</summary>
+                    <pre className="details">{pretty(selectedTrace.requestHeaders || {})}</pre>
+                  </details>
+
+                  <details className="details-toggle" open>
+                    <summary>{t('network.requestParams')}</summary>
+                    <pre className="details">{pretty(selectedTrace.requestParams || {})}</pre>
+                  </details>
+
+                  <div className="stack">
+                    {(selectedTrace.attempts || []).map((attempt) => (
+                      <details className="details-toggle" key={`${selectedTrace.id}-net-${attempt.attempt}`}>
+                        <summary>
+                          {t('network.attemptTitle', { attempt: attempt.attempt, provider: attempt.provider || '-', model: attempt.model || '-' })}
+                        </summary>
+                        <div className="stack-blocks trace-detail-block">
+                          <div className="info-grid">
+                            <div>
+                              <dt>{t('network.url')}</dt>
+                              <dd>{attempt.url || '-'}</dd>
+                            </div>
+                            <div>
+                              <dt>{t('network.statusCode')}</dt>
+                              <dd>{attempt.statusCode || '-'}</dd>
+                            </div>
+                            <div>
+                              <dt>{t('network.firstByte')}</dt>
+                              <dd>{formatDuration(attempt.firstByteMs)}</dd>
+                            </div>
+                            <div>
+                              <dt>{t('network.totalTime')}</dt>
+                              <dd>{formatDuration(attempt.durationMs)}</dd>
+                            </div>
+                          </div>
+                          <details className="details-toggle" open>
+                            <summary>{t('network.requestHeaders')}</summary>
+                            <pre className="details">{pretty(attempt.requestHeaders || {})}</pre>
+                          </details>
+                          <details className="details-toggle" open>
+                            <summary>{t('network.requestParams')}</summary>
+                            <pre className="details">{pretty(attempt.requestParams || {})}</pre>
+                          </details>
+                          <details className="details-toggle" open>
+                            <summary>{t('network.responseHeaders')}</summary>
+                            <pre className="details">{pretty(attempt.responseHeaders || {})}</pre>
+                          </details>
+                          {attempt.responseBody ? (
+                            <details className="details-toggle" open>
+                              <summary>{t('network.responseBody')}</summary>
+                              <pre className="details">{attempt.responseBody}</pre>
+                            </details>
+                          ) : null}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="subtle">{t('messages.noData')}</p>
+              )}
+            </article>
+          </section>
+        ) : null}
+
         {activeTab === 'settings' ? (
           <section className="tab-layout settings-layout">
             <article className="panel settings-main-panel">
@@ -1443,6 +2048,16 @@ export default function App() {
                     <label className="checkbox-row">
                       <input
                         type="checkbox"
+                        checked={prefs.autoStartProxy}
+                        onChange={(event) =>
+                          setPrefs((current) => ({ ...current, autoStartProxy: event.target.checked }))
+                        }
+                      />
+                      <span>{t('settings.autoStartProxy')}</span>
+                    </label>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
                         checked={prefs.minimizeToTray}
                         onChange={(event) =>
                           setPrefs((current) => ({ ...current, minimizeToTray: event.target.checked }))
@@ -1494,7 +2109,10 @@ export default function App() {
                         type="button"
                         aria-pressed={configImportMode === 'file'}
                         className={configImportMode === 'file' ? 'active-toggle' : ''}
-                        onClick={() => setConfigImportMode('file')}
+                        onClick={() => {
+                          setConfigImportMode('file')
+                          setConfigImportFileName('')
+                        }}
                       >
                         {t('settings.importModeFile')}
                       </button>
@@ -1533,6 +2151,86 @@ export default function App() {
             </article>
 
             <article className="panel settings-side-panel">
+              <section className="subpanel">
+                <div className="subpanel-header">
+                  <h4>{t('settings.timeoutTitle')}</h4>
+                  {proxySettingsStatus ? <p className="subtle settings-status">{proxySettingsStatus}</p> : null}
+                </div>
+                <form className="stack" onSubmit={(event) => {
+                  event.preventDefault()
+                  void onSaveProxySettings()
+                }}>
+                  <label>
+                    <span>{t('settings.connectTimeout')}</span>
+                    <input
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={proxySettings.connectTimeoutMs}
+                      onChange={(event) =>
+                        setProxySettings((current) => ({ ...current, connectTimeoutMs: Number(event.target.value) || 0 }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t('settings.responseHeaderTimeout')}</span>
+                    <input
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={proxySettings.responseHeaderTimeoutMs}
+                      onChange={(event) =>
+                        setProxySettings((current) => ({ ...current, responseHeaderTimeoutMs: Number(event.target.value) || 0 }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t('settings.firstByteTimeout')}</span>
+                    <input
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={proxySettings.firstByteTimeoutMs}
+                      onChange={(event) =>
+                        setProxySettings((current) => ({ ...current, firstByteTimeoutMs: Number(event.target.value) || 0 }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t('settings.requestReadTimeout')}</span>
+                    <input
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={proxySettings.requestReadTimeoutMs}
+                      onChange={(event) =>
+                        setProxySettings((current) => ({ ...current, requestReadTimeoutMs: Number(event.target.value) || 0 }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t('settings.streamIdleTimeout')}</span>
+                    <input
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={proxySettings.streamIdleTimeoutMs}
+                      onChange={(event) =>
+                        setProxySettings((current) => ({ ...current, streamIdleTimeoutMs: Number(event.target.value) || 0 }))
+                      }
+                    />
+                  </label>
+                  <p className="subtle">
+                    {proxyRunning ? t('settings.timeoutRunningHint') : t('settings.timeoutHint')}
+                  </p>
+                  <div className="toolbar">
+                    <button type="submit" className="primary">
+                      {t('settings.saveTimeouts')}
+                    </button>
+                  </div>
+                </form>
+              </section>
+
               <div className="panel-header">
                 <div>
                   <h3>{t('settings.aboutTitle')}</h3>
@@ -1559,108 +2257,6 @@ export default function App() {
               </dl>
             </article>
           </section>
-        ) : null}
-
-        {activeModal === 'provider-form' ? (
-          <div className="modal-backdrop" onClick={closeModal}>
-            <div
-              className="modal-card"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby={providerFormTitleId}
-              tabIndex={-1}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={onModalKeyDown}
-            >
-              <div className="subpanel-header">
-                <h4 id={providerFormTitleId}>
-                  {editingProviderId ? t('providers.formEditTitle', { id: editingProviderId }) : t('providers.formCreateTitle')}
-                </h4>
-                <button type="button" onClick={closeModal}>
-                  {t('actions.close')}
-                </button>
-              </div>
-              <form className="stack" onSubmit={(event) => void onSaveProvider(event)}>
-                <label>
-                  <span>{t('providers.id')}</span>
-                  <input
-                    type="text"
-                    value={providerForm.id}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, id: event.target.value }))}
-                    placeholder={t('providers.placeholderId')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.name')}</span>
-                  <input
-                    type="text"
-                    value={providerForm.name}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, name: event.target.value }))}
-                    placeholder={t('providers.placeholderName')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.baseUrl')}</span>
-                  <input
-                    type="text"
-                    value={providerForm.baseUrl}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
-                    placeholder={t('providers.placeholderBaseUrl')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.apiKey')}</span>
-                  <input
-                    type="text"
-                    value={providerForm.apiKey}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
-                    placeholder={t('providers.placeholderApiKey')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.headers')}</span>
-                  <textarea
-                    value={providerForm.headersText}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, headersText: event.target.value }))}
-                    placeholder={t('providers.placeholderHeaders')}
-                    rows={4}
-                  />
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={providerForm.disabled}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, disabled: event.target.checked }))}
-                  />
-                  <span>{t('providers.saveDisabled')}</span>
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={providerForm.skipModels}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, skipModels: event.target.checked }))}
-                  />
-                  <span>{t('providers.skipModels')}</span>
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={providerForm.clearHeaders}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, clearHeaders: event.target.checked }))}
-                  />
-                  <span>{t('providers.clearHeaders')}</span>
-                </label>
-                <div className="toolbar">
-                  <button type="submit" className="primary">
-                    {t('actions.save')}
-                  </button>
-                  <button type="button" onClick={resetProviderForm}>
-                    {t('actions.reset')}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
         ) : null}
 
         {activeModal === 'provider-import' ? (
@@ -1699,63 +2295,6 @@ export default function App() {
                   <span>{t('providers.overwrite')}</span>
                 </label>
                 <button type="submit" className="primary">{t('actions.import')}</button>
-              </form>
-            </div>
-          </div>
-        ) : null}
-
-        {activeModal === 'alias-form' ? (
-          <div className="modal-backdrop" onClick={closeModal}>
-            <div
-              className="modal-card"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby={aliasFormTitleId}
-              tabIndex={-1}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={onModalKeyDown}
-            >
-              <div className="subpanel-header">
-                <h4 id={aliasFormTitleId}>{editingAliasId ? t('aliases.formEditTitle', { alias: editingAliasId }) : t('aliases.formCreateTitle')}</h4>
-                <button type="button" onClick={closeModal}>
-                  {t('actions.close')}
-                </button>
-              </div>
-              <form className="stack" onSubmit={(event) => void onSaveAlias(event)}>
-                <label>
-                  <span>{t('aliases.alias')}</span>
-                  <input
-                    type="text"
-                    value={aliasForm.alias}
-                    onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
-                    placeholder={t('aliases.placeholderAlias')}
-                  />
-                </label>
-                <label>
-                  <span>{t('aliases.displayName')}</span>
-                  <input
-                    type="text"
-                    value={aliasForm.displayName}
-                    onChange={(event) => setAliasForm((current) => ({ ...current, displayName: event.target.value }))}
-                    placeholder={t('aliases.placeholderDisplayName')}
-                  />
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={aliasForm.disabled}
-                    onChange={(event) => setAliasForm((current) => ({ ...current, disabled: event.target.checked }))}
-                  />
-                  <span>{t('aliases.createDisabled')}</span>
-                </label>
-                <div className="toolbar">
-                  <button type="submit" className="primary">
-                    {t('actions.save')}
-                  </button>
-                  <button type="button" onClick={resetAliasForm}>
-                    {t('actions.reset')}
-                  </button>
-                </div>
               </form>
             </div>
           </div>

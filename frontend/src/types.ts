@@ -4,6 +4,7 @@ export type LanguagePreference = 'system' | 'en-US' | 'zh-CN'
 
 export type DesktopPrefsView = {
   launchAtLogin: boolean
+  autoStartProxy: boolean
   minimizeToTray: boolean
   notifications: boolean
   theme: ThemePreference
@@ -12,6 +13,19 @@ export type DesktopPrefsView = {
 
 export type DesktopPrefsSaveResult = {
   prefs: DesktopPrefsView
+  warnings?: string[]
+}
+
+export type ProxySettingsView = {
+  connectTimeoutMs: number
+  responseHeaderTimeoutMs: number
+  firstByteTimeoutMs: number
+  requestReadTimeoutMs: number
+  streamIdleTimeoutMs: number
+}
+
+export type ProxySettingsSaveResult = {
+  settings: ProxySettingsView
   warnings?: string[]
 }
 
@@ -34,6 +48,48 @@ export type ProxyStatusView = {
   bindAddress: string
   startedAt?: string
   lastError?: string
+}
+
+export type TraceAttempt = {
+  attempt: number
+  provider?: string
+  model?: string
+  url?: string
+  startedAt: string
+  durationMs: number
+  firstByteMs?: number
+  statusCode?: number
+  success: boolean
+  retryable: boolean
+  skipped: boolean
+  result?: string
+  error?: string
+  requestHeaders?: Record<string, string>
+  requestParams?: unknown
+  responseHeaders?: Record<string, string>
+  responseBody?: string
+}
+
+export type RequestTrace = {
+  id: number
+  startedAt: string
+  finishedAt?: string
+  durationMs: number
+  firstByteMs?: number
+  rawModel?: string
+  alias?: string
+  stream: boolean
+  success: boolean
+  statusCode?: number
+  error?: string
+  finalProvider?: string
+  finalModel?: string
+  finalUrl?: string
+  failover: boolean
+  attemptCount: number
+  requestHeaders?: Record<string, string>
+  requestParams?: unknown
+  attempts: TraceAttempt[]
 }
 
 export type Overview = {

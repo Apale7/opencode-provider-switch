@@ -18,10 +18,6 @@ import (
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
-var firstByteTimeout = 15 * time.Second
-var requestReadTimeout = 30 * time.Second
-var streamIdleTimeout = 60 * time.Second
-
 type openAIErrorEnvelope struct {
 	Error openAIError `json:"error"`
 }
@@ -43,21 +39,31 @@ type Server struct {
 	cfg    *config.Config
 	client *http.Client
 	logger *log.Logger
+	traces *TraceStore
 }
 
 // New constructs a Server from cfg.
-func New(cfg *config.Config) *Server {
+func New(cfg *config.Config, stores ...*TraceStore) *Server {
+	var traces *TraceStore
+	if len(stores) > 0 {
+		traces = stores[0]
+	}
+	if traces == nil {
+		traces = NewTraceStore(defaultTraceLimit)
+	}
+	firstByteTimeout := timeoutDuration(cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
+	responseHeaderTimeout := timeoutDuration(cfg.Server.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs)
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
+			Timeout:   timeoutDuration(cfg.Server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
+		TLSHandshakeTimeout:   timeoutDuration(cfg.Server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
 		ExpectContinueTimeout: 1 * time.Second,
-		ResponseHeaderTimeout: firstByteTimeout,
+		ResponseHeaderTimeout: minDuration(responseHeaderTimeout, firstByteTimeout),
 		DisableCompression:    false,
 		ForceAttemptHTTP2:     true,
 	}
@@ -68,11 +74,18 @@ func New(cfg *config.Config) *Server {
 			Timeout:   0,
 		},
 		logger: log.New(log.Writer(), "[ocswitch] ", log.LstdFlags|log.Lmicroseconds),
+		traces: traces,
 	}
 }
 
 // ListenAndServe starts the HTTP listener until ctx is cancelled.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	return s.ListenAndServeWithReady(ctx, nil)
+}
+
+// ListenAndServeWithReady starts the HTTP listener until ctx is cancelled and
+// reports whether the listening socket was bound successfully.
+func (s *Server) ListenAndServeWithReady(ctx context.Context, ready chan<- error) error {
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/responses", s.handleResponses)
@@ -81,14 +94,21 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+	listener, err := net.Listen("tcp", addr)
+	if ready != nil {
+		ready <- err
+	}
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       requestReadTimeout,
+		ReadTimeout:       timeoutDuration(s.cfg.Server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
 	}
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.ListenAndServe() }()
+	go func() { errCh <- srv.Serve(listener) }()
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -142,6 +162,7 @@ var reqCounter uint64
 // handleResponses is the main alias→failover proxy entry.
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	reqID := atomic.AddUint64(&reqCounter, 1)
+	startedAt := time.Now()
 	if r.Method != http.MethodPost {
 		writeOpenAIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
@@ -168,21 +189,50 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	rawModel := aliasName
 	aliasName = normalizeAliasName(aliasName)
+	trace := RequestTrace{
+		ID:             reqID,
+		StartedAt:      startedAt,
+		RawModel:       rawModel,
+		Alias:          aliasName,
+		RequestHeaders: sanitizeHeaderMap(r.Header),
+		RequestParams:  sanitizeJSONValue("", payload),
+	}
+	if stream, ok := payload["stream"].(bool); ok {
+		trace.Stream = stream
+	}
+	defer func() {
+		trace.FinishedAt = time.Now()
+		trace.DurationMs = trace.FinishedAt.Sub(trace.StartedAt).Milliseconds()
+		trace.AttemptCount = len(trace.Attempts)
+		trace.Failover = len(trace.Attempts) > 1
+		if trace.FirstByteMs == 0 {
+			for _, attempt := range trace.Attempts {
+				if attempt.FirstByteMs > 0 {
+					trace.FirstByteMs = attempt.FirstByteMs
+					break
+				}
+			}
+		}
+		s.traces.Add(trace)
+	}()
 	s.logger.Printf("req=%d incoming model=%q alias=%q stream=%v", reqID, rawModel, aliasName, payload["stream"])
 	alias := s.cfg.FindAlias(aliasName)
 	if alias == nil {
 		s.logger.Printf("req=%d alias lookup failed for model=%q alias=%q", reqID, rawModel, aliasName)
+		trace.Error = fmt.Sprintf("alias %q not found", aliasName)
 		writeOpenAIError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q not found", aliasName))
 		return
 	}
 	if !alias.Enabled {
 		s.logger.Printf("req=%d alias=%q disabled", reqID, aliasName)
+		trace.Error = fmt.Sprintf("alias %q is disabled", aliasName)
 		writeOpenAIError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
 		return
 	}
 	targets := s.cfg.AvailableTargets(*alias)
 	if len(targets) == 0 {
 		s.logger.Printf("req=%d alias=%q has no available targets", reqID, aliasName)
+		trace.Error = fmt.Sprintf("alias %q has no available targets", aliasName)
 		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("alias %q has no available targets", aliasName))
 		return
 	}
@@ -190,28 +240,62 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	failoverCount := 0
 	var lastRetryable *upstreamFailure
 	for attempt, t := range targets {
+		attemptTrace := TraceAttempt{
+			Attempt:   attempt + 1,
+			Provider:  t.Provider,
+			Model:     t.Model,
+			StartedAt: time.Now(),
+			Result:    "pending",
+		}
 		p := s.cfg.FindProvider(t.Provider)
 		if p == nil || !p.IsEnabled() {
 			s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt+1, t.Provider)
+			attemptTrace.Skipped = true
+			attemptTrace.Result = "skipped"
+			attemptTrace.Error = fmt.Sprintf("provider %q unavailable", t.Provider)
+			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+			trace.Attempts = append(trace.Attempts, attemptTrace)
 			failoverCount++
 			continue
 		}
 		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt+1, p.ID, t.Model, failoverCount)
 		cloned := cloneMap(payload)
 		cloned["model"] = t.Model
+		upstreamURL := strings.TrimRight(p.BaseURL, "/") + "/responses"
+		attemptTrace.URL = upstreamURL
+		attemptTrace.RequestParams = sanitizeJSONValue("", cloned)
 		newBody, err := json.Marshal(cloned)
 		if err != nil {
 			s.logger.Printf("req=%d marshal error: %v", reqID, err)
+			attemptTrace.Result = "internal_error"
+			attemptTrace.Error = "marshal error"
+			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+			trace.Attempts = append(trace.Attempts, attemptTrace)
+			trace.Error = "marshal error"
 			writeOpenAIError(w, http.StatusInternalServerError, "server_error", "marshal error")
 			return
 		}
 
-		ok, retryable, upstreamErr, failure := s.tryOnce(r.Context(), w, r, p, t, newBody, aliasName, attempt+1, failoverCount)
-		if ok {
+		handled, success, retryable, upstreamErr, failure := s.tryOnce(r.Context(), w, r, p, t, newBody, aliasName, attempt+1, failoverCount, &attemptTrace, &trace)
+		attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+		trace.Attempts = append(trace.Attempts, attemptTrace)
+		trace.FinalProvider = p.ID
+		trace.FinalModel = t.Model
+		trace.FinalURL = upstreamURL
+		trace.StatusCode = attemptTrace.StatusCode
+		if trace.FirstByteMs == 0 {
+			trace.FirstByteMs = attemptTrace.FirstByteMs
+		}
+		if handled {
+			trace.Success = success
+			if !success {
+				trace.Error = errorString(upstreamErr)
+			}
 			return
 		}
 		if !retryable {
 			s.logger.Printf("req=%d alias=%s attempt=%d final failure: %v", reqID, aliasName, attempt+1, upstreamErr)
+			trace.Error = errorString(upstreamErr)
 			return
 		}
 		if failure != nil {
@@ -222,6 +306,8 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if lastRetryable != nil {
+		trace.StatusCode = lastRetryable.status
+		trace.Error = fmt.Sprintf("upstream %d", lastRetryable.status)
 		copyResponseHeaders(w.Header(), lastRetryable.header)
 		w.WriteHeader(lastRetryable.status)
 		if len(lastRetryable.body) > 0 {
@@ -230,11 +316,13 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	trace.StatusCode = http.StatusBadGateway
+	trace.Error = fmt.Sprintf("all upstream targets failed for alias %q", aliasName)
 	writeOpenAIError(w, http.StatusBadGateway, "server_error", fmt.Sprintf("all upstream targets failed for alias %q", aliasName))
 }
 
-// tryOnce proxies one attempt. Returns (ok, retryable, err, failure).
-// ok=true means successful response fully/partially written to client.
+// tryOnce proxies one attempt. Returns (handled, success, retryable, err, failure).
+// handled=true means a downstream response has already been started or completed.
 // retryable=true means failure happened before any bytes flushed downstream.
 func (s *Server) tryOnce(
 	ctx context.Context,
@@ -246,14 +334,16 @@ func (s *Server) tryOnce(
 	aliasName string,
 	attempt int,
 	failoverCount int,
-) (ok bool, retryable bool, err error, failure *upstreamFailure) {
+	attemptTrace *TraceAttempt,
+	trace *RequestTrace,
+) (handled bool, success bool, retryable bool, err error, failure *upstreamFailure) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	upstreamURL := strings.TrimRight(provider.BaseURL, "/") + "/responses"
 	upReq, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
-		return false, false, fmt.Errorf("build request: %w", err), nil
+		return false, false, false, fmt.Errorf("build request: %w", err), nil
 	}
 	copyForwardHeaders(upReq.Header, clientReq.Header)
 	upReq.Header.Set("Content-Type", "application/json")
@@ -265,46 +355,95 @@ func (s *Server) tryOnce(
 		upReq.Header.Set(k, v)
 	}
 	upReq.ContentLength = int64(len(body))
+	if attemptTrace != nil {
+		attemptTrace.RequestHeaders = sanitizeHeaderMap(upReq.Header)
+	}
 
 	startedAt := time.Now()
+	firstByteTimeout := timeoutDuration(s.cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
 	resp, err := s.client.Do(upReq)
 	if err != nil {
-		return false, true, fmt.Errorf("upstream dial/transport: %w", err), nil
+		if attemptTrace != nil {
+			attemptTrace.Retryable = true
+			attemptTrace.Result = "transport_error"
+			attemptTrace.Error = fmt.Sprintf("upstream dial/transport: %v", err)
+		}
+		return false, false, true, fmt.Errorf("upstream dial/transport: %w", err), nil
 	}
 	defer resp.Body.Close()
+	if attemptTrace != nil {
+		attemptTrace.StatusCode = resp.StatusCode
+		attemptTrace.ResponseHeaders = sanitizeHeaderMap(resp.Header)
+	}
 
 	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 		failure = captureRetryableFailure(resp)
-		return false, true, fmt.Errorf("upstream %d: %s", resp.StatusCode, truncate(string(failure.body), 200)), failure
+		sanitizedBody := sanitizeResponseBody(resp.Header.Get("Content-Type"), failure.body)
+		if attemptTrace != nil {
+			attemptTrace.Retryable = true
+			attemptTrace.Result = "retryable_failure"
+			attemptTrace.Error = fmt.Sprintf("upstream %d: %s", resp.StatusCode, sanitizedBody)
+			attemptTrace.ResponseBody = sanitizedBody
+		}
+		return false, false, true, fmt.Errorf("upstream %d: %s", resp.StatusCode, sanitizedBody), failure
 	}
 	if resp.StatusCode >= 400 {
 		s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
+		if attemptTrace != nil {
+			attemptTrace.Result = "final_failure"
+		}
 		s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
 		copyResponseHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
-		return true, false, fmt.Errorf("upstream %d", resp.StatusCode), nil
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		if attemptTrace != nil {
+			attemptTrace.ResponseBody = sanitizeResponseBody(resp.Header.Get("Content-Type"), bodyBytes)
+		}
+		_, _ = w.Write(bodyBytes)
+		return true, false, false, fmt.Errorf("upstream %d", resp.StatusCode), nil
 	}
 
 	remaining := firstByteTimeout - time.Since(startedAt)
 	if remaining <= 0 {
-		return false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout), nil
+		return false, false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout), nil
 	}
 	firstChunk, firstErr := readFirstChunk(resp.Body, remaining)
 	if firstErr != nil {
 		if errors.Is(firstErr, errFirstByteTimeout) {
-			return false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout), nil
+			if attemptTrace != nil {
+				attemptTrace.Retryable = true
+				attemptTrace.Result = "first_byte_timeout"
+				attemptTrace.Error = fmt.Sprintf("upstream first byte timeout after %s", firstByteTimeout)
+			}
+			return false, false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout), nil
 		}
 		if errors.Is(firstErr, io.EOF) {
 			if len(firstChunk) == 0 {
-				return false, true, fmt.Errorf("upstream closed before first byte"), nil
+				if attemptTrace != nil {
+					attemptTrace.Retryable = true
+					attemptTrace.Result = "empty_response"
+					attemptTrace.Error = "upstream closed before first byte"
+				}
+				return false, false, true, fmt.Errorf("upstream closed before first byte"), nil
 			}
 		} else {
-			return false, true, fmt.Errorf("upstream first read: %w", firstErr), nil
+			if attemptTrace != nil {
+				attemptTrace.Retryable = true
+				attemptTrace.Result = "first_read_error"
+				attemptTrace.Error = fmt.Sprintf("upstream first read: %v", firstErr)
+			}
+			return false, false, true, fmt.Errorf("upstream first read: %w", firstErr), nil
 		}
+	}
+	if attemptTrace != nil {
+		attemptTrace.FirstByteMs = time.Since(startedAt).Milliseconds()
+	}
+	if trace != nil && trace.FirstByteMs == 0 && attemptTrace != nil {
+		trace.FirstByteMs = attemptTrace.FirstByteMs
 	}
 
 	isEventStream := false
+	streamIdleTimeout := timeoutDuration(s.cfg.Server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
 	if mediaType, _, parseErr := mime.ParseMediaType(resp.Header.Get("Content-Type")); parseErr == nil {
 		isEventStream = mediaType == "text/event-stream"
 	}
@@ -316,7 +455,11 @@ func (s *Server) tryOnce(
 	flusher, _ := w.(http.Flusher)
 	if len(firstChunk) > 0 {
 		if _, werr := w.Write(firstChunk); werr != nil {
-			return true, false, werr, nil
+			if attemptTrace != nil {
+				attemptTrace.Result = "downstream_write_error"
+				attemptTrace.Error = werr.Error()
+			}
+			return true, false, false, werr, nil
 		}
 		if flusher != nil {
 			flusher.Flush()
@@ -335,7 +478,11 @@ func (s *Server) tryOnce(
 		}
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {
-				return true, false, werr, nil
+				if attemptTrace != nil {
+					attemptTrace.Result = "downstream_write_error"
+					attemptTrace.Error = werr.Error()
+				}
+				return true, false, false, werr, nil
 			}
 			if flusher != nil {
 				flusher.Flush()
@@ -343,12 +490,27 @@ func (s *Server) tryOnce(
 		}
 		if rerr != nil {
 			if errors.Is(rerr, io.EOF) {
-				return true, false, nil, nil
+				if attemptTrace != nil {
+					attemptTrace.Result = "success"
+					attemptTrace.Success = true
+				}
+				return true, true, false, nil, nil
 			}
 			s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream body read failed after response start: %v", aliasName, attempt, provider.ID, target.Model, rerr)
-			return true, false, rerr, nil
+			if attemptTrace != nil {
+				attemptTrace.Result = "stream_error"
+				attemptTrace.Error = rerr.Error()
+			}
+			return true, false, false, rerr, nil
 		}
 	}
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 var errFirstByteTimeout = errors.New("first byte timeout")
@@ -446,6 +608,20 @@ func requestReadError(err error) (int, string) {
 	default:
 		return http.StatusBadRequest, "read body: " + err.Error()
 	}
+}
+
+func timeoutDuration(value int, fallback int) time.Duration {
+	if value <= 0 {
+		value = fallback
+	}
+	return time.Duration(value) * time.Millisecond
+}
+
+func minDuration(a time.Duration, b time.Duration) time.Duration {
+	if a <= b {
+		return a
+	}
+	return b
 }
 
 func normalizeAliasName(model string) string {

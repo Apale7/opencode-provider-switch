@@ -16,7 +16,10 @@ import type {
   ProviderStateInput,
   ProviderUpsertInput,
   ProviderView,
+  ProxySettingsSaveResult,
+  ProxySettingsView,
   ProxyStatusView,
+  RequestTrace,
   SyncInput,
   SyncPreview,
   SyncResult,
@@ -155,6 +158,20 @@ export function runDoctor(): Promise<DoctorRunResult> {
 
 export function getProxyStatus(): Promise<ProxyStatusView> {
   return isWails() ? bridge().ProxyStatus() : http<ProxyStatusView>('/api/proxy/status')
+}
+
+export function getProxySettings(): Promise<ProxySettingsView> {
+  return isWails() ? bridge().ProxySettings() : http<ProxySettingsView>('/api/proxy/settings')
+}
+
+export function saveProxySettings(input: ProxySettingsView): Promise<ProxySettingsSaveResult> {
+  return isWails()
+    ? bridge().SaveProxySettings(input)
+    : http<ProxySettingsSaveResult>('/api/proxy/settings', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function listRequestTraces(): Promise<RequestTrace[]> {
+  return isWails() ? bridge().RequestTraces(100) : http<RequestTrace[]>('/api/proxy/traces')
 }
 
 export function startProxy(): Promise<ProxyStatusView> {

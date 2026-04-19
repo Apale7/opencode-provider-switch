@@ -15,16 +15,18 @@ import (
 
 type Service struct {
 	configPath string
+	traces     *proxy.TraceStore
 
 	mu          sync.Mutex
 	proxyCancel context.CancelFunc
 	proxyDone   chan struct{}
+	proxyReady  chan error
 	proxyErr    error
 	proxyStatus ProxyStatusView
 }
 
 func NewService(configPath string) *Service {
-	return &Service{configPath: strings.TrimSpace(configPath)}
+	return &Service{configPath: strings.TrimSpace(configPath), traces: proxy.NewTraceStore(200)}
 }
 
 func (s *Service) ConfigPath() string {
@@ -155,7 +157,6 @@ func (s *Service) ApplyOpenCodeSync(ctx context.Context, in SyncInput) (SyncResu
 }
 
 func (s *Service) StartProxy(ctx context.Context) error {
-	_ = ctx
 	cfg, err := s.loadConfig()
 	if err != nil {
 		return err
@@ -165,29 +166,36 @@ func (s *Service) StartProxy(ctx context.Context) error {
 	}
 
 	bindAddress := proxyBindAddress(cfg)
-	started := false
 
 	s.mu.Lock()
 	if s.proxyCancel == nil {
 		runCtx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
+		ready := make(chan error, 1)
 		s.proxyCancel = cancel
 		s.proxyDone = done
+		s.proxyReady = ready
 		s.proxyErr = nil
 		s.proxyStatus = ProxyStatusView{
 			Running:     true,
 			BindAddress: bindAddress,
-			StartedAt:   time.Now(),
+			StartedAt:   formatTimestamp(time.Now()),
 		}
-		started = true
-		go s.runProxy(runCtx, cancel, done, cfg, bindAddress)
+		go s.runProxy(runCtx, cancel, done, ready, cfg, bindAddress)
 	}
+	ready := s.proxyReady
+	done := s.proxyDone
 	s.mu.Unlock()
 
-	if !started {
-		return nil
+	select {
+	case err := <-ready:
+		return err
+	case <-done:
+		return s.WaitProxy(context.Background())
+	case <-ctx.Done():
+		_ = s.StopProxy(context.Background())
+		return ctx.Err()
 	}
-	return nil
 }
 
 func (s *Service) StopProxy(ctx context.Context) error {
@@ -234,6 +242,47 @@ func (s *Service) GetProxyStatus(ctx context.Context) (ProxyStatusView, error) {
 	return s.currentProxyStatus(proxyBindAddress(cfg)), nil
 }
 
+func (s *Service) GetProxySettings(ctx context.Context) (ProxySettingsView, error) {
+	_ = ctx
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return ProxySettingsView{}, err
+	}
+	return proxySettingsView(cfg.Server), nil
+}
+
+func (s *Service) SaveProxySettings(ctx context.Context, in ProxySettingsInput) (ProxySettingsSaveResult, error) {
+	_ = ctx
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return ProxySettingsSaveResult{}, err
+	}
+	cfg.Server.ConnectTimeoutMs = normalizePositiveInt(in.ConnectTimeoutMs, config.DefaultConnectTimeoutMs)
+	cfg.Server.ResponseHeaderTimeoutMs = normalizePositiveInt(in.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs)
+	cfg.Server.FirstByteTimeoutMs = normalizePositiveInt(in.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
+	cfg.Server.RequestReadTimeoutMs = normalizePositiveInt(in.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs)
+	cfg.Server.StreamIdleTimeoutMs = normalizePositiveInt(in.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
+	if err := cfg.Save(); err != nil {
+		return ProxySettingsSaveResult{}, err
+	}
+	warnings := []string{}
+	status := s.currentProxyStatus(proxyBindAddress(cfg))
+	if status.Running {
+		warnings = append(warnings, "saved proxy timeout settings; restart proxy to apply changes")
+	}
+	return ProxySettingsSaveResult{Settings: proxySettingsView(cfg.Server), Warnings: warnings}, nil
+}
+
+func (s *Service) ListRequestTraces(ctx context.Context, limit int) ([]RequestTrace, error) {
+	_ = ctx
+	raw := s.traces.List(limit)
+	out := make([]RequestTrace, 0, len(raw))
+	for _, trace := range raw {
+		out = append(out, requestTraceView(trace))
+	}
+	return out, nil
+}
+
 func (s *Service) GetDesktopPrefs(ctx context.Context) (DesktopPrefsView, error) {
 	_ = ctx
 	cfg, err := s.loadConfig()
@@ -251,6 +300,7 @@ func (s *Service) SaveDesktopPrefs(ctx context.Context, in DesktopPrefsInput) (D
 	}
 	cfg.Desktop = config.Desktop{
 		LaunchAtLogin:  in.LaunchAtLogin,
+		AutoStartProxy: in.AutoStartProxy,
 		MinimizeToTray: in.MinimizeToTray,
 		Notifications:  in.Notifications,
 		Theme:          normalizeThemePreference(in.Theme),
@@ -322,13 +372,14 @@ func (s *Service) currentProxyStatus(bindAddress string) ProxyStatusView {
 	return status
 }
 
-func (s *Service) runProxy(runCtx context.Context, cancel context.CancelFunc, done chan struct{}, cfg *config.Config, bindAddress string) {
-	err := proxy.New(cfg).ListenAndServe(runCtx)
+func (s *Service) runProxy(runCtx context.Context, cancel context.CancelFunc, done chan struct{}, ready chan error, cfg *config.Config, bindAddress string) {
+	err := proxy.New(cfg, s.traces).ListenAndServeWithReady(runCtx, ready)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.proxyDone == done {
 		s.proxyCancel = nil
 		s.proxyDone = nil
+		s.proxyReady = nil
 	}
 	s.proxyErr = err
 	status := s.proxyStatus
@@ -387,11 +438,29 @@ func doctorIssues(errs []error) []DoctorIssue {
 func desktopPrefsView(prefs config.Desktop) DesktopPrefsView {
 	return DesktopPrefsView{
 		LaunchAtLogin:  prefs.LaunchAtLogin,
+		AutoStartProxy: prefs.AutoStartProxy,
 		MinimizeToTray: prefs.MinimizeToTray,
 		Notifications:  prefs.Notifications,
 		Theme:          normalizeThemePreference(prefs.Theme),
 		Language:       normalizeLanguagePreference(prefs.Language),
 	}
+}
+
+func proxySettingsView(server config.Server) ProxySettingsView {
+	return ProxySettingsView{
+		ConnectTimeoutMs:        normalizePositiveInt(server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
+		ResponseHeaderTimeoutMs: normalizePositiveInt(server.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs),
+		FirstByteTimeoutMs:      normalizePositiveInt(server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs),
+		RequestReadTimeoutMs:    normalizePositiveInt(server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
+		StreamIdleTimeoutMs:     normalizePositiveInt(server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs),
+	}
+}
+
+func normalizePositiveInt(value int, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func normalizeThemePreference(value string) string {
@@ -458,6 +527,13 @@ func cloneHeaders(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func formatTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format(time.RFC3339Nano)
 }
 
 func maskKey(k string) string {
