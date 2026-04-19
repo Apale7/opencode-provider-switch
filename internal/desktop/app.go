@@ -86,12 +86,10 @@ func (a *App) SyncDesktopPreferences(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := a.auto.Sync(ctx, prefs); err != nil {
-		return err
-	}
+	autoErr := a.auto.Sync(ctx, prefs)
 	a.tray.Sync(ctx, prefs)
 	a.notify.Sync(ctx, prefs)
-	return nil
+	return autoErr
 }
 
 func (a *App) SaveDesktopPrefs(ctx context.Context, in app.DesktopPrefsInput) (app.DesktopPrefsSaveResult, error) {
@@ -125,6 +123,22 @@ func (a *App) Meta() map[string]string {
 
 func (a *App) Overview() (app.Overview, error) {
 	return a.bindings.GetOverview(a.callContext())
+}
+
+func (a *App) ExportConfig() (app.ConfigExportView, error) {
+	return a.bindings.ExportConfig(a.callContext())
+}
+
+func (a *App) ImportConfig(in app.ConfigImportInput) (app.ConfigImportResult, error) {
+	result, err := a.bindings.ImportConfig(a.callContext(), in)
+	if err != nil {
+		return app.ConfigImportResult{}, err
+	}
+	if syncErr := a.SyncDesktopPreferences(a.callContext()); syncErr != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("imported config but could not sync desktop integrations: %v", syncErr))
+	}
+	a.tray.RefreshProxyStatus(a.callContext())
+	return result, nil
 }
 
 func (a *App) Providers() ([]app.ProviderView, error) {

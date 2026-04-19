@@ -115,6 +115,20 @@ type DesktopPrefsInput struct {
 	Language       string `json:"language"`
 }
 
+type ConfigExportView struct {
+	ConfigPath string `json:"configPath"`
+	Content    string `json:"content"`
+}
+
+type ConfigImportInput struct {
+	Content string `json:"content"`
+}
+
+type ConfigImportResult struct {
+	ConfigPath string   `json:"configPath"`
+	Warnings   []string `json:"warnings,omitempty"`
+}
+
 type ProviderUpsertInput struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name,omitempty"`

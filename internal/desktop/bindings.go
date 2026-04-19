@@ -21,6 +21,14 @@ func (b *Bindings) GetOverview(ctx context.Context) (app.Overview, error) {
 	return b.service.GetOverview(ctx)
 }
 
+func (b *Bindings) ExportConfig(ctx context.Context) (app.ConfigExportView, error) {
+	return b.service.ExportConfig(ctx)
+}
+
+func (b *Bindings) ImportConfig(ctx context.Context, in app.ConfigImportInput) (app.ConfigImportResult, error) {
+	return b.service.ImportConfig(ctx, in)
+}
+
 func (b *Bindings) ListProviders(ctx context.Context) ([]app.ProviderView, error) {
 	return b.service.ListProviders(ctx)
 }
@@ -97,6 +105,14 @@ func (b *Bindings) StopProxy(ctx context.Context) (app.ProxyStatusView, error) {
 
 func (b *Bindings) Overview() (app.Overview, error) {
 	return b.GetOverview(context.Background())
+}
+
+func (b *Bindings) ExportConfigNow() (app.ConfigExportView, error) {
+	return b.ExportConfig(context.Background())
+}
+
+func (b *Bindings) ImportConfigNow(in app.ConfigImportInput) (app.ConfigImportResult, error) {
+	return b.ImportConfig(context.Background(), in)
 }
 
 func (b *Bindings) Providers() ([]app.ProviderView, error) {

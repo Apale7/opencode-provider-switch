@@ -123,6 +123,28 @@ func newHandler(instance *App, version string, baseURL string) (http.Handler, er
 		writeResult(w, data, err)
 	})
 
+	api.HandleFunc("/api/config/export", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		data, err := b.ExportConfig(r.Context())
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/config/import", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.ConfigImportInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := instance.ImportConfig(in)
+		writeResult(w, data, err)
+	})
+
 	api.HandleFunc("/api/providers", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

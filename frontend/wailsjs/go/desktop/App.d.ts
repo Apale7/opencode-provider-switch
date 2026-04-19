@@ -22,6 +22,10 @@ export function DesktopPrefs():Promise<app.DesktopPrefsView>;
 
 export function DoctorRun():Promise<app.DoctorRunResult>;
 
+export function ExportConfig():Promise<app.ConfigExportView>;
+
+export function ImportConfig(arg1:app.ConfigImportInput):Promise<app.ConfigImportResult>;
+
 export function ImportProviders(arg1:app.ProviderImportInput):Promise<app.ProviderImportResult>;
 
 export function Meta():Promise<Record<string, string>>;

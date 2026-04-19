@@ -38,6 +38,14 @@ export function DoctorRun() {
   return window['go']['desktop']['App']['DoctorRun']();
 }
 
+export function ExportConfig() {
+  return window['go']['desktop']['App']['ExportConfig']();
+}
+
+export function ImportConfig(arg1) {
+  return window['go']['desktop']['App']['ImportConfig'](arg1);
+}
+
 export function ImportProviders(arg1) {
   return window['go']['desktop']['App']['ImportProviders'](arg1);
 }

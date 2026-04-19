@@ -116,6 +116,52 @@ func TestStartStopProxyUpdatesStatus(t *testing.T) {
 	}
 }
 
+func TestGetProxyStatusUsesCurrentConfigAddressWhenStopped(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	firstPort := freePort(t)
+	secondPort := freePort(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Server.Port = firstPort
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	if err := svc.StartProxy(context.Background()); err != nil {
+		t.Fatalf("StartProxy() error = %v", err)
+	}
+	if err := svc.StopProxy(context.Background()); err != nil {
+		t.Fatalf("StopProxy() error = %v", err)
+	}
+
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() reload error = %v", err)
+	}
+	cfg.Server.Port = secondPort
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() update error = %v", err)
+	}
+
+	status, err := svc.GetProxyStatus(context.Background())
+	if err != nil {
+		t.Fatalf("GetProxyStatus() error = %v", err)
+	}
+	if status.Running {
+		t.Fatalf("status.Running = true, want false")
+	}
+	want := "127.0.0.1:" + itoa(secondPort)
+	if status.BindAddress != want {
+		t.Fatalf("status.BindAddress = %q, want %q", status.BindAddress, want)
+	}
+}
+
 func TestUpsertProviderReturnsWarningsAndKeepsCatalog(t *testing.T) {
 	t.Parallel()
 

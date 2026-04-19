@@ -136,6 +136,91 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 		}
 	})
 
+	t.Run("import config syncs desktop integrations and reports warning", func(t *testing.T) {
+		cfg, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("config.Load() error = %v", err)
+		}
+		cfg.UpsertProvider(config.Provider{
+			ID:      "demo",
+			Name:    "Demo",
+			BaseURL: "https://example.com/v1",
+			APIKey:  "sk-demo-12345678",
+			Models:  []string{"gpt-4.1-mini"},
+		})
+		cfg.UpsertAlias(config.Alias{
+			Alias:       "chat",
+			DisplayName: "Chat",
+			Enabled:     true,
+			Targets: []config.Target{{
+				Provider: "demo",
+				Model:    "gpt-4.1-mini",
+				Enabled:  true,
+			}},
+		})
+		if err := cfg.Save(); err != nil {
+			t.Fatalf("cfg.Save() error = %v", err)
+		}
+
+		originalAuto := instance.auto
+		originalTray := instance.tray
+		originalNotify := instance.notify
+		auto := failingAutoStart{message: "startup folder unavailable"}
+		tray := &spyTray{}
+		notify := &spyNotifier{}
+		instance.auto = auto
+		instance.tray = tray
+		instance.notify = notify
+		defer func() {
+			instance.auto = originalAuto
+			instance.tray = originalTray
+			instance.notify = originalNotify
+		}()
+
+		req := httptest.NewRequest(http.MethodPost, "/api/config/import", strings.NewReader(`{
+			"content":"{\"server\":{\"host\":\"127.0.0.1\",\"port\":9982,\"api_key\":\"ocswitch-local\"},\"desktop\":{\"launch_at_login\":true,\"minimize_to_tray\":true,\"notifications\":true,\"theme\":\"dark\",\"language\":\"zh-CN\"},\"providers\":[{\"id\":\"demo\",\"name\":\"Demo\",\"base_url\":\"https://example.com/v1\",\"api_key\":\"sk-demo-12345678\",\"models\":[\"gpt-4.1-mini\"]}],\"aliases\":[{\"alias\":\"chat\",\"display_name\":\"Chat\",\"enabled\":true,\"targets\":[{\"provider\":\"demo\",\"model\":\"gpt-4.1-mini\",\"enabled\":true}]}]}"
+		}`))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		h.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d, body=%s", resp.Code, http.StatusOK, resp.Body.String())
+		}
+		var payload struct {
+			Data struct {
+				ConfigPath string   `json:"configPath"`
+				Warnings   []string `json:"warnings"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if payload.Data.ConfigPath == "" {
+			t.Fatalf("configPath is empty: %#v", payload.Data)
+		}
+		if len(payload.Data.Warnings) != 1 || !strings.Contains(payload.Data.Warnings[0], "sync desktop integrations") {
+			t.Fatalf("warnings = %#v, want desktop sync warning", payload.Data.Warnings)
+		}
+		if tray.syncCalls != 1 {
+			t.Fatalf("tray syncCalls = %d, want 1", tray.syncCalls)
+		}
+		if tray.refreshCalls != 1 {
+			t.Fatalf("tray refreshCalls = %d, want 1", tray.refreshCalls)
+		}
+		if !notify.lastPrefs.Notifications {
+			t.Fatalf("notify prefs = %#v, want notifications enabled", notify.lastPrefs)
+		}
+
+		loaded, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("config.Load() error = %v", err)
+		}
+		if !loaded.Desktop.LaunchAtLogin || !loaded.Desktop.MinimizeToTray || !loaded.Desktop.Notifications {
+			t.Fatalf("persisted desktop prefs = %#v", loaded.Desktop)
+		}
+	})
+
 	t.Run("provider save exposes warnings", func(t *testing.T) {
 		providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadGateway)
@@ -294,4 +379,45 @@ func (f failingAutoStart) Detach() {}
 
 func (f failingAutoStart) Sync(_ context.Context, _ app.DesktopPrefsView) error {
 	return fmt.Errorf(f.message)
+}
+
+type spyTray struct {
+	syncCalls    int
+	refreshCalls int
+	lastPrefs    app.DesktopPrefsView
+}
+
+func (s *spyTray) Attach(_ context.Context) {}
+
+func (s *spyTray) Detach() {}
+
+func (s *spyTray) Sync(_ context.Context, prefs app.DesktopPrefsView) {
+	s.syncCalls++
+	s.lastPrefs = prefs
+}
+
+func (s *spyTray) RefreshProxyStatus(_ context.Context) {
+	s.refreshCalls++
+}
+
+func (s *spyTray) BeforeClose(_ context.Context) (bool, error) {
+	return false, nil
+}
+
+type spyNotifier struct {
+	syncCalls int
+	lastPrefs app.DesktopPrefsView
+}
+
+func (s *spyNotifier) Attach(_ context.Context) {}
+
+func (s *spyNotifier) Detach() {}
+
+func (s *spyNotifier) Sync(_ context.Context, prefs app.DesktopPrefsView) {
+	s.syncCalls++
+	s.lastPrefs = prefs
+}
+
+func (s *spyNotifier) Send(_ context.Context, _ string, _ string) error {
+	return nil
 }

@@ -7,6 +7,8 @@ declare global {
         App?: {
           Meta: () => Promise<Record<string, string>>
           Overview: () => Promise<import('./types').Overview>
+          ExportConfig: () => Promise<import('./types').ConfigExportView>
+          ImportConfig: (input: import('./types').ConfigImportInput) => Promise<import('./types').ConfigImportResult>
           Providers: () => Promise<import('./types').ProviderView[]>
           Aliases: () => Promise<import('./types').AliasView[]>
           SaveProvider: (input: import('./types').ProviderUpsertInput) => Promise<import('./types').ProviderSaveResult>

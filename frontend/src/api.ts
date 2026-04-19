@@ -1,6 +1,9 @@
 import type {
   AliasTargetInput,
   AliasUpsertInput,
+  ConfigExportView,
+  ConfigImportInput,
+  ConfigImportResult,
   DesktopPrefsSaveResult,
   AliasView,
   DesktopPrefsView,
@@ -58,6 +61,16 @@ export async function getMeta(): Promise<MetaView> {
 
 export function getOverview(): Promise<Overview> {
   return isWails() ? bridge().Overview() : http<Overview>('/api/overview')
+}
+
+export function exportConfig(): Promise<ConfigExportView> {
+  return isWails() ? bridge().ExportConfig() : http<ConfigExportView>('/api/config/export')
+}
+
+export function importConfig(input: ConfigImportInput): Promise<ConfigImportResult> {
+  return isWails()
+    ? bridge().ImportConfig(input)
+    : http<ConfigImportResult>('/api/config/import', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function listProviders(): Promise<ProviderView[]> {

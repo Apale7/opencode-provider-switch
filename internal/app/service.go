@@ -316,7 +316,7 @@ func (s *Service) currentProxyStatus(bindAddress string) ProxyStatusView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status := s.proxyStatus
-	if status.BindAddress == "" {
+	if !status.Running || status.BindAddress == "" {
 		status.BindAddress = bindAddress
 	}
 	return status

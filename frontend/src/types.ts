@@ -15,6 +15,20 @@ export type DesktopPrefsSaveResult = {
   warnings?: string[]
 }
 
+export type ConfigExportView = {
+  configPath: string
+  content: string
+}
+
+export type ConfigImportInput = {
+  content: string
+}
+
+export type ConfigImportResult = {
+  configPath: string
+  warnings?: string[]
+}
+
 export type ProxyStatusView = {
   running: boolean
   bindAddress: string

@@ -90,6 +90,46 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class ConfigExportView {
+	    configPath: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConfigExportView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.configPath = source["configPath"];
+	        this.content = source["content"];
+	    }
+	}
+	export class ConfigImportInput {
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConfigImportInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.content = source["content"];
+	    }
+	}
+	export class ConfigImportResult {
+	    configPath: string;
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ConfigImportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.configPath = source["configPath"];
+	        this.warnings = source["warnings"];
+	    }
+	}
 	export class DesktopPrefsInput {
 	    launchAtLogin: boolean;
 	    minimizeToTray: boolean;
