@@ -87,6 +87,13 @@ Windows 下默认产物路径：
 build/bin/ocswitch-desktop.exe
 ```
 
+提示：
+
+- Windows 11 一般已内置 WebView2 Runtime；主流 Windows 10 设备通常也已经安装。
+- `ocswitch-desktop.exe` 按单文件产物分发，不需要额外同目录依赖文件。
+- 如果桌面应用在 Windows 上无法启动，常见原因之一是系统缺少 WebView2 Runtime；这时请先安装 Microsoft Edge WebView2 Runtime 再重试：
+  https://developer.microsoft.com/microsoft-edge/webview2/
+
 ### 开发模式
 
 如果你想本地调试桌面 GUI：

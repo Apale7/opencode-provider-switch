@@ -55,6 +55,13 @@ On Windows, the default output path is:
 build/bin/ocswitch-desktop.exe
 ```
 
+Note:
+
+- Windows 11 generally includes the WebView2 Runtime, and most mainstream Windows 10 devices already have it installed.
+- `ocswitch-desktop.exe` is distributed as a single-file artifact and does not require extra sidecar files in the same directory.
+- If the desktop app fails to start on Windows, one common cause is a missing WebView2 Runtime. Install the Microsoft Edge WebView2 Runtime and try again:
+  https://developer.microsoft.com/microsoft-edge/webview2/
+
 ### Development mode
 
 To run the desktop GUI in local development mode:
