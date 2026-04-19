@@ -107,6 +107,100 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	}
 }
 
+func TestHandleResponsesFailsOverOnEmptySSE200(t *testing.T) {
+	t.Parallel()
+
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer first.Close()
+
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1"},
+			{ID: "p2", BaseURL: second.URL + "/v1"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if body := rr.Body.String(); body != "data: ok\n\n" {
+		t.Fatalf("body = %q, want SSE payload from second upstream", body)
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 2", got)
+	}
+}
+
+func TestHandleResponsesSSEBypassesIdleTimeout(t *testing.T) {
+	oldTimeout := streamIdleTimeout
+	streamIdleTimeout = 30 * time.Millisecond
+	defer func() { streamIdleTimeout = oldTimeout }()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: first\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(90 * time.Millisecond)
+		_, _ = w.Write([]byte("data: second\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if body := rr.Body.String(); body != "data: first\n\ndata: second\n\n" {
+		t.Fatalf("body = %q, want both SSE chunks", body)
+	}
+}
+
 func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,65 @@
+{
+  "id": "04-19-proxy-sse-minimal-fix",
+  "name": "04-19-proxy-sse-minimal-fix",
+  "title": "Fix proxy SSE minimal failure handling",
+  "description": "Minimal proxy fix for empty 200 SSE failover and SSE idle timeout handling",
+  "status": "completed",
+  "dev_type": "feature",
+  "scope": "proxy",
+  "package": null,
+  "priority": "P1",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-19",
+  "completedAt": "2026-04-19",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-19-04-19-proxy-sse-minimal-fix/prd.md",
+    "internal/proxy/server.go",
+    "internal/proxy/server_test.go"
+  ],
+  "notes": "Applied a minimal SSE reliability fix in the local Responses proxy. Empty `200 text/event-stream` first reads are now treated as retryable pre-first-byte failures so failover can continue before any downstream status is written. After the first SSE chunk arrives, the proxy no longer applies `streamIdleTimeout` to later SSE reads, while non-SSE responses keep the existing timeout behavior. Added regression coverage for empty-200 SSE failover and long-idle SSE continuation, and verified with `go test ./internal/proxy`.",
+  "meta": {
+    "tests": [
+      "go test ./internal/proxy"
+    ],
+    "regressions": [
+      "empty 200 SSE failover",
+      "SSE bypasses idle timeout after first chunk"
+    ]
+  }
+}

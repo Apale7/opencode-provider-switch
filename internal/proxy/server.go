@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"strings"
@@ -296,11 +297,16 @@ func (s *Server) tryOnce(
 		}
 		if errors.Is(firstErr, io.EOF) {
 			if len(firstChunk) == 0 {
-				firstChunk = nil
+				return false, true, fmt.Errorf("upstream closed before first byte"), nil
 			}
 		} else {
 			return false, true, fmt.Errorf("upstream first read: %w", firstErr), nil
 		}
+	}
+
+	isEventStream := false
+	if mediaType, _, parseErr := mime.ParseMediaType(resp.Header.Get("Content-Type")); parseErr == nil {
+		isEventStream = mediaType == "text/event-stream"
 	}
 
 	s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
@@ -318,7 +324,15 @@ func (s *Server) tryOnce(
 	}
 	buf := make([]byte, 16<<10)
 	for {
-		n, rerr := readChunkWithTimeout(resp.Body, buf, streamIdleTimeout)
+		var (
+			n    int
+			rerr error
+		)
+		if isEventStream {
+			n, rerr = resp.Body.Read(buf)
+		} else {
+			n, rerr = readChunkWithTimeout(resp.Body, buf, streamIdleTimeout)
+		}
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				return true, false, werr, nil
@@ -331,6 +345,7 @@ func (s *Server) tryOnce(
 			if errors.Is(rerr, io.EOF) {
 				return true, false, nil, nil
 			}
+			s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream body read failed after response start: %v", aliasName, attempt, provider.ID, target.Model, rerr)
 			return true, false, rerr, nil
 		}
 	}
