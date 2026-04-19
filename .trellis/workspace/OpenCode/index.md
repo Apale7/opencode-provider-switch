@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
-- **Last Active**: 2026-04-19
+- **Total Sessions**: 3
+- **Last Active**: 2026-04-20
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~134 | Active |
+| `journal-1.md` | ~167 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-04-20 | Add WebView2 runtime note to README | `b00ee4c8dc2256a18dd155d5da619b48e0d722cc` | `master` |
 | 2 | 2026-04-19 | Proxy SSE minimal fix | `e4789d0` | `master` |
 | 1 | 2026-04-19 | Desktop GUI i18n and UX refresh | - | `master` |
 <!-- @@@/auto:session-history -->

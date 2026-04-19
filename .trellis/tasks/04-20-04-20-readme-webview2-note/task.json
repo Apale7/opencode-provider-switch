@@ -3,7 +3,7 @@
   "name": "04-20-readme-webview2-note",
   "title": "Add WebView2 runtime note to bilingual README",
   "description": "Add Windows desktop runtime note to README.md and README_EN.md",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,11 +11,11 @@
   "creator": "OpenCode",
   "assignee": "OpenCode",
   "createdAt": "2026-04-20",
-  "completedAt": null,
-  "branch": null,
+  "completedAt": "2026-04-20",
+  "branch": "master",
   "base_branch": "master",
   "worktree_path": null,
-  "current_phase": 0,
+  "current_phase": 6,
   "next_action": [
     {
       "phase": 1,
@@ -42,12 +42,12 @@
       "action": "record-session"
     }
   ],
-  "commit": null,
+  "commit": "b00ee4c8dc2256a18dd155d5da619b48e0d722cc",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Added bilingual README notes clarifying that the Windows desktop binary is distributed as a single-file artifact and may require WebView2 Runtime on a small subset of systems.",
   "meta": {}
 }

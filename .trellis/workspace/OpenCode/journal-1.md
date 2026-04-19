@@ -132,3 +132,36 @@ Fixed empty-200 SSE failover and bypassed idle timeout after SSE start in the lo
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Add WebView2 runtime note to README
+
+**Date**: 2026-04-20
+**Task**: Add WebView2 runtime note to README
+**Branch**: `master`
+
+### Summary
+
+Updated README.md and README_EN.md with a Windows desktop runtime note covering single-file distribution and the fallback WebView2 installation link.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b00ee4c8dc2256a18dd155d5da619b48e0d722cc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
