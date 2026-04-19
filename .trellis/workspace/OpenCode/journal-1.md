@@ -165,3 +165,36 @@ Updated README.md and README_EN.md with a Windows desktop runtime note covering 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Unify log and network layouts
+
+**Date**: 2026-04-20
+**Task**: Unify log and network layouts
+**Branch**: `master`
+
+### Summary
+
+Refactored the desktop log and network pages to reuse the alias full-width card layout, removed the old narrow trace list styles, added the missing network count i18n key, and verified with frontend build plus a tracked-file secret scan before push.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a82754e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
