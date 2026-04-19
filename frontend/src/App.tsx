@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useState } from 'react'
+import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   applySync,
@@ -307,6 +307,31 @@ function focusableElements(root: HTMLElement): HTMLElement[] {
   )
 }
 
+function focusFirstInput(root: HTMLElement | null) {
+  if (!root) {
+    return
+  }
+  const target = root.querySelector<HTMLElement>(
+    'input:not([disabled]):not([type="checkbox"]), select:not([disabled]), textarea:not([disabled])',
+  )
+  ;(target || root).focus()
+}
+
+function focusFirstFocusable(root: HTMLElement | null) {
+  if (!root) {
+    return
+  }
+  const [firstFocusable] = focusableElements(root)
+  ;(firstFocusable || root).focus()
+}
+
+function resolveSelectedTraceId(current: number | null, traces: RequestTrace[]): number | null {
+  if (!current) {
+    return null
+  }
+  return traces.some((trace) => trace.id === current) ? current : null
+}
+
 function providerMatches(provider: ProviderView, query: string, filter: FilterState): boolean {
   if (filter === 'enabled' && provider.disabled) {
     return false
@@ -355,7 +380,8 @@ export default function App() {
   const [targetForm, setTargetForm] = useState<AliasTargetInput>(emptyTargetForm)
   const [requestTraces, setRequestTraces] = useState<RequestTrace[]>([])
   const [traceStatus, setTraceStatus] = useState('')
-  const [selectedTraceId, setSelectedTraceId] = useState<number | null>(null)
+  const [selectedLogTraceId, setSelectedLogTraceId] = useState<number | null>(null)
+  const [selectedNetworkTraceId, setSelectedNetworkTraceId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [providerQuery, setProviderQuery] = useState('')
@@ -375,8 +401,13 @@ export default function App() {
   const [configImportText, setConfigImportText] = useState('')
   const [configImportFileName, setConfigImportFileName] = useState('')
   const [confirmIntent, setConfirmIntent] = useState<ConfirmIntent | null>(null)
+  const providerDetailRef = useRef<HTMLDivElement | null>(null)
+  const aliasDetailRef = useRef<HTMLDivElement | null>(null)
+  const logDetailRef = useRef<HTMLDivElement | null>(null)
+  const networkDetailRef = useRef<HTMLDivElement | null>(null)
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async (options?: { syncDesktopPrefs?: boolean }) => {
+    const syncDesktopPrefs = options?.syncDesktopPrefs ?? false
     setLoading(true)
     setPrefsStatus(i18n.t('messages.refreshing'))
     try {
@@ -391,11 +422,14 @@ export default function App() {
       setOverview(overviewData)
       setProviders(providerData)
       setAliases(aliasData)
-      setPrefs(overviewData.desktop)
+      if (syncDesktopPrefs) {
+        setPrefs(overviewData.desktop)
+      }
       setProxySettings(proxySettingsData)
       const traces = await listRequestTraces()
       setRequestTraces(traces)
-      setSelectedTraceId((current) => current ?? traces[0]?.id ?? null)
+      setSelectedLogTraceId((current) => resolveSelectedTraceId(current, traces))
+      setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, traces))
       setPrefsStatus(i18n.t('messages.fresh'))
       setProxySettingsStatus(i18n.t('messages.fresh'))
       setTraceStatus(i18n.t('messages.fresh'))
@@ -409,7 +443,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    void refreshAll()
+    void refreshAll({ syncDesktopPrefs: true })
   }, [refreshAll])
 
   useEffect(() => {
@@ -452,7 +486,12 @@ export default function App() {
   const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch))
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null
   const selectedAlias = aliases.find((alias) => alias.alias === selectedAliasId) || null
-  const selectedTrace = requestTraces.find((trace) => trace.id === selectedTraceId) || requestTraces[0] || null
+  const providerDetailOpen = providerDetailMode !== 'empty'
+  const aliasDetailOpen = aliasDetailMode !== 'empty'
+  const selectedLogTrace = requestTraces.find((trace) => trace.id === selectedLogTraceId) || null
+  const selectedNetworkTrace = requestTraces.find((trace) => trace.id === selectedNetworkTraceId) || null
+  const logDetailOpen = selectedLogTraceId !== null && selectedLogTrace !== null
+  const networkDetailOpen = selectedNetworkTraceId !== null && selectedNetworkTrace !== null
   const proxyRunning = overview?.proxy.running ?? false
   const stats = overview
     ? [
@@ -496,12 +535,8 @@ export default function App() {
           return
         }
         setRequestTraces(traces)
-        setSelectedTraceId((current) => {
-          if (current && traces.some((trace) => trace.id === current)) {
-            return current
-          }
-          return traces[0]?.id ?? null
-        })
+        setSelectedLogTraceId((current) => resolveSelectedTraceId(current, traces))
+        setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, traces))
         setTraceStatus(i18n.t('messages.fresh'))
       } catch (error) {
         if (!cancelled) {
@@ -520,47 +555,75 @@ export default function App() {
   }, [activeTab])
 
   useEffect(() => {
+    if (activeTab === 'providers' && providerDetailOpen) {
+      focusFirstInput(providerDetailRef.current)
+    }
+  }, [activeTab, providerDetailOpen])
+
+  useEffect(() => {
+    if (activeTab === 'aliases' && aliasDetailOpen) {
+      focusFirstInput(aliasDetailRef.current)
+    }
+  }, [activeTab, aliasDetailOpen])
+
+  useEffect(() => {
+    if (activeTab === 'log' && logDetailOpen) {
+      focusFirstFocusable(logDetailRef.current)
+    }
+  }, [activeTab, logDetailOpen])
+
+  useEffect(() => {
+    if (activeTab === 'network' && networkDetailOpen) {
+      focusFirstFocusable(networkDetailRef.current)
+    }
+  }, [activeTab, networkDetailOpen])
+
+  useEffect(() => {
+    const shouldLockScroll = providerDetailOpen || aliasDetailOpen || logDetailOpen || networkDetailOpen
+    const appShell = document.querySelector<HTMLElement>('.app-shell')
+    const sidebar = document.querySelector<HTMLElement>('.sidebar')
+    const workspace = document.querySelector<HTMLElement>('.workspace')
+    if (!shouldLockScroll) {
+      return
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    appShell?.classList.add('shell-locked')
+    sidebar?.classList.add('shell-locked')
+    workspace?.classList.add('shell-locked')
+    return () => {
+      document.body.style.overflow = previousOverflow
+      appShell?.classList.remove('shell-locked')
+      sidebar?.classList.remove('shell-locked')
+      workspace?.classList.remove('shell-locked')
+    }
+  }, [aliasDetailOpen, logDetailOpen, networkDetailOpen, providerDetailOpen])
+
+  useEffect(() => {
     if (providerDetailMode === 'create') {
       return
     }
-    if (selectedProviderId && filteredProviders.some((provider) => provider.id === selectedProviderId)) {
-      return
-    }
-    if (filteredProviders.length > 0) {
-      const next = filteredProviders[0]
-      setSelectedProviderId(next.id)
-      setEditingProviderId(next.id)
-      setProviderForm(providerFormFromView(next))
-      setProviderDetailMode('edit')
+    if (selectedProviderId && providers.some((provider) => provider.id === selectedProviderId)) {
       return
     }
     setSelectedProviderId(null)
     setEditingProviderId('')
     setProviderForm(emptyProviderForm)
     setProviderDetailMode('empty')
-  }, [filteredProviders, providerDetailMode, selectedProviderId])
+  }, [providerDetailMode, providers, selectedProviderId])
 
   useEffect(() => {
     if (aliasDetailMode === 'create') {
       return
     }
-    if (selectedAliasId && filteredAliases.some((alias) => alias.alias === selectedAliasId)) {
-      return
-    }
-    if (filteredAliases.length > 0) {
-      const next = filteredAliases[0]
-      setSelectedAliasId(next.alias)
-      setEditingAliasId(next.alias)
-      setAliasForm(aliasFormFromView(next))
-      setTargetForm((current) => ({ ...current, alias: next.alias }))
-      setAliasDetailMode('edit')
+    if (selectedAliasId && aliases.some((alias) => alias.alias === selectedAliasId)) {
       return
     }
     setSelectedAliasId(null)
     setEditingAliasId('')
     setAliasForm(emptyAliasForm)
     setAliasDetailMode('empty')
-  }, [aliasDetailMode, filteredAliases, selectedAliasId])
+  }, [aliasDetailMode, aliases, selectedAliasId])
 
   function selectTab(tab: TabKey) {
     window.location.hash = tab
@@ -597,6 +660,26 @@ export default function App() {
 
   function closeConfirmDialog() {
     setConfirmIntent(null)
+  }
+
+  function closeProviderDetail() {
+    setSelectedProviderId(null)
+    resetProviderForm()
+    setProviderDetailMode('empty')
+  }
+
+  function closeAliasDetail() {
+    setSelectedAliasId(null)
+    resetAliasForm()
+    setAliasDetailMode('empty')
+  }
+
+  function closeLogDetail() {
+    setSelectedLogTraceId(null)
+  }
+
+  function closeNetworkDetail() {
+    setSelectedNetworkTraceId(null)
   }
 
   function openProviderCreateModal() {
@@ -655,6 +738,34 @@ export default function App() {
     trapModalFocus(event)
     if (event.key === 'Escape') {
       closeConfirmDialog()
+    }
+  }
+
+  function onProviderDetailKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    trapModalFocus(event)
+    if (event.key === 'Escape') {
+      closeProviderDetail()
+    }
+  }
+
+  function onAliasDetailKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    trapModalFocus(event)
+    if (event.key === 'Escape') {
+      closeAliasDetail()
+    }
+  }
+
+  function onLogDetailKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    trapModalFocus(event)
+    if (event.key === 'Escape') {
+      closeLogDetail()
+    }
+  }
+
+  function onNetworkDetailKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    trapModalFocus(event)
+    if (event.key === 'Escape') {
+      closeNetworkDetail()
     }
   }
 
@@ -1009,6 +1120,10 @@ export default function App() {
   const importModeLabelId = useId()
   const providerImportTitleId = useId()
   const aliasTargetTitleId = useId()
+  const providerDetailTitleId = useId()
+  const aliasDetailTitleId = useId()
+  const logDetailTitleId = useId()
+  const networkDetailTitleId = useId()
   const confirmTitleId = useId()
 
   return (
@@ -1152,18 +1267,31 @@ export default function App() {
         ) : null}
 
         {activeTab === 'providers' ? (
-          <section className="tab-layout providers-layout split-view">
+          <section className="tab-layout providers-layout">
             <article className="panel panel-fill list-column">
               <div className="panel-header">
                 <div>
                   <h3>{t('providers.title')}</h3>
-                  <p className="subtle">{t('providers.subtitle')}</p>
+                  <p className="subtle">
+                    {providerDetailOpen
+                      ? providerDetailMode === 'create'
+                        ? t('providers.formCreateTitle')
+                        : selectedProviderId
+                          ? t('providers.formEditTitle', { id: selectedProviderId })
+                          : t('providers.subtitle')
+                      : t('providers.subtitle')}
+                  </p>
                 </div>
-                <div className="toolbar">
+                <div className="toolbar toolbar-end">
                   <span className="subtle">
                     {providerStatus ||
                       t('providers.listCount', { shown: filteredProviders.length, total: providers.length })}
                   </span>
+                  {providerDetailOpen ? (
+                    <button type="button" onClick={closeProviderDetail}>
+                      {t('actions.close')}
+                    </button>
+                  ) : null}
                   <button type="button" className="primary" onClick={openProviderCreateModal}>
                     {t('actions.newProvider')}
                   </button>
@@ -1222,7 +1350,7 @@ export default function App() {
                   <button
                     key={provider.id}
                     type="button"
-                    className={`compact-row ${selectedProviderId === provider.id ? 'active' : ''}`}
+                    className={`compact-row ${providerDetailOpen && selectedProviderId === provider.id ? 'active' : ''}`}
                     onClick={() => onEditProvider(provider)}
                   >
                     <div className="compact-row-main">
@@ -1243,165 +1371,34 @@ export default function App() {
                 ))}
               </div>
             </article>
-
-            <article className="panel panel-fill detail-panel">
-              <div className="panel-header">
-                <div>
-                  <h3>
-                    {providerDetailMode === 'create'
-                      ? t('providers.formCreateTitle')
-                      : editingProviderId
-                        ? t('providers.formEditTitle', { id: editingProviderId })
-                        : t('providers.listTitle')}
-                  </h3>
-                  <p className="subtle">
-                    {providerDetailMode === 'empty'
-                      ? t('providers.selectHint')
-                      : providerStatus || t('providers.detailHint')}
-                  </p>
-                </div>
-                {providerDetailMode !== 'empty' ? (
-                  <div className="toolbar">
-                    {providerDetailMode === 'edit' && selectedProvider ? (
-                      <button type="button" onClick={() => void onToggleProvider(selectedProvider)}>
-                        {selectedProvider.disabled ? t('actions.enable') : t('actions.disable')}
-                      </button>
-                    ) : null}
-                    {providerDetailMode === 'edit' && selectedProvider ? (
-                      <button
-                        type="button"
-                        className="danger ghost-danger"
-                        onClick={() => setConfirmIntent({ kind: 'delete-provider', id: selectedProvider.id })}
-                      >
-                        {t('actions.delete')}
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-
-              {providerDetailMode === 'empty' ? (
-                <article className="empty-card compact-empty">
-                  <h4>{t('providers.selectTitle')}</h4>
-                  <p className="subtle">{t('providers.selectHint')}</p>
-                </article>
-              ) : (
-                <form className="stack-blocks" onSubmit={(event) => void onSaveProvider(event)}>
-                  <div className="inline-meta compact-inline-meta">
-                    <div>
-                      <span className="meta-label">{t('providers.baseUrl')}</span>
-                      <strong>{selectedProvider?.baseUrl || providerForm.baseUrl || '-'}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">{t('providers.models')}</span>
-                      <strong>{selectedProvider?.models?.join(', ') || t('providers.modelsNone')}</strong>
-                    </div>
-                  </div>
-                  <label>
-                    <span>{t('providers.id')}</span>
-                    <input
-                      type="text"
-                      value={providerForm.id}
-                      onChange={(event) => setProviderForm((current) => ({ ...current, id: event.target.value }))}
-                      placeholder={t('providers.placeholderId')}
-                    />
-                  </label>
-                  <label>
-                    <span>{t('providers.name')}</span>
-                    <input
-                      type="text"
-                      value={providerForm.name}
-                      onChange={(event) => setProviderForm((current) => ({ ...current, name: event.target.value }))}
-                      placeholder={t('providers.placeholderName')}
-                    />
-                  </label>
-                  <label>
-                    <span>{t('providers.baseUrl')}</span>
-                    <input
-                      type="text"
-                      value={providerForm.baseUrl}
-                      onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
-                      placeholder={t('providers.placeholderBaseUrl')}
-                    />
-                  </label>
-                  <label>
-                    <span>{t('providers.apiKey')}</span>
-                    <input
-                      type="text"
-                      value={providerForm.apiKey}
-                      onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
-                      placeholder={t('providers.placeholderApiKey')}
-                    />
-                  </label>
-                  <label>
-                    <span>{t('providers.headers')}</span>
-                    <textarea
-                      value={providerForm.headersText}
-                      onChange={(event) => setProviderForm((current) => ({ ...current, headersText: event.target.value }))}
-                      placeholder={t('providers.placeholderHeaders')}
-                      rows={4}
-                    />
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={providerForm.disabled}
-                      onChange={(event) => setProviderForm((current) => ({ ...current, disabled: event.target.checked }))}
-                    />
-                    <span>{t('providers.saveDisabled')}</span>
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={providerForm.skipModels}
-                      onChange={(event) => setProviderForm((current) => ({ ...current, skipModels: event.target.checked }))}
-                    />
-                    <span>{t('providers.skipModels')}</span>
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={providerForm.clearHeaders}
-                      onChange={(event) => setProviderForm((current) => ({ ...current, clearHeaders: event.target.checked }))}
-                    />
-                    <span>{t('providers.clearHeaders')}</span>
-                  </label>
-                  <div className="toolbar">
-                    <button type="submit" className="primary">
-                      {t('actions.save')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (selectedProvider) {
-                          selectProviderDetail(selectedProvider)
-                          return
-                        }
-                        resetProviderForm()
-                        setProviderDetailMode('empty')
-                      }}
-                    >
-                      {t('actions.reset')}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </article>
           </section>
         ) : null}
 
         {activeTab === 'aliases' ? (
-          <section className="tab-layout aliases-layout split-view">
+          <section className="tab-layout aliases-layout">
             <article className="panel panel-fill list-column">
               <div className="panel-header">
                 <div>
                   <h3>{t('aliases.title')}</h3>
-                  <p className="subtle">{t('aliases.subtitle')}</p>
+                  <p className="subtle">
+                    {aliasDetailOpen
+                      ? aliasDetailMode === 'create'
+                        ? t('aliases.formCreateTitle')
+                        : selectedAliasId
+                          ? t('aliases.formEditTitle', { alias: selectedAliasId })
+                          : t('aliases.subtitle')
+                      : t('aliases.subtitle')}
+                  </p>
                 </div>
-                <div className="toolbar">
+                <div className="toolbar toolbar-end">
                   <span className="subtle">
                     {aliasStatus || t('aliases.listCount', { shown: filteredAliases.length, total: aliases.length })}
                   </span>
+                  {aliasDetailOpen ? (
+                    <button type="button" onClick={closeAliasDetail}>
+                      {t('actions.close')}
+                    </button>
+                  ) : null}
                   <button type="button" className="primary" onClick={openAliasCreateModal}>
                     {t('actions.newAlias')}
                   </button>
@@ -1449,7 +1446,7 @@ export default function App() {
                   <button
                     key={alias.alias}
                     type="button"
-                    className={`compact-row ${selectedAliasId === alias.alias ? 'active' : ''}`}
+                    className={`compact-row ${aliasDetailOpen && selectedAliasId === alias.alias ? 'active' : ''}`}
                     onClick={() => onEditAlias(alias)}
                   >
                     <div className="compact-row-main">
@@ -1469,141 +1466,6 @@ export default function App() {
                   </button>
                 ))}
               </div>
-            </article>
-
-            <article className="panel panel-fill detail-panel">
-              <div className="panel-header">
-                <div>
-                  <h3>
-                    {aliasDetailMode === 'create'
-                      ? t('aliases.formCreateTitle')
-                      : editingAliasId
-                        ? t('aliases.formEditTitle', { alias: editingAliasId })
-                        : t('aliases.listTitle')}
-                  </h3>
-                  <p className="subtle">
-                    {aliasDetailMode === 'empty' ? t('aliases.selectHint') : aliasStatus || t('aliases.detailHint')}
-                  </p>
-                </div>
-                {aliasDetailMode !== 'empty' ? (
-                  <div className="toolbar">
-                    <button type="button" onClick={() => openAliasTargetModal(aliasForm.alias || selectedAlias?.alias)}>
-                      {t('actions.bind')}
-                    </button>
-                    {selectedAlias ? (
-                      <button
-                        type="button"
-                        className="danger ghost-danger"
-                        onClick={() => setConfirmIntent({ kind: 'delete-alias', alias: selectedAlias.alias })}
-                      >
-                        {t('actions.delete')}
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-
-              {aliasDetailMode === 'empty' ? (
-                <article className="empty-card compact-empty">
-                  <h4>{t('aliases.selectTitle')}</h4>
-                  <p className="subtle">{t('aliases.selectHint')}</p>
-                </article>
-              ) : (
-                <div className="stack-blocks">
-                  <form className="stack" onSubmit={(event) => void onSaveAlias(event)}>
-                    <label>
-                      <span>{t('aliases.alias')}</span>
-                      <input
-                        type="text"
-                        value={aliasForm.alias}
-                        onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
-                        placeholder={t('aliases.placeholderAlias')}
-                      />
-                    </label>
-                    <label>
-                      <span>{t('aliases.displayName')}</span>
-                      <input
-                        type="text"
-                        value={aliasForm.displayName}
-                        onChange={(event) => setAliasForm((current) => ({ ...current, displayName: event.target.value }))}
-                        placeholder={t('aliases.placeholderDisplayName')}
-                      />
-                    </label>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={aliasForm.disabled}
-                        onChange={(event) => setAliasForm((current) => ({ ...current, disabled: event.target.checked }))}
-                      />
-                      <span>{t('aliases.createDisabled')}</span>
-                    </label>
-                    <div className="toolbar">
-                      <button type="submit" className="primary">
-                        {t('actions.save')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (selectedAlias) {
-                            selectAliasDetail(selectedAlias)
-                            return
-                          }
-                          resetAliasForm()
-                          setAliasDetailMode('empty')
-                        }}
-                      >
-                        {t('actions.reset')}
-                      </button>
-                    </div>
-                  </form>
-
-                  <section className="subpanel">
-                    <div className="subpanel-header">
-                      <h4>{t('aliases.targets')}</h4>
-                      {selectedAlias ? <span className="subtle">{t('aliases.targetsCount', { count: selectedAlias.targets.length })}</span> : null}
-                    </div>
-                    <div className="target-list target-list-compact">
-                      {!selectedAlias || selectedAlias.targets.length === 0 ? <p className="subtle">{t('aliases.noTargets')}</p> : null}
-                      {selectedAlias?.targets.map((target) => (
-                        <div className="target-card" key={`${selectedAlias.alias}-${target.provider}-${target.model}`}>
-                          <div className="target-card-main">
-                            <code>
-                              {target.provider}/{target.model}
-                            </code>
-                            <span className={`badge ${target.enabled ? 'live' : 'idle'}`}>
-                              {target.enabled ? t('status.enabled') : t('status.disabled')}
-                            </span>
-                          </div>
-                          <div className="toolbar toolbar-end">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void onToggleTarget(selectedAlias.alias, target.provider, target.model, target.enabled)
-                              }
-                            >
-                              {target.enabled ? t('actions.disable') : t('actions.enable')}
-                            </button>
-                            <button
-                              type="button"
-                              className="danger ghost-danger"
-                              onClick={() =>
-                                setConfirmIntent({
-                                  kind: 'unbind-target',
-                                  alias: selectedAlias.alias,
-                                  provider: target.provider,
-                                  model: target.model,
-                                })
-                              }
-                            >
-                              {t('actions.unbind')}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-              )}
             </article>
           </section>
         ) : null}
@@ -1707,9 +1569,20 @@ export default function App() {
               <div className="panel-header">
                 <div>
                   <h3>{t('log.title')}</h3>
-                  <p className="subtle">{traceStatus || t('log.subtitle')}</p>
+                  <p className="subtle">
+                    {logDetailOpen && selectedLogTrace
+                      ? `${t('log.detailTitle')}: #${selectedLogTrace.id}`
+                      : traceStatus || t('log.subtitle')}
+                  </p>
                 </div>
-                <span className="subtle">{t('log.count', { count: requestTraces.length })}</span>
+                <div className="toolbar toolbar-end">
+                  <span className="subtle">{t('log.count', { count: requestTraces.length })}</span>
+                  {logDetailOpen ? (
+                    <button type="button" onClick={closeLogDetail}>
+                      {t('actions.close')}
+                    </button>
+                  ) : null}
+                </div>
               </div>
               <div className="trace-list">
                 {requestTraces.length === 0 ? (
@@ -1722,8 +1595,8 @@ export default function App() {
                   <button
                     key={trace.id}
                     type="button"
-                    className={`trace-row ${selectedTrace?.id === trace.id ? 'active' : ''}`}
-                    onClick={() => setSelectedTraceId(trace.id)}
+                    className={`trace-row ${logDetailOpen && selectedLogTrace?.id === trace.id ? 'active' : ''}`}
+                    onClick={() => setSelectedLogTraceId(trace.id)}
                   >
                     <div className="trace-row-top">
                       <strong>{trace.alias || trace.rawModel || `#${trace.id}`}</strong>
@@ -1744,97 +1617,6 @@ export default function App() {
                 ))}
               </div>
             </article>
-
-            <article className="panel panel-fill">
-              <div className="panel-header">
-                <div>
-                  <h3>{t('log.detailTitle')}</h3>
-                  <p className="subtle">{selectedTrace ? t('log.detailSubtitle') : t('messages.noData')}</p>
-                </div>
-              </div>
-              {selectedTrace ? (
-                <div className="stack-blocks">
-                  <div className="trace-hero">
-                    <div>
-                      <span className="meta-label">{t('log.alias')}</span>
-                      <strong>{selectedTrace.alias || selectedTrace.rawModel || '-'}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">{t('log.finalRoute')}</span>
-                      <strong>{tracePrimaryText(selectedTrace)}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">{t('log.status')}</span>
-                      <strong>{selectedTrace.statusCode || '-'}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">{t('log.totalTime')}</span>
-                      <strong>{formatDuration(selectedTrace.durationMs)}</strong>
-                    </div>
-                  </div>
-
-                  <div className="info-grid">
-                    <div>
-                      <dt>{t('log.startedAt')}</dt>
-                      <dd>{formatDateTime(selectedTrace.startedAt)}</dd>
-                    </div>
-                    <div>
-                      <dt>{t('log.firstByte')}</dt>
-                      <dd>{formatDuration(selectedTrace.firstByteMs)}</dd>
-                    </div>
-                    <div>
-                      <dt>{t('log.stream')}</dt>
-                      <dd>{selectedTrace.stream ? t('status.yes') : t('status.no')}</dd>
-                    </div>
-                    <div>
-                      <dt>{t('log.failover')}</dt>
-                      <dd>{selectedTrace.failover ? t('status.yes') : t('status.no')}</dd>
-                    </div>
-                  </div>
-
-                  {selectedTrace.error ? <p className="tone-error">{selectedTrace.error}</p> : null}
-
-                  <div className="stack">
-                    <div className="panel-header compact-header">
-                      <h4>{t('log.chainTitle')}</h4>
-                    </div>
-                    <div className="chain-list">
-                      {(selectedTrace.attempts || []).map((attempt) => (
-                        <article className="chain-card" key={`${selectedTrace.id}-${attempt.attempt}-${attempt.provider}-${attempt.model}`}>
-                          <div className="trace-row-top">
-                            <strong>{t('log.attemptLabel', { attempt: attempt.attempt })}</strong>
-                            <span className={`badge ${attempt.success ? 'live' : attempt.skipped ? 'outline' : 'idle'}`}>
-                              {attempt.result || '-'}
-                            </span>
-                          </div>
-                          <div className="item-grid">
-                            <div>
-                              <span className="meta-label">{t('log.provider')}</span>
-                              <span>{attempt.provider || '-'}</span>
-                            </div>
-                            <div>
-                              <span className="meta-label">{t('log.model')}</span>
-                              <span>{attempt.model || '-'}</span>
-                            </div>
-                            <div>
-                              <span className="meta-label">{t('log.status')}</span>
-                              <span>{attempt.statusCode || '-'}</span>
-                            </div>
-                            <div>
-                              <span className="meta-label">{t('log.totalTime')}</span>
-                              <span>{formatDuration(attempt.durationMs)}</span>
-                            </div>
-                          </div>
-                          {attempt.error ? <p className="subtle tone-error">{attempt.error}</p> : null}
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="subtle">{t('messages.noData')}</p>
-              )}
-            </article>
           </section>
         ) : null}
 
@@ -1844,7 +1626,18 @@ export default function App() {
               <div className="panel-header">
                 <div>
                   <h3>{t('network.title')}</h3>
-                  <p className="subtle">{traceStatus || t('network.subtitle')}</p>
+                  <p className="subtle">
+                    {networkDetailOpen && selectedNetworkTrace
+                      ? `${t('network.detailTitle')}: #${selectedNetworkTrace.id}`
+                      : traceStatus || t('network.subtitle')}
+                  </p>
+                </div>
+                <div className="toolbar toolbar-end">
+                  {networkDetailOpen ? (
+                    <button type="button" onClick={closeNetworkDetail}>
+                      {t('actions.close')}
+                    </button>
+                  ) : null}
                 </div>
               </div>
               <div className="trace-list">
@@ -1858,8 +1651,8 @@ export default function App() {
                   <button
                     key={trace.id}
                     type="button"
-                    className={`trace-row ${selectedTrace?.id === trace.id ? 'active' : ''}`}
-                    onClick={() => setSelectedTraceId(trace.id)}
+                    className={`trace-row ${networkDetailOpen && selectedNetworkTrace?.id === trace.id ? 'active' : ''}`}
+                    onClick={() => setSelectedNetworkTraceId(trace.id)}
                   >
                     <div className="trace-row-top">
                       <strong>#{trace.id}</strong>
@@ -1872,97 +1665,6 @@ export default function App() {
                   </button>
                 ))}
               </div>
-            </article>
-
-            <article className="panel panel-fill">
-              <div className="panel-header">
-                <div>
-                  <h3>{t('network.detailTitle')}</h3>
-                  <p className="subtle">{selectedTrace ? t('network.detailSubtitle') : t('messages.noData')}</p>
-                </div>
-              </div>
-              {selectedTrace ? (
-                <div className="stack-blocks">
-                  <div className="trace-hero">
-                    <div>
-                      <span className="meta-label">{t('network.url')}</span>
-                      <strong>{selectedTrace.finalUrl || '-'}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">{t('network.firstByte')}</span>
-                      <strong>{formatDuration(selectedTrace.firstByteMs)}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">{t('network.totalTime')}</span>
-                      <strong>{formatDuration(selectedTrace.durationMs)}</strong>
-                    </div>
-                    <div>
-                      <span className="meta-label">{t('network.statusCode')}</span>
-                      <strong>{selectedTrace.statusCode || '-'}</strong>
-                    </div>
-                  </div>
-
-                  <details className="details-toggle" open>
-                    <summary>{t('network.requestHeaders')}</summary>
-                    <pre className="details">{pretty(selectedTrace.requestHeaders || {})}</pre>
-                  </details>
-
-                  <details className="details-toggle" open>
-                    <summary>{t('network.requestParams')}</summary>
-                    <pre className="details">{pretty(selectedTrace.requestParams || {})}</pre>
-                  </details>
-
-                  <div className="stack">
-                    {(selectedTrace.attempts || []).map((attempt) => (
-                      <details className="details-toggle" key={`${selectedTrace.id}-net-${attempt.attempt}`}>
-                        <summary>
-                          {t('network.attemptTitle', { attempt: attempt.attempt, provider: attempt.provider || '-', model: attempt.model || '-' })}
-                        </summary>
-                        <div className="stack-blocks trace-detail-block">
-                          <div className="info-grid">
-                            <div>
-                              <dt>{t('network.url')}</dt>
-                              <dd>{attempt.url || '-'}</dd>
-                            </div>
-                            <div>
-                              <dt>{t('network.statusCode')}</dt>
-                              <dd>{attempt.statusCode || '-'}</dd>
-                            </div>
-                            <div>
-                              <dt>{t('network.firstByte')}</dt>
-                              <dd>{formatDuration(attempt.firstByteMs)}</dd>
-                            </div>
-                            <div>
-                              <dt>{t('network.totalTime')}</dt>
-                              <dd>{formatDuration(attempt.durationMs)}</dd>
-                            </div>
-                          </div>
-                          <details className="details-toggle" open>
-                            <summary>{t('network.requestHeaders')}</summary>
-                            <pre className="details">{pretty(attempt.requestHeaders || {})}</pre>
-                          </details>
-                          <details className="details-toggle" open>
-                            <summary>{t('network.requestParams')}</summary>
-                            <pre className="details">{pretty(attempt.requestParams || {})}</pre>
-                          </details>
-                          <details className="details-toggle" open>
-                            <summary>{t('network.responseHeaders')}</summary>
-                            <pre className="details">{pretty(attempt.responseHeaders || {})}</pre>
-                          </details>
-                          {attempt.responseBody ? (
-                            <details className="details-toggle" open>
-                              <summary>{t('network.responseBody')}</summary>
-                              <pre className="details">{attempt.responseBody}</pre>
-                            </details>
-                          ) : null}
-                        </div>
-                      </details>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="subtle">{t('messages.noData')}</p>
-              )}
             </article>
           </section>
         ) : null}
@@ -2300,6 +2002,152 @@ export default function App() {
           </div>
         ) : null}
 
+        {providerDetailOpen ? (
+          <div className="detail-backdrop" onClick={closeProviderDetail}>
+            <div
+              ref={providerDetailRef}
+              className="detail-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={providerDetailTitleId}
+              tabIndex={-1}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={onProviderDetailKeyDown}
+            >
+              <div className="panel-header detail-sheet-header">
+                <div>
+                  <h3 id={providerDetailTitleId}>
+                    {providerDetailMode === 'create'
+                      ? t('providers.formCreateTitle')
+                      : editingProviderId
+                        ? t('providers.formEditTitle', { id: editingProviderId })
+                        : t('providers.listTitle')}
+                  </h3>
+                  <p className="subtle">{providerStatus || t('providers.detailHint')}</p>
+                </div>
+                <div className="toolbar">
+                  {providerDetailMode === 'edit' && selectedProvider ? (
+                    <button type="button" onClick={() => void onToggleProvider(selectedProvider)}>
+                      {selectedProvider.disabled ? t('actions.enable') : t('actions.disable')}
+                    </button>
+                  ) : null}
+                  {providerDetailMode === 'edit' && selectedProvider ? (
+                    <button
+                      type="button"
+                      className="danger ghost-danger"
+                      onClick={() => setConfirmIntent({ kind: 'delete-provider', id: selectedProvider.id })}
+                    >
+                      {t('actions.delete')}
+                    </button>
+                  ) : null}
+                  <button type="button" onClick={closeProviderDetail}>
+                    {t('actions.close')}
+                  </button>
+                </div>
+              </div>
+
+              <form className="stack-blocks" onSubmit={(event) => void onSaveProvider(event)}>
+                <div className="inline-meta compact-inline-meta">
+                  <div>
+                    <span className="meta-label">{t('providers.baseUrl')}</span>
+                    <strong>{selectedProvider?.baseUrl || providerForm.baseUrl || '-'}</strong>
+                  </div>
+                  <div>
+                    <span className="meta-label">{t('providers.models')}</span>
+                    <strong>{selectedProvider?.models?.join(', ') || t('providers.modelsNone')}</strong>
+                  </div>
+                </div>
+                <label>
+                  <span>{t('providers.id')}</span>
+                  <input
+                    type="text"
+                    value={providerForm.id}
+                    onChange={(event) => setProviderForm((current) => ({ ...current, id: event.target.value }))}
+                    placeholder={t('providers.placeholderId')}
+                  />
+                </label>
+                <label>
+                  <span>{t('providers.name')}</span>
+                  <input
+                    type="text"
+                    value={providerForm.name}
+                    onChange={(event) => setProviderForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder={t('providers.placeholderName')}
+                  />
+                </label>
+                <label>
+                  <span>{t('providers.baseUrl')}</span>
+                  <input
+                    type="text"
+                    value={providerForm.baseUrl}
+                    onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
+                    placeholder={t('providers.placeholderBaseUrl')}
+                  />
+                </label>
+                <label>
+                  <span>{t('providers.apiKey')}</span>
+                  <input
+                    type="text"
+                    value={providerForm.apiKey}
+                    onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
+                    placeholder={t('providers.placeholderApiKey')}
+                  />
+                </label>
+                <label>
+                  <span>{t('providers.headers')}</span>
+                  <textarea
+                    value={providerForm.headersText}
+                    onChange={(event) => setProviderForm((current) => ({ ...current, headersText: event.target.value }))}
+                    placeholder={t('providers.placeholderHeaders')}
+                    rows={4}
+                  />
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={providerForm.disabled}
+                    onChange={(event) => setProviderForm((current) => ({ ...current, disabled: event.target.checked }))}
+                  />
+                  <span>{t('providers.saveDisabled')}</span>
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={providerForm.skipModels}
+                    onChange={(event) => setProviderForm((current) => ({ ...current, skipModels: event.target.checked }))}
+                  />
+                  <span>{t('providers.skipModels')}</span>
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={providerForm.clearHeaders}
+                    onChange={(event) => setProviderForm((current) => ({ ...current, clearHeaders: event.target.checked }))}
+                  />
+                  <span>{t('providers.clearHeaders')}</span>
+                </label>
+                <div className="toolbar">
+                  <button type="submit" className="primary">
+                    {t('actions.save')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedProvider) {
+                        selectProviderDetail(selectedProvider)
+                        return
+                      }
+                      resetProviderForm()
+                    }}
+                  >
+                    {t('actions.reset')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
+
         {activeModal === 'alias-target' ? (
           <div className="modal-backdrop" onClick={closeModal}>
             <div
@@ -2360,6 +2208,361 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        ) : null}
+
+        {aliasDetailOpen ? (
+          <div className="detail-backdrop" onClick={closeAliasDetail}>
+            <div
+              ref={aliasDetailRef}
+              className="detail-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={aliasDetailTitleId}
+              tabIndex={-1}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={onAliasDetailKeyDown}
+            >
+              <div className="panel-header detail-sheet-header">
+                <div>
+                  <h3 id={aliasDetailTitleId}>
+                    {aliasDetailMode === 'create'
+                      ? t('aliases.formCreateTitle')
+                      : editingAliasId
+                        ? t('aliases.formEditTitle', { alias: editingAliasId })
+                        : t('aliases.listTitle')}
+                  </h3>
+                  <p className="subtle">{aliasStatus || t('aliases.detailHint')}</p>
+                </div>
+                <div className="toolbar">
+                  <button type="button" onClick={() => openAliasTargetModal(aliasForm.alias || selectedAlias?.alias)}>
+                    {t('actions.bind')}
+                  </button>
+                  {selectedAlias ? (
+                    <button
+                      type="button"
+                      className="danger ghost-danger"
+                      onClick={() => setConfirmIntent({ kind: 'delete-alias', alias: selectedAlias.alias })}
+                    >
+                      {t('actions.delete')}
+                    </button>
+                  ) : null}
+                  <button type="button" onClick={closeAliasDetail}>
+                    {t('actions.close')}
+                  </button>
+                </div>
+              </div>
+
+              <div className="stack-blocks">
+                <form className="stack" onSubmit={(event) => void onSaveAlias(event)}>
+                  <label>
+                    <span>{t('aliases.alias')}</span>
+                    <input
+                      type="text"
+                      value={aliasForm.alias}
+                      onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
+                      placeholder={t('aliases.placeholderAlias')}
+                    />
+                  </label>
+                  <label>
+                    <span>{t('aliases.displayName')}</span>
+                    <input
+                      type="text"
+                      value={aliasForm.displayName}
+                      onChange={(event) => setAliasForm((current) => ({ ...current, displayName: event.target.value }))}
+                      placeholder={t('aliases.placeholderDisplayName')}
+                    />
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={aliasForm.disabled}
+                      onChange={(event) => setAliasForm((current) => ({ ...current, disabled: event.target.checked }))}
+                    />
+                    <span>{t('aliases.createDisabled')}</span>
+                  </label>
+                  <div className="toolbar">
+                    <button type="submit" className="primary">
+                      {t('actions.save')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedAlias) {
+                          selectAliasDetail(selectedAlias)
+                          return
+                        }
+                        resetAliasForm()
+                      }}
+                    >
+                      {t('actions.reset')}
+                    </button>
+                  </div>
+                </form>
+
+                <section className="subpanel">
+                  <div className="subpanel-header">
+                    <h4>{t('aliases.targets')}</h4>
+                    {selectedAlias ? <span className="subtle">{t('aliases.targetsCount', { count: selectedAlias.targets.length })}</span> : null}
+                  </div>
+                  <div className="target-list target-list-compact">
+                    {!selectedAlias || selectedAlias.targets.length === 0 ? <p className="subtle">{t('aliases.noTargets')}</p> : null}
+                    {selectedAlias?.targets.map((target) => (
+                      <div className="target-card" key={`${selectedAlias.alias}-${target.provider}-${target.model}`}>
+                        <div className="target-card-main">
+                          <code>
+                            {target.provider}/{target.model}
+                          </code>
+                          <span className={`badge ${target.enabled ? 'live' : 'idle'}`}>
+                            {target.enabled ? t('status.enabled') : t('status.disabled')}
+                          </span>
+                        </div>
+                        <div className="toolbar toolbar-end">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void onToggleTarget(selectedAlias.alias, target.provider, target.model, target.enabled)
+                            }
+                          >
+                            {target.enabled ? t('actions.disable') : t('actions.enable')}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger ghost-danger"
+                            onClick={() =>
+                              setConfirmIntent({
+                                kind: 'unbind-target',
+                                alias: selectedAlias.alias,
+                                provider: target.provider,
+                                model: target.model,
+                              })
+                            }
+                          >
+                            {t('actions.unbind')}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {logDetailOpen && selectedLogTrace ? (
+          <div className="detail-backdrop" onClick={closeLogDetail}>
+            <div
+              ref={logDetailRef}
+              className="detail-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={logDetailTitleId}
+              tabIndex={-1}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={onLogDetailKeyDown}
+            >
+              <div className="panel-header detail-sheet-header">
+                <div>
+                  <h3 id={logDetailTitleId}>{t('log.detailTitle')}</h3>
+                  <p className="subtle">{t('log.detailSubtitle')}</p>
+                </div>
+                <div className="toolbar">
+                  <button type="button" onClick={closeLogDetail}>
+                    {t('actions.close')}
+                  </button>
+                </div>
+              </div>
+
+              <div className="stack-blocks">
+                <div className="trace-hero">
+                  <div>
+                    <span className="meta-label">{t('log.alias')}</span>
+                    <strong>{selectedLogTrace.alias || selectedLogTrace.rawModel || '-'}</strong>
+                  </div>
+                  <div>
+                    <span className="meta-label">{t('log.finalRoute')}</span>
+                    <strong>{tracePrimaryText(selectedLogTrace)}</strong>
+                  </div>
+                  <div>
+                    <span className="meta-label">{t('log.status')}</span>
+                    <strong>{selectedLogTrace.statusCode || '-'}</strong>
+                  </div>
+                  <div>
+                    <span className="meta-label">{t('log.totalTime')}</span>
+                    <strong>{formatDuration(selectedLogTrace.durationMs)}</strong>
+                  </div>
+                </div>
+
+                <div className="info-grid">
+                  <div>
+                    <dt>{t('log.startedAt')}</dt>
+                    <dd>{formatDateTime(selectedLogTrace.startedAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.firstByte')}</dt>
+                    <dd>{formatDuration(selectedLogTrace.firstByteMs)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.stream')}</dt>
+                    <dd>{selectedLogTrace.stream ? t('status.yes') : t('status.no')}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.failover')}</dt>
+                    <dd>{selectedLogTrace.failover ? t('status.yes') : t('status.no')}</dd>
+                  </div>
+                </div>
+
+                {selectedLogTrace.error ? <p className="tone-error">{selectedLogTrace.error}</p> : null}
+
+                <div className="stack">
+                  <div className="panel-header compact-header">
+                    <h4>{t('log.chainTitle')}</h4>
+                  </div>
+                  <div className="chain-list">
+                    {(selectedLogTrace.attempts || []).map((attempt) => (
+                      <article className="chain-card" key={`${selectedLogTrace.id}-${attempt.attempt}-${attempt.provider}-${attempt.model}`}>
+                        <div className="trace-row-top">
+                          <strong>{t('log.attemptLabel', { attempt: attempt.attempt })}</strong>
+                          <span className={`badge ${attempt.success ? 'live' : attempt.skipped ? 'outline' : 'idle'}`}>
+                            {attempt.result || '-'}
+                          </span>
+                        </div>
+                        <div className="item-grid">
+                          <div>
+                            <span className="meta-label">{t('log.provider')}</span>
+                            <span>{attempt.provider || '-'}</span>
+                          </div>
+                          <div>
+                            <span className="meta-label">{t('log.model')}</span>
+                            <span>{attempt.model || '-'}</span>
+                          </div>
+                          <div>
+                            <span className="meta-label">{t('log.status')}</span>
+                            <span>{attempt.statusCode || '-'}</span>
+                          </div>
+                          <div>
+                            <span className="meta-label">{t('log.totalTime')}</span>
+                            <span>{formatDuration(attempt.durationMs)}</span>
+                          </div>
+                        </div>
+                        {attempt.error ? <p className="subtle tone-error">{attempt.error}</p> : null}
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {networkDetailOpen && selectedNetworkTrace ? (
+          <div className="detail-backdrop" onClick={closeNetworkDetail}>
+            <div
+              ref={networkDetailRef}
+              className="detail-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={networkDetailTitleId}
+              tabIndex={-1}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={onNetworkDetailKeyDown}
+            >
+              <div className="panel-header detail-sheet-header">
+                <div>
+                  <h3 id={networkDetailTitleId}>{t('network.detailTitle')}</h3>
+                  <p className="subtle">{t('network.detailSubtitle')}</p>
+                </div>
+                <div className="toolbar">
+                  <button type="button" onClick={closeNetworkDetail}>
+                    {t('actions.close')}
+                  </button>
+                </div>
+              </div>
+
+              <div className="stack-blocks">
+                <div className="trace-hero">
+                  <div>
+                    <span className="meta-label">{t('network.url')}</span>
+                    <strong>{selectedNetworkTrace.finalUrl || '-'}</strong>
+                  </div>
+                  <div>
+                    <span className="meta-label">{t('network.firstByte')}</span>
+                    <strong>{formatDuration(selectedNetworkTrace.firstByteMs)}</strong>
+                  </div>
+                  <div>
+                    <span className="meta-label">{t('network.totalTime')}</span>
+                    <strong>{formatDuration(selectedNetworkTrace.durationMs)}</strong>
+                  </div>
+                  <div>
+                    <span className="meta-label">{t('network.statusCode')}</span>
+                    <strong>{selectedNetworkTrace.statusCode || '-'}</strong>
+                  </div>
+                </div>
+
+                <details className="details-toggle" open>
+                  <summary>{t('network.requestHeaders')}</summary>
+                  <pre className="details">{pretty(selectedNetworkTrace.requestHeaders || {})}</pre>
+                </details>
+
+                <details className="details-toggle" open>
+                  <summary>{t('network.requestParams')}</summary>
+                  <pre className="details">{pretty(selectedNetworkTrace.requestParams || {})}</pre>
+                </details>
+
+                <div className="stack">
+                  {(selectedNetworkTrace.attempts || []).map((attempt) => (
+                    <details className="details-toggle" key={`${selectedNetworkTrace.id}-net-${attempt.attempt}`}>
+                      <summary>
+                        {t('network.attemptTitle', {
+                          attempt: attempt.attempt,
+                          provider: attempt.provider || '-',
+                          model: attempt.model || '-',
+                        })}
+                      </summary>
+                      <div className="stack-blocks trace-detail-block">
+                        <div className="info-grid">
+                          <div>
+                            <dt>{t('network.url')}</dt>
+                            <dd>{attempt.url || '-'}</dd>
+                          </div>
+                          <div>
+                            <dt>{t('network.statusCode')}</dt>
+                            <dd>{attempt.statusCode || '-'}</dd>
+                          </div>
+                          <div>
+                            <dt>{t('network.firstByte')}</dt>
+                            <dd>{formatDuration(attempt.firstByteMs)}</dd>
+                          </div>
+                          <div>
+                            <dt>{t('network.totalTime')}</dt>
+                            <dd>{formatDuration(attempt.durationMs)}</dd>
+                          </div>
+                        </div>
+                        <details className="details-toggle" open>
+                          <summary>{t('network.requestHeaders')}</summary>
+                          <pre className="details">{pretty(attempt.requestHeaders || {})}</pre>
+                        </details>
+                        <details className="details-toggle" open>
+                          <summary>{t('network.requestParams')}</summary>
+                          <pre className="details">{pretty(attempt.requestParams || {})}</pre>
+                        </details>
+                        <details className="details-toggle" open>
+                          <summary>{t('network.responseHeaders')}</summary>
+                          <pre className="details">{pretty(attempt.responseHeaders || {})}</pre>
+                        </details>
+                        {attempt.responseBody ? (
+                          <details className="details-toggle" open>
+                            <summary>{t('network.responseBody')}</summary>
+                            <pre className="details">{attempt.responseBody}</pre>
+                          </details>
+                        ) : null}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         ) : null}

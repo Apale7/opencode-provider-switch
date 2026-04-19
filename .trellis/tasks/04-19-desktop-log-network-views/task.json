@@ -1,0 +1,69 @@
+{
+  "id": "desktop-log-network-views",
+  "name": "desktop-log-network-views",
+  "title": "Design and implement desktop log and network views",
+  "description": "",
+  "status": "completed",
+  "dev_type": "feature",
+  "scope": "desktop",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-19",
+  "completedAt": "2026-04-20",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-19-desktop-log-network-views/prd.md",
+    "frontend/src/App.tsx",
+    "frontend/src/styles.css"
+  ],
+  "notes": "Completed desktop provider, alias, log, and network view refresh to use list-first layouts with on-demand detail drawers instead of default split panes. Added keyboard-accessible drawer close flows, automatic first-field focus, shell scroll locking while drawers are open, list-header status/close affordances, and independent log/network detail selection. Fixed a GUI theme regression by preventing routine data refresh after proxy start/stop from overwriting in-memory desktop preferences. Verified with `npm run build` in `frontend`.",
+  "meta": {
+    "tests": [
+      "npm run build"
+    ],
+    "uiPatterns": [
+      "list-first detail drawers",
+      "shared drawer close interactions",
+      "drawer-only scrolling"
+    ],
+    "regressions": [
+      "proxy start/stop no longer resets theme presentation"
+    ]
+  }
+}
