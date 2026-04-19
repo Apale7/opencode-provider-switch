@@ -1,7 +1,13 @@
+export type ThemePreference = 'system' | 'light' | 'dark'
+
+export type LanguagePreference = 'system' | 'en-US' | 'zh-CN'
+
 export type DesktopPrefsView = {
   launchAtLogin: boolean
   minimizeToTray: boolean
   notifications: boolean
+  theme: ThemePreference
+  language: LanguagePreference
 }
 
 export type DesktopPrefsSaveResult = {

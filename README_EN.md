@@ -21,6 +21,65 @@ Protocol: OpenAI Responses (`POST /v1/responses`) only. Streaming supported.
 go build -o ocswitch ./cmd/ocswitch
 ```
 
+## Desktop GUI
+
+The repository also ships a Wails-based desktop control panel for managing
+providers, aliases, sync flows, and desktop preferences on Windows.
+
+Current desktop capabilities:
+
+- Sidebar tabs: `Overview` / `Providers` / `Aliases` / `Sync` / `Settings`
+- UI language preference: `en-US` / `zh-CN` / `system`
+- Theme preference: `light` / `dark` / `system`
+- Shared frontend between the desktop shell and the browser fallback shell
+
+### Build the desktop executable
+
+Install frontend dependencies and verify the frontend build first:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Then build the desktop app from the repository root:
+
+```bash
+wails build -tags desktop_wails
+```
+
+On Windows, the default output path is:
+
+```text
+build/bin/ocswitch-desktop.exe
+```
+
+### Development mode
+
+To run the desktop GUI in local development mode:
+
+```bash
+wails dev -tags desktop_wails
+```
+
+### Usage
+
+After launching the desktop app, you can:
+
+- inspect proxy state, config path, and doctor summary
+- manage providers with search, filtering, editing, and OpenCode import
+- manage aliases and target bindings
+- preview and apply `ocswitch opencode sync`
+- save desktop preferences including launch-at-login, tray behavior,
+  notifications, theme, and language
+
+If you already built the executable, you can run it directly:
+
+```bash
+./build/bin/ocswitch-desktop.exe
+```
+
 ## Quick start
 
 ```bash

@@ -58,9 +58,11 @@ type Server struct {
 
 // Desktop holds desktop-shell user preferences.
 type Desktop struct {
-	LaunchAtLogin  bool `json:"launch_at_login,omitempty"`
-	MinimizeToTray bool `json:"minimize_to_tray,omitempty"`
-	Notifications  bool `json:"notifications,omitempty"`
+	LaunchAtLogin  bool   `json:"launch_at_login,omitempty"`
+	MinimizeToTray bool   `json:"minimize_to_tray,omitempty"`
+	Notifications  bool   `json:"notifications,omitempty"`
+	Theme          string `json:"theme,omitempty"`
+	Language       string `json:"language,omitempty"`
 }
 
 // Config is the on-disk ocswitch config.

@@ -94,6 +94,8 @@ export namespace app {
 	    launchAtLogin: boolean;
 	    minimizeToTray: boolean;
 	    notifications: boolean;
+	    theme: string;
+	    language: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new DesktopPrefsInput(source);
@@ -104,12 +106,16 @@ export namespace app {
 	        this.launchAtLogin = source["launchAtLogin"];
 	        this.minimizeToTray = source["minimizeToTray"];
 	        this.notifications = source["notifications"];
+	        this.theme = source["theme"];
+	        this.language = source["language"];
 	    }
 	}
 	export class DesktopPrefsView {
 	    launchAtLogin: boolean;
 	    minimizeToTray: boolean;
 	    notifications: boolean;
+	    theme: string;
+	    language: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new DesktopPrefsView(source);
@@ -120,6 +126,8 @@ export namespace app {
 	        this.launchAtLogin = source["launchAtLogin"];
 	        this.minimizeToTray = source["minimizeToTray"];
 	        this.notifications = source["notifications"];
+	        this.theme = source["theme"];
+	        this.language = source["language"];
 	    }
 	}
 	export class DesktopPrefsSaveResult {

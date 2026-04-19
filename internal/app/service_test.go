@@ -25,11 +25,13 @@ func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
 		LaunchAtLogin:  true,
 		MinimizeToTray: true,
 		Notifications:  true,
+		Theme:          "dark",
+		Language:       "zh-CN",
 	})
 	if err != nil {
 		t.Fatalf("SaveDesktopPrefs() error = %v", err)
 	}
-	if !prefs.LaunchAtLogin || !prefs.MinimizeToTray || !prefs.Notifications {
+	if !prefs.LaunchAtLogin || !prefs.MinimizeToTray || !prefs.Notifications || prefs.Theme != "dark" || prefs.Language != "zh-CN" {
 		t.Fatalf("SaveDesktopPrefs() = %#v", prefs)
 	}
 
@@ -37,8 +39,26 @@ func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	if !cfg.Desktop.LaunchAtLogin || !cfg.Desktop.MinimizeToTray || !cfg.Desktop.Notifications {
+	if !cfg.Desktop.LaunchAtLogin || !cfg.Desktop.MinimizeToTray || !cfg.Desktop.Notifications || cfg.Desktop.Theme != "dark" || cfg.Desktop.Language != "zh-CN" {
 		t.Fatalf("persisted desktop prefs = %#v", cfg.Desktop)
+	}
+}
+
+func TestSaveDesktopPrefsNormalizesUnknownThemeAndLanguage(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	prefs, err := svc.SaveDesktopPrefs(context.Background(), DesktopPrefsInput{
+		Theme:    "night-mode",
+		Language: "fr-FR",
+	})
+	if err != nil {
+		t.Fatalf("SaveDesktopPrefs() error = %v", err)
+	}
+	if prefs.Theme != "system" || prefs.Language != "system" {
+		t.Fatalf("normalized prefs = %#v", prefs)
 	}
 }
 

@@ -253,6 +253,8 @@ func (s *Service) SaveDesktopPrefs(ctx context.Context, in DesktopPrefsInput) (D
 		LaunchAtLogin:  in.LaunchAtLogin,
 		MinimizeToTray: in.MinimizeToTray,
 		Notifications:  in.Notifications,
+		Theme:          normalizeThemePreference(in.Theme),
+		Language:       normalizeLanguagePreference(in.Language),
 	}
 	if err := cfg.Save(); err != nil {
 		return DesktopPrefsView{}, err
@@ -387,6 +389,28 @@ func desktopPrefsView(prefs config.Desktop) DesktopPrefsView {
 		LaunchAtLogin:  prefs.LaunchAtLogin,
 		MinimizeToTray: prefs.MinimizeToTray,
 		Notifications:  prefs.Notifications,
+		Theme:          normalizeThemePreference(prefs.Theme),
+		Language:       normalizeLanguagePreference(prefs.Language),
+	}
+}
+
+func normalizeThemePreference(value string) string {
+	trimmed := strings.TrimSpace(value)
+	switch trimmed {
+	case "light", "dark":
+		return trimmed
+	default:
+		return "system"
+	}
+}
+
+func normalizeLanguagePreference(value string) string {
+	trimmed := strings.TrimSpace(value)
+	switch trimmed {
+	case "en-US", "zh-CN":
+		return trimmed
+	default:
+		return "system"
 	}
 }
 

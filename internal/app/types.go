@@ -95,9 +95,11 @@ type SyncResult struct {
 }
 
 type DesktopPrefsView struct {
-	LaunchAtLogin  bool `json:"launchAtLogin"`
-	MinimizeToTray bool `json:"minimizeToTray"`
-	Notifications  bool `json:"notifications"`
+	LaunchAtLogin  bool   `json:"launchAtLogin"`
+	MinimizeToTray bool   `json:"minimizeToTray"`
+	Notifications  bool   `json:"notifications"`
+	Theme          string `json:"theme"`
+	Language       string `json:"language"`
 }
 
 type DesktopPrefsSaveResult struct {
@@ -106,9 +108,11 @@ type DesktopPrefsSaveResult struct {
 }
 
 type DesktopPrefsInput struct {
-	LaunchAtLogin  bool `json:"launchAtLogin"`
-	MinimizeToTray bool `json:"minimizeToTray"`
-	Notifications  bool `json:"notifications"`
+	LaunchAtLogin  bool   `json:"launchAtLogin"`
+	MinimizeToTray bool   `json:"minimizeToTray"`
+	Notifications  bool   `json:"notifications"`
+	Theme          string `json:"theme"`
+	Language       string `json:"language"`
 }
 
 type ProviderUpsertInput struct {

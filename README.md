@@ -54,6 +54,63 @@ go build -o ocswitch ./cmd/ocswitch
 go run ./cmd/ocswitch --help
 ```
 
+## 桌面 GUI
+
+仓库同时包含一个基于 Wails 的桌面控制台，适合直接在 Windows 上管理 provider、alias、同步和桌面偏好。
+
+当前桌面界面提供：
+
+- 左侧导航页签：`Overview` / `Providers` / `Aliases` / `Sync` / `Settings`
+- 中英文界面切换：`en-US` / `zh-CN` / `system`
+- 主题偏好：`light` / `dark` / `system`
+- 与浏览器 fallback shell 共用同一套前端
+
+### 构建桌面可执行文件
+
+先安装前端依赖并确认前端能正常构建：
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+然后在仓库根目录构建桌面应用：
+
+```bash
+wails build -tags desktop_wails
+```
+
+Windows 下默认产物路径：
+
+```text
+build/bin/ocswitch-desktop.exe
+```
+
+### 开发模式
+
+如果你想本地调试桌面 GUI：
+
+```bash
+wails dev -tags desktop_wails
+```
+
+### 使用方式
+
+启动桌面应用后，可以直接在界面里完成这些操作：
+
+- 查看当前代理状态、配置路径和 Doctor 摘要
+- 管理 provider，包括搜索、筛选、编辑和从 OpenCode 导入
+- 管理 alias 和 target 绑定关系
+- 预览并应用 `ocswitch opencode sync`
+- 保存桌面偏好，包括开机启动、托盘行为、通知、主题和语言
+
+如果你已经构建出可执行文件，也可以直接运行：
+
+```bash
+./build/bin/ocswitch-desktop.exe
+```
+
 ## 5 分钟快速上手
 
 ### 1. 添加上游 provider

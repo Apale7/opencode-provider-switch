@@ -68,3 +68,34 @@ Completed the Windows-focused desktop integration pass for `ocswitch desktop` by
 
 - If needed, run a full desktop binary build path (`wails build` or Windows packaging) on a machine with final packaging prerequisites.
 
+
+
+## Session 1: Desktop GUI i18n and UX refresh
+
+**Date**: 2026-04-19
+**Task**: Desktop GUI i18n and UX refresh
+**Branch**: `master`
+
+### Summary
+
+Added desktop theme/language preferences across Go and frontend, rebuilt the app into a tabbed localized shell, refreshed CSS theming/layout, updated Wails desktop prefs models, and verified with npm run build plus go test ./internal/app ./internal/desktop.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

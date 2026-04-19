@@ -77,7 +77,7 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 	})
 
 	t.Run("save desktop prefs", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/api/desktop-prefs", strings.NewReader(`{"launchAtLogin":true,"minimizeToTray":true,"notifications":true}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/desktop-prefs", strings.NewReader(`{"launchAtLogin":true,"minimizeToTray":true,"notifications":true,"theme":"dark","language":"zh-CN"}`))
 		req.Header.Set("Content-Type", "application/json")
 		resp := httptest.NewRecorder()
 		h.ServeHTTP(resp, req)
@@ -89,7 +89,7 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("config.Load() error = %v", err)
 		}
-		if !loaded.Desktop.LaunchAtLogin || !loaded.Desktop.MinimizeToTray || !loaded.Desktop.Notifications {
+		if !loaded.Desktop.LaunchAtLogin || !loaded.Desktop.MinimizeToTray || !loaded.Desktop.Notifications || loaded.Desktop.Theme != "dark" || loaded.Desktop.Language != "zh-CN" {
 			t.Fatalf("persisted desktop prefs = %#v", loaded.Desktop)
 		}
 	})
