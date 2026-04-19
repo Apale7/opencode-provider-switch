@@ -271,6 +271,7 @@
   "network": {
     "title": "Network detail",
     "subtitle": "Inspect URL, timing, status, headers, and params without exposing model IO content.",
+    "count": "{{count}} requests",
     "detailTitle": "Network inspector",
     "detailSubtitle": "Each attempt shows technical metadata captured around the upstream call.",
     "url": "URL",

@@ -1643,27 +1643,18 @@ export default function App() {
         ) : null}
 
         {activeTab === 'log' ? (
-          <section className="tab-layout trace-layout">
-            <article className="panel trace-list-panel">
+          <section className="tab-layout aliases-layout">
+            <article className="panel panel-fill list-column">
               <div className="panel-header">
                 <div>
                   <h3>{t('log.title')}</h3>
-                  <p className="subtle">
-                    {logDetailOpen && selectedLogTrace
-                      ? `${t('log.detailTitle')}: #${selectedLogTrace.id}`
-                      : traceStatus || t('log.subtitle')}
-                  </p>
+                  <p className="subtle">{traceStatus || t('log.subtitle')}</p>
                 </div>
-                <div className="toolbar toolbar-end">
-                  <span className="subtle">{t('log.count', { count: requestTraces.length })}</span>
-                  {logDetailOpen ? (
-                    <button type="button" onClick={closeLogDetail}>
-                      {t('actions.close')}
-                    </button>
-                  ) : null}
+                <div className="list-header-actions">
+                  <span className="subtle list-status-text">{t('log.count', { count: requestTraces.length })}</span>
                 </div>
               </div>
-              <div className="trace-list">
+              <div className="scroll-list compact-list trace-scroll-list">
                 {requestTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('log.empty')}</h4>
@@ -1671,28 +1662,50 @@ export default function App() {
                   </article>
                 ) : null}
                 {requestTraces.map((trace) => (
-                  <button
+                  <article
                     key={trace.id}
-                    type="button"
-                    className={`trace-row ${logDetailOpen && selectedLogTrace?.id === trace.id ? 'active' : ''}`}
+                    className={`resource-card ${logDetailOpen && selectedLogTrace?.id === trace.id ? 'active' : ''}`}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedLogTraceId(trace.id)}
+                    onKeyDown={(event) => onResourceCardKeyDown(event, () => setSelectedLogTraceId(trace.id))}
                   >
-                    <div className="trace-row-top">
-                      <strong>{trace.alias || trace.rawModel || `#${trace.id}`}</strong>
-                      <span className={`badge ${trace.success ? 'live' : 'idle'}`}>
-                        {trace.success ? t('log.success') : t('log.failed')}
-                      </span>
+                    <div className="resource-card-top">
+                      <div className="resource-card-heading">
+                        <div className="resource-card-titlewrap">
+                          <strong className="resource-card-title">{trace.alias || trace.rawModel || `#${trace.id}`}</strong>
+                          <code className="resource-card-code">#{trace.id}</code>
+                        </div>
+                        <p className="resource-card-subtitle trace-card-subtitle">
+                          <span>{tracePrimaryText(trace)}</span>
+                          <span>{formatDuration(trace.durationMs)}</span>
+                        </p>
+                      </div>
+                      <div className="resource-card-side">
+                        <span className={`badge status-badge ${trace.success ? 'live' : 'idle'}`}>
+                          {trace.success ? t('log.success') : t('log.failed')}
+                        </span>
+                      </div>
                     </div>
-                    <div className="trace-row-summary">
-                      <span>{tracePrimaryText(trace)}</span>
-                      <span>{formatDuration(trace.durationMs)}</span>
+                    <div className="resource-card-meta">
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('log.startedAt')}</span>
+                        <span className="resource-meta-value">{formatDateTime(trace.startedAt)}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('log.firstByte')}</span>
+                        <span className="resource-meta-value">{formatDuration(trace.firstByteMs)}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('log.chainTitle')}</span>
+                        <span className="resource-meta-value">
+                          {trace.failover
+                            ? `${trace.attemptCount} · ${t('log.failover')}`
+                            : `${trace.attemptCount}`}
+                        </span>
+                      </div>
                     </div>
-                    <div className="inline-pills">
-                      <span className="pill">#{trace.id}</span>
-                      <span className="pill">{formatDateTime(trace.startedAt)}</span>
-                      {trace.failover ? <span className="pill trace-pill-warn">{t('log.failover')}</span> : null}
-                    </div>
-                  </button>
+                  </article>
                 ))}
               </div>
             </article>
@@ -1700,26 +1713,18 @@ export default function App() {
         ) : null}
 
         {activeTab === 'network' ? (
-          <section className="tab-layout trace-layout">
-            <article className="panel trace-list-panel">
+          <section className="tab-layout aliases-layout">
+            <article className="panel panel-fill list-column">
               <div className="panel-header">
                 <div>
                   <h3>{t('network.title')}</h3>
-                  <p className="subtle">
-                    {networkDetailOpen && selectedNetworkTrace
-                      ? `${t('network.detailTitle')}: #${selectedNetworkTrace.id}`
-                      : traceStatus || t('network.subtitle')}
-                  </p>
+                  <p className="subtle">{traceStatus || t('network.subtitle')}</p>
                 </div>
-                <div className="toolbar toolbar-end">
-                  {networkDetailOpen ? (
-                    <button type="button" onClick={closeNetworkDetail}>
-                      {t('actions.close')}
-                    </button>
-                  ) : null}
+                <div className="list-header-actions">
+                  <span className="subtle list-status-text">{t('network.count', { count: requestTraces.length })}</span>
                 </div>
               </div>
-              <div className="trace-list">
+              <div className="scroll-list compact-list trace-scroll-list">
                 {requestTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('log.empty')}</h4>
@@ -1727,21 +1732,44 @@ export default function App() {
                   </article>
                 ) : null}
                 {requestTraces.map((trace) => (
-                  <button
+                  <article
                     key={trace.id}
-                    type="button"
-                    className={`trace-row ${networkDetailOpen && selectedNetworkTrace?.id === trace.id ? 'active' : ''}`}
+                    className={`resource-card ${networkDetailOpen && selectedNetworkTrace?.id === trace.id ? 'active' : ''}`}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedNetworkTraceId(trace.id)}
+                    onKeyDown={(event) => onResourceCardKeyDown(event, () => setSelectedNetworkTraceId(trace.id))}
                   >
-                    <div className="trace-row-top">
-                      <strong>#{trace.id}</strong>
-                      <span className={`badge ${trace.success ? 'live' : 'idle'}`}>{trace.statusCode || '-'}</span>
+                    <div className="resource-card-top">
+                      <div className="resource-card-heading">
+                        <div className="resource-card-titlewrap">
+                          <strong className="resource-card-title">#{trace.id}</strong>
+                          <code className="resource-card-code">{trace.finalProvider || trace.alias || trace.rawModel || '-'}</code>
+                        </div>
+                        <p className="resource-card-subtitle trace-card-subtitle">
+                          <span>{trace.finalUrl || tracePrimaryText(trace)}</span>
+                          <span>{formatDuration(trace.firstByteMs)}</span>
+                        </p>
+                      </div>
+                      <div className="resource-card-side">
+                        <span className={`badge status-badge ${trace.success ? 'live' : 'idle'}`}>{trace.statusCode || '-'}</span>
+                      </div>
                     </div>
-                    <div className="trace-row-summary">
-                      <span>{trace.finalUrl || tracePrimaryText(trace)}</span>
-                      <span>{formatDuration(trace.firstByteMs)}</span>
+                    <div className="resource-card-meta">
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('log.startedAt')}</span>
+                        <span className="resource-meta-value">{formatDateTime(trace.startedAt)}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('network.totalTime')}</span>
+                        <span className="resource-meta-value">{formatDuration(trace.durationMs)}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('log.chainTitle')}</span>
+                        <span className="resource-meta-value">{trace.attemptCount}</span>
+                      </div>
                     </div>
-                  </button>
+                  </article>
                 ))}
               </div>
             </article>
@@ -2571,7 +2599,7 @@ export default function App() {
                   <div className="chain-list">
                     {(selectedLogTrace.attempts || []).map((attempt) => (
                       <article className="chain-card" key={`${selectedLogTrace.id}-${attempt.attempt}-${attempt.provider}-${attempt.model}`}>
-                        <div className="trace-row-top">
+                        <div className="item-heading">
                           <strong>{t('log.attemptLabel', { attempt: attempt.attempt })}</strong>
                           <span className={`badge ${attempt.success ? 'live' : attempt.skipped ? 'outline' : 'idle'}`}>
                             {attempt.result || '-'}

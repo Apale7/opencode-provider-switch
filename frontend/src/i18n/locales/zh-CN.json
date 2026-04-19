@@ -271,6 +271,7 @@
   "network": {
     "title": "网络详情",
     "subtitle": "查看 URL、时延、状态码、请求头与参数，同时避免暴露模型输入输出正文。",
+    "count": "共 {{count}} 条请求",
     "detailTitle": "网络检查器",
     "detailSubtitle": "每次尝试都会展示调用上游时采集到的技术元数据。",
     "url": "URL",

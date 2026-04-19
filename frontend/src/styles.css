@@ -503,13 +503,8 @@ dd {
 }
 
 .sync-layout,
-.trace-layout,
 .settings-layout {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.trace-layout {
-  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
 }
 
 .settings-layout {
@@ -532,45 +527,6 @@ dd {
   grid-column: 1 / -1;
 }
 
-.trace-list-panel {
-  min-width: 0;
-}
-
-.trace-list {
-  display: grid;
-  gap: 0.85rem;
-  max-height: calc(100vh - 18rem);
-  overflow: auto;
-  padding-right: 0.2rem;
-}
-
-.trace-row {
-  display: grid;
-  gap: 0.6rem;
-  width: 100%;
-  padding: 0.9rem;
-  border-radius: 18px;
-  text-align: left;
-  background: var(--panel-muted);
-}
-
-.trace-row.active {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-sm);
-}
-
-.trace-row-top,
-.trace-row-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.trace-row-summary {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
 
 .trace-hero {
   display: grid;
@@ -600,11 +556,6 @@ dd {
 .chain-card {
   display: grid;
   gap: 0.8rem;
-}
-
-.trace-pill-warn {
-  background: var(--warning-soft);
-  color: var(--warning);
 }
 
 .compact-header {
@@ -841,6 +792,12 @@ html[data-theme='dark'] button.ghost-danger:hover {
   gap: 0.8rem;
 }
 
+.trace-scroll-list {
+  max-height: none;
+  padding-right: 0;
+  overflow: visible;
+}
+
 .resource-card {
   display: grid;
   gap: 0.88rem;
@@ -977,6 +934,17 @@ html[data-theme='dark'] button.ghost-danger:hover {
   font-size: 0.9rem;
   font-weight: 600;
   line-height: 1.45;
+}
+
+.trace-card-subtitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.trace-card-subtitle span:last-child {
+  flex-shrink: 0;
 }
 
 .detail-panel {
@@ -1564,7 +1532,6 @@ html[data-theme='dark'] .detail-empty-card {
 
   .overview-layout,
   .sync-layout,
-  .trace-layout,
   .providers-layout,
   .aliases-layout,
   .stats-grid,
@@ -1622,7 +1589,6 @@ html[data-theme='dark'] .detail-empty-card {
   .nav-list,
   .overview-layout,
   .sync-layout,
-  .trace-layout,
   .settings-layout,
   .stats-grid,
   .card-grid-list,
@@ -1658,12 +1624,6 @@ html[data-theme='dark'] .detail-empty-card {
 
   .panel-fill {
     min-height: auto;
-  }
-
-  .trace-row-top,
-  .trace-row-summary {
-    flex-direction: column;
-    align-items: stretch;
   }
 
   .detail-backdrop {
