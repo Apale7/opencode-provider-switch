@@ -1,0 +1,87 @@
+{
+  "id": "desktop-gui-i18n-ux-refresh",
+  "name": "desktop-gui-i18n-ux-refresh",
+  "title": "Plan desktop GUI i18n and UX refresh",
+  "description": "Produce an execution-ready design for desktop GUI i18n, left-side tab information architecture, and light/dark theme support based on the current Wails + React implementation.",
+  "status": "completed",
+  "dev_type": "docs",
+  "scope": "desktop",
+  "package": null,
+  "priority": "P1",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-19",
+  "completedAt": "2026-04-19",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-19-desktop-gui-i18n-ux-refresh/prd.md",
+    ".trellis/tasks/04-19-desktop-gui-i18n-ux-refresh/copy-inventory.md",
+    "frontend/src/App.tsx",
+    "frontend/src/main.tsx",
+    "frontend/src/api.ts",
+    "frontend/src/types.ts",
+    "frontend/src/styles.css",
+    "internal/app/types.go",
+    "internal/app/service.go",
+    "internal/app/service_test.go",
+    "internal/config/config.go",
+    "internal/desktop/http_test.go",
+    "internal/desktop/wails.go"
+  ],
+  "notes": "完成桌面 GUI 后续改造方案设计，明确了 i18n、左侧纵向 tab 信息架构、system/light/dark 主题切换、DesktopPrefs 新增 theme/language 契约、阶段化实施顺序与测试策略。当前建议先实现偏好契约与 i18n/theme 底座，再进入页面拆 tab。",
+  "meta": {
+    "i18nFramework": "i18next + react-i18next",
+    "navigationModel": "left-side vertical tabs with hash state",
+    "themeModes": [
+      "system",
+      "light",
+      "dark"
+    ],
+    "languageModes": [
+      "system",
+      "en-US",
+      "zh-CN"
+    ],
+    "primaryTabs": [
+      "overview",
+      "providers",
+      "aliases",
+      "sync",
+      "settings"
+    ]
+  }
+}
