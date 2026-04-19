@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/app"
@@ -138,6 +139,14 @@ func (a *App) Meta() map[string]string {
 		"version": a.version,
 		"shell":   a.shellName(),
 	}
+}
+
+func (a *App) OpenExternalURL(rawURL string) error {
+	url := strings.TrimSpace(rawURL)
+	if url == "" {
+		return nil
+	}
+	return openExternalURL(a.callContext(), url)
 }
 
 func (a *App) Overview() (app.Overview, error) {

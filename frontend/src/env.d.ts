@@ -1,11 +1,22 @@
 /// <reference types="vite/client" />
 
+declare module '*.png' {
+  const src: string
+  export default src
+}
+
+declare module '*.svg' {
+  const src: string
+  export default src
+}
+
 declare global {
   interface Window {
     go?: {
       desktop?: {
         App?: {
           Meta: () => Promise<Record<string, string>>
+          OpenExternalURL: (url: string) => Promise<void>
           Overview: () => Promise<import('./types').Overview>
           ExportConfig: () => Promise<import('./types').ConfigExportView>
           ImportConfig: (input: import('./types').ConfigImportInput) => Promise<import('./types').ConfigImportResult>

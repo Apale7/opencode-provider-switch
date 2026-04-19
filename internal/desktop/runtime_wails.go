@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"context"
+	"time"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -21,11 +22,21 @@ func hideWindow(ctx context.Context) error {
 
 func showWindow(ctx context.Context) error {
 	wruntime.Show(ctx)
+	wruntime.WindowShow(ctx)
+	wruntime.WindowUnminimise(ctx)
+	wruntime.WindowSetAlwaysOnTop(ctx, true)
+	time.Sleep(80 * time.Millisecond)
+	wruntime.WindowSetAlwaysOnTop(ctx, false)
 	return nil
 }
 
 func quitWindow(ctx context.Context) error {
 	wruntime.Quit(ctx)
+	return nil
+}
+
+func openExternalURL(ctx context.Context, url string) error {
+	wruntime.BrowserOpenURL(ctx, url)
 	return nil
 }
 

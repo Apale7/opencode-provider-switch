@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 func RunWails(configPath string, version string) error {
@@ -27,7 +28,7 @@ func RunWails(configPath string, version string) error {
 		Title:     "ocswitch desktop",
 		Width:     1280,
 		Height:    880,
-		MinWidth:  980,
+		MinWidth:  1120,
 		MinHeight: 720,
 		AssetServer: &assetserver.Options{
 			Assets: mustFS(assets),
@@ -44,6 +45,9 @@ func RunWails(configPath string, version string) error {
 		},
 		Linux: &linux.Options{
 			ProgramName: "ocswitch-desktop",
+		},
+		Windows: &windows.Options{
+			DisableWindowIcon: false,
 		},
 	})
 }

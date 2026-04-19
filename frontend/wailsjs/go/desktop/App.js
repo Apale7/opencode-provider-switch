@@ -54,6 +54,10 @@ export function Meta() {
   return window['go']['desktop']['App']['Meta']();
 }
 
+export function OpenExternalURL(arg1) {
+  return window['go']['desktop']['App']['OpenExternalURL'](arg1);
+}
+
 export function Overview() {
   return window['go']['desktop']['App']['Overview']();
 }

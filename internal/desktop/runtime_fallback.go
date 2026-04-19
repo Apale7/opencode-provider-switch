@@ -25,6 +25,11 @@ func quitWindow(ctx context.Context) error {
 	return nil
 }
 
+func openExternalURL(ctx context.Context, url string) error {
+	_ = ctx
+	return openBrowser(url)
+}
+
 func initDesktopNotifications(ctx context.Context) error {
 	_ = ctx
 	return nil

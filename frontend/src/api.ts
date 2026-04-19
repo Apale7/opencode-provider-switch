@@ -62,6 +62,18 @@ export async function getMeta(): Promise<MetaView> {
   return http<MetaView>('/api/meta')
 }
 
+export async function openExternalURL(url: string): Promise<void> {
+  if (isWails()) {
+    await bridge().OpenExternalURL(url)
+    return
+  }
+  const target = url.trim()
+  if (!target) {
+    return
+  }
+  window.open(target, '_blank', 'noopener,noreferrer')
+}
+
 export function getOverview(): Promise<Overview> {
   return isWails() ? bridge().Overview() : http<Overview>('/api/overview')
 }

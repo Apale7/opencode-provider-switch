@@ -20,6 +20,7 @@ import {
   saveDesktopPrefs,
   saveProxySettings,
   saveProvider,
+  openExternalURL,
   setAliasTargetState,
   setProviderState,
   startProxy,
@@ -27,6 +28,7 @@ import {
   unbindAliasTarget,
 } from './api'
 import i18n, { resolveLanguagePreference } from './i18n'
+import githubMark from './assets/GitHub_Invertocat_Black_Clearspace.png'
 import type {
   AliasTargetInput,
   AliasView,
@@ -85,6 +87,7 @@ type ConfirmIntent =
   | { kind: 'unbind-target'; alias: string; provider: string; model: string }
 
 const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'sync', 'settings']
+const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switch'
 
 const emptyPrefs: DesktopPrefsView = {
   launchAtLogin: false,
@@ -1105,6 +1108,13 @@ export default function App() {
         : t('confirm.unbindTargetTitle')
     : ''
 
+  function openRepository() {
+    if (!GITHUB_REPOSITORY_URL) {
+      return
+    }
+    void openExternalURL(GITHUB_REPOSITORY_URL)
+  }
+
   const confirmMessage = confirmIntent
     ? confirmIntent.kind === 'delete-provider'
       ? t('messages.confirmDeleteProvider', { id: confirmIntent.id })
@@ -1131,8 +1141,19 @@ export default function App() {
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="sidebar-brand-line" />
-          <p className="eyebrow">{t('app.eyebrow')}</p>
-          <h1>{t('app.brand')}</h1>
+          <div className="sidebar-brand-header">
+            <button
+              type="button"
+              className="brand-github"
+              onClick={openRepository}
+              disabled={!GITHUB_REPOSITORY_URL}
+              aria-label="Open project repository"
+              title={GITHUB_REPOSITORY_URL || 'Set GITHUB_REPOSITORY_URL in App.tsx'}
+            >
+              <img src={githubMark} alt="" />
+            </button>
+            <h1>{t('app.brand')}</h1>
+          </div>
           <div className="brand-meta">
             <span className="badge">v{meta.version || t('app.dev')}</span>
           </div>
@@ -1282,51 +1303,58 @@ export default function App() {
                       : t('providers.subtitle')}
                   </p>
                 </div>
-                <div className="toolbar toolbar-end">
-                  <span className="subtle">
+                <div className="list-header-actions">
+                  <span className="subtle list-status-text">
                     {providerStatus ||
                       t('providers.listCount', { shown: filteredProviders.length, total: providers.length })}
                   </span>
-                  {providerDetailOpen ? (
-                    <button type="button" onClick={closeProviderDetail}>
-                      {t('actions.close')}
+                  <div className="toolbar list-toolbar-actions">
+                    {providerDetailOpen ? (
+                      <button type="button" onClick={closeProviderDetail}>
+                        {t('actions.close')}
+                      </button>
+                    ) : null}
+                    <button type="button" className="primary" onClick={openProviderCreateModal}>
+                      {t('actions.newProvider')}
                     </button>
-                  ) : null}
-                  <button type="button" className="primary" onClick={openProviderCreateModal}>
-                    {t('actions.newProvider')}
-                  </button>
-                  <button type="button" onClick={openProviderImportModal}>
-                    {t('actions.import')}
-                  </button>
+                    <button type="button" onClick={openProviderImportModal}>
+                      {t('actions.import')}
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="list-toolbar">
-                <label>
-                  <span>{t('providers.search')}</span>
-                  <input
-                    type="text"
-                    value={providerQuery}
-                    onChange={(event) => setProviderQuery(event.target.value)}
-                    placeholder={t('providers.searchPlaceholder')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.filter')}</span>
-                  <select
-                    value={providerFilter}
-                    onChange={(event) => setProviderFilter(event.target.value as FilterState)}
-                  >
-                    <option value="all">{t('providers.filterAll')}</option>
-                    <option value="enabled">{t('providers.filterEnabled')}</option>
-                    <option value="disabled">{t('providers.filterDisabled')}</option>
-                  </select>
-                </label>
+                <div className="filter-group filter-group-search">
+                  <span className="filter-group-label">{t('providers.search')}</span>
+                  <label className="search-field">
+                    <input
+                      type="text"
+                      value={providerQuery}
+                      onChange={(event) => setProviderQuery(event.target.value)}
+                      placeholder={t('providers.searchPlaceholder')}
+                    />
+                  </label>
+                </div>
+                <div className="filter-group filter-group-select">
+                  <span className="filter-group-label">{t('providers.filter')}</span>
+                  <label>
+                    <select
+                      value={providerFilter}
+                      onChange={(event) => setProviderFilter(event.target.value as FilterState)}
+                    >
+                      <option value="all">{t('providers.filterAll')}</option>
+                      <option value="enabled">{t('providers.filterEnabled')}</option>
+                      <option value="disabled">{t('providers.filterDisabled')}</option>
+                    </select>
+                  </label>
+                </div>
               </div>
 
               <div className="scroll-list compact-list">
                 {providers.length === 0 ? (
                   <article className="empty-card">
+                    <div className="empty-illustration" aria-hidden="true">◌</div>
                     <span className="empty-kicker">{t('providers.title')}</span>
                     <h4>{t('providers.empty')}</h4>
                     <p className="subtle">{t('providers.emptyHint')}</p>
@@ -1350,22 +1378,36 @@ export default function App() {
                   <button
                     key={provider.id}
                     type="button"
-                    className={`compact-row ${providerDetailOpen && selectedProviderId === provider.id ? 'active' : ''}`}
+                    className={`resource-card ${providerDetailOpen && selectedProviderId === provider.id ? 'active' : ''}`}
                     onClick={() => onEditProvider(provider)}
                   >
-                    <div className="compact-row-main">
-                      <div className="compact-row-titleblock">
-                        <strong>{provider.name || provider.id}</strong>
-                        <code>{provider.id}</code>
+                    <div className="resource-card-top">
+                      <div className="resource-card-heading">
+                        <div className="resource-card-titlewrap">
+                          <strong className="resource-card-title">{provider.name || provider.id}</strong>
+                          <code className="resource-card-code">{provider.id}</code>
+                        </div>
+                        <p className="resource-card-subtitle">{provider.baseUrl}</p>
                       </div>
-                      <span className={`badge ${provider.disabled ? 'idle' : 'live'}`}>
-                        {provider.disabled ? t('status.disabled') : t('status.enabled')}
-                      </span>
+                      <div className="resource-card-side">
+                        <span className={`badge status-badge ${provider.disabled ? 'idle' : 'live'}`}>
+                          {provider.disabled ? t('status.disabled') : t('status.enabled')}
+                        </span>
+                      </div>
                     </div>
-                    <div className="compact-row-summary compact-row-summary-grid">
-                      <span>{provider.baseUrl}</span>
-                      <span>{t('providers.modelsCount', { count: provider.models?.length || 0 })}</span>
-                      <span>{provider.apiKeyMasked || t('providers.apiKeyNotSet')}</span>
+                    <div className="resource-card-meta">
+                      <div className="resource-meta-item resource-meta-route">
+                        <span className="resource-meta-label">{t('providers.cardBaseUrl')}</span>
+                        <span className="resource-meta-value">{provider.baseUrl}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('providers.cardModels')}</span>
+                        <span className="resource-meta-value">{t('providers.modelsCount', { count: provider.models?.length || 0 })}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('providers.cardApiKey')}</span>
+                        <span className="resource-meta-value">{provider.apiKeyMasked || t('providers.apiKeyNotSet')}</span>
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -1390,39 +1432,44 @@ export default function App() {
                       : t('aliases.subtitle')}
                   </p>
                 </div>
-                <div className="toolbar toolbar-end">
-                  <span className="subtle">
+                <div className="list-header-actions">
+                  <span className="subtle list-status-text">
                     {aliasStatus || t('aliases.listCount', { shown: filteredAliases.length, total: aliases.length })}
                   </span>
-                  {aliasDetailOpen ? (
-                    <button type="button" onClick={closeAliasDetail}>
-                      {t('actions.close')}
+                  <div className="toolbar list-toolbar-actions">
+                    {aliasDetailOpen ? (
+                      <button type="button" onClick={closeAliasDetail}>
+                        {t('actions.close')}
+                      </button>
+                    ) : null}
+                    <button type="button" className="primary" onClick={openAliasCreateModal}>
+                      {t('actions.newAlias')}
                     </button>
-                  ) : null}
-                  <button type="button" className="primary" onClick={openAliasCreateModal}>
-                    {t('actions.newAlias')}
-                  </button>
-                  <button type="button" onClick={() => openAliasTargetModal()}>
-                    {t('actions.bind')}
-                  </button>
+                    <button type="button" onClick={() => openAliasTargetModal()}>
+                      {t('actions.bind')}
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="list-toolbar list-toolbar-single">
-                <label>
-                  <span>{t('aliases.search')}</span>
-                  <input
-                    type="text"
-                    value={aliasQuery}
-                    onChange={(event) => setAliasQuery(event.target.value)}
-                    placeholder={t('aliases.searchPlaceholder')}
-                  />
-                </label>
+                <div className="filter-group filter-group-search">
+                  <span className="filter-group-label">{t('aliases.search')}</span>
+                  <label className="search-field">
+                    <input
+                      type="text"
+                      value={aliasQuery}
+                      onChange={(event) => setAliasQuery(event.target.value)}
+                      placeholder={t('aliases.searchPlaceholder')}
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="scroll-list compact-list">
                 {aliases.length === 0 ? (
                   <article className="empty-card">
+                    <div className="empty-illustration" aria-hidden="true">◎</div>
                     <span className="empty-kicker">{t('aliases.title')}</span>
                     <h4>{t('aliases.empty')}</h4>
                     <p className="subtle">{t('aliases.emptyHint')}</p>
@@ -1446,22 +1493,42 @@ export default function App() {
                   <button
                     key={alias.alias}
                     type="button"
-                    className={`compact-row ${aliasDetailOpen && selectedAliasId === alias.alias ? 'active' : ''}`}
+                    className={`resource-card ${aliasDetailOpen && selectedAliasId === alias.alias ? 'active' : ''}`}
                     onClick={() => onEditAlias(alias)}
                   >
-                    <div className="compact-row-main">
-                      <div className="compact-row-titleblock">
-                        <strong>{alias.displayName || alias.alias}</strong>
-                        <code>{alias.alias}</code>
+                    <div className="resource-card-top">
+                      <div className="resource-card-heading">
+                        <div className="resource-card-titlewrap">
+                          <strong className="resource-card-title">{alias.displayName || alias.alias}</strong>
+                          <code className="resource-card-code">{alias.alias}</code>
+                        </div>
+                        <p className="resource-card-subtitle">
+                          {alias.targets[0]
+                            ? `${alias.targets[0].provider}/${alias.targets[0].model}`
+                            : t('aliases.noTargets')}
+                        </p>
                       </div>
-                      <span className={`badge ${alias.enabled ? 'live' : 'idle'}`}>
-                        {alias.enabled ? t('status.enabled') : t('status.disabled')}
-                      </span>
+                      <div className="resource-card-side">
+                        <span className={`badge status-badge ${alias.enabled ? 'live' : 'idle'}`}>
+                          {alias.enabled ? t('status.enabled') : t('status.disabled')}
+                        </span>
+                      </div>
                     </div>
-                    <div className="compact-row-summary compact-row-summary-grid">
-                      <span>{t('aliases.routable', { available: alias.availableTargetCount, total: alias.targetCount })}</span>
-                      <span>{t('aliases.targetsCount', { count: alias.targets.length })}</span>
-                      <span>{alias.targets[0] ? `${alias.targets[0].provider}/${alias.targets[0].model}` : t('aliases.noTargets')}</span>
+                    <div className="resource-card-meta">
+                      <div className="resource-meta-item resource-meta-route">
+                        <span className="resource-meta-label">{t('aliases.cardRoute')}</span>
+                        <span className="resource-meta-value">{t('aliases.routable', { available: alias.availableTargetCount, total: alias.targetCount })}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('aliases.cardTargets')}</span>
+                        <span className="resource-meta-value">{t('aliases.targetsCount', { count: alias.targets.length })}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('aliases.cardPrimary')}</span>
+                        <span className="resource-meta-value">
+                          {alias.targets[0] ? `${alias.targets[0].provider}/${alias.targets[0].model}` : t('aliases.noTargets')}
+                        </span>
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -2047,86 +2114,114 @@ export default function App() {
               </div>
 
               <form className="stack-blocks" onSubmit={(event) => void onSaveProvider(event)}>
-                <div className="inline-meta compact-inline-meta">
-                  <div>
-                    <span className="meta-label">{t('providers.baseUrl')}</span>
-                    <strong>{selectedProvider?.baseUrl || providerForm.baseUrl || '-'}</strong>
+                <section className="detail-hero detail-hero-grid">
+                  <div className="detail-hero-card detail-hero-primary">
+                    <span className="meta-label">{t('providers.name')}</span>
+                    <strong>{providerForm.name || providerForm.id || t('providers.formCreateTitle')}</strong>
+                    <p className="subtle detail-hero-subtle">{selectedProvider?.baseUrl || providerForm.baseUrl || '-'}</p>
                   </div>
-                  <div>
+                  <div className="detail-hero-card">
+                    <span className="meta-label">{t('status.status')}</span>
+                    <strong>{providerForm.disabled ? t('status.disabled') : t('status.enabled')}</strong>
+                  </div>
+                  <div className="detail-hero-card">
                     <span className="meta-label">{t('providers.models')}</span>
-                    <strong>{selectedProvider?.models?.join(', ') || t('providers.modelsNone')}</strong>
+                    <strong>{t('providers.modelsCount', { count: selectedProvider?.models?.length || 0 })}</strong>
                   </div>
-                </div>
-                <label>
-                  <span>{t('providers.id')}</span>
-                  <input
-                    type="text"
-                    value={providerForm.id}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, id: event.target.value }))}
-                    placeholder={t('providers.placeholderId')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.name')}</span>
-                  <input
-                    type="text"
-                    value={providerForm.name}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, name: event.target.value }))}
-                    placeholder={t('providers.placeholderName')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.baseUrl')}</span>
-                  <input
-                    type="text"
-                    value={providerForm.baseUrl}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
-                    placeholder={t('providers.placeholderBaseUrl')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.apiKey')}</span>
-                  <input
-                    type="text"
-                    value={providerForm.apiKey}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
-                    placeholder={t('providers.placeholderApiKey')}
-                  />
-                </label>
-                <label>
-                  <span>{t('providers.headers')}</span>
-                  <textarea
-                    value={providerForm.headersText}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, headersText: event.target.value }))}
-                    placeholder={t('providers.placeholderHeaders')}
-                    rows={4}
-                  />
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={providerForm.disabled}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, disabled: event.target.checked }))}
-                  />
-                  <span>{t('providers.saveDisabled')}</span>
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={providerForm.skipModels}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, skipModels: event.target.checked }))}
-                  />
-                  <span>{t('providers.skipModels')}</span>
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={providerForm.clearHeaders}
-                    onChange={(event) => setProviderForm((current) => ({ ...current, clearHeaders: event.target.checked }))}
-                  />
-                  <span>{t('providers.clearHeaders')}</span>
-                </label>
-                <div className="toolbar">
+                </section>
+
+                <section className="detail-section">
+                  <div className="detail-section-header">
+                    <div>
+                      <h4>{t('providers.detailBasicsTitle')}</h4>
+                      <p className="subtle">{t('providers.detailHint')}</p>
+                    </div>
+                  </div>
+                  <div className="detail-form-grid">
+                    <label>
+                      <span>{t('providers.id')}</span>
+                      <input
+                        type="text"
+                        value={providerForm.id}
+                        onChange={(event) => setProviderForm((current) => ({ ...current, id: event.target.value }))}
+                        placeholder={t('providers.placeholderId')}
+                      />
+                    </label>
+                    <label>
+                      <span>{t('providers.name')}</span>
+                      <input
+                        type="text"
+                        value={providerForm.name}
+                        onChange={(event) => setProviderForm((current) => ({ ...current, name: event.target.value }))}
+                        placeholder={t('providers.placeholderName')}
+                      />
+                    </label>
+                    <label className="detail-form-span">
+                      <span>{t('providers.baseUrl')}</span>
+                      <input
+                        type="text"
+                        value={providerForm.baseUrl}
+                        onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
+                        placeholder={t('providers.placeholderBaseUrl')}
+                      />
+                    </label>
+                    <label className="detail-form-span">
+                      <span>{t('providers.apiKey')}</span>
+                      <input
+                        type="text"
+                        value={providerForm.apiKey}
+                        onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
+                        placeholder={t('providers.placeholderApiKey')}
+                      />
+                    </label>
+                    <label className="detail-form-span">
+                      <span>{t('providers.headers')}</span>
+                      <textarea
+                        value={providerForm.headersText}
+                        onChange={(event) => setProviderForm((current) => ({ ...current, headersText: event.target.value }))}
+                        placeholder={t('providers.placeholderHeaders')}
+                        rows={4}
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="detail-section">
+                  <div className="detail-section-header">
+                    <div>
+                      <h4>{t('providers.detailTogglesTitle')}</h4>
+                      <p className="subtle">{selectedProvider?.models?.join(', ') || t('providers.modelsNone')}</p>
+                    </div>
+                  </div>
+                  <div className="toggle-grid">
+                    <label className="checkbox-row checkbox-card">
+                      <input
+                        type="checkbox"
+                        checked={providerForm.disabled}
+                        onChange={(event) => setProviderForm((current) => ({ ...current, disabled: event.target.checked }))}
+                      />
+                      <span>{t('providers.saveDisabled')}</span>
+                    </label>
+                    <label className="checkbox-row checkbox-card">
+                      <input
+                        type="checkbox"
+                        checked={providerForm.skipModels}
+                        onChange={(event) => setProviderForm((current) => ({ ...current, skipModels: event.target.checked }))}
+                      />
+                      <span>{t('providers.skipModels')}</span>
+                    </label>
+                    <label className="checkbox-row checkbox-card detail-form-span">
+                      <input
+                        type="checkbox"
+                        checked={providerForm.clearHeaders}
+                        onChange={(event) => setProviderForm((current) => ({ ...current, clearHeaders: event.target.checked }))}
+                      />
+                      <span>{t('providers.clearHeaders')}</span>
+                    </label>
+                  </div>
+                </section>
+
+                <div className="toolbar detail-actions">
                   <button type="submit" className="primary">
                     {t('actions.save')}
                   </button>
@@ -2139,9 +2234,9 @@ export default function App() {
                       }
                       resetProviderForm()
                     }}
-                  >
-                    {t('actions.reset')}
-                  </button>
+                    >
+                      {t('actions.reset')}
+                    </button>
                 </div>
               </form>
             </div>
@@ -2255,34 +2350,63 @@ export default function App() {
               </div>
 
               <div className="stack-blocks">
-                <form className="stack" onSubmit={(event) => void onSaveAlias(event)}>
-                  <label>
-                    <span>{t('aliases.alias')}</span>
-                    <input
-                      type="text"
-                      value={aliasForm.alias}
-                      onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
-                      placeholder={t('aliases.placeholderAlias')}
-                    />
-                  </label>
-                  <label>
-                    <span>{t('aliases.displayName')}</span>
-                    <input
-                      type="text"
-                      value={aliasForm.displayName}
-                      onChange={(event) => setAliasForm((current) => ({ ...current, displayName: event.target.value }))}
-                      placeholder={t('aliases.placeholderDisplayName')}
-                    />
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={aliasForm.disabled}
-                      onChange={(event) => setAliasForm((current) => ({ ...current, disabled: event.target.checked }))}
-                    />
-                    <span>{t('aliases.createDisabled')}</span>
-                  </label>
-                  <div className="toolbar">
+                <section className="detail-hero detail-hero-grid">
+                  <div className="detail-hero-card detail-hero-primary">
+                    <span className="meta-label">{t('aliases.alias')}</span>
+                    <strong>{aliasForm.displayName || aliasForm.alias || t('aliases.formCreateTitle')}</strong>
+                    <p className="subtle detail-hero-subtle">{aliasForm.alias || '-'}</p>
+                  </div>
+                  <div className="detail-hero-card">
+                    <span className="meta-label">{t('status.status')}</span>
+                    <strong>{aliasForm.disabled ? t('status.disabled') : t('status.enabled')}</strong>
+                  </div>
+                  <div className="detail-hero-card">
+                    <span className="meta-label">{t('aliases.targets')}</span>
+                    <strong>{t('aliases.targetsCount', { count: selectedAlias?.targets.length || 0 })}</strong>
+                  </div>
+                </section>
+
+                <form className="stack-blocks" onSubmit={(event) => void onSaveAlias(event)}>
+                  <section className="detail-section">
+                    <div className="detail-section-header">
+                      <div>
+                        <h4>{t('aliases.detailBasicsTitle')}</h4>
+                        <p className="subtle">{t('aliases.detailHint')}</p>
+                      </div>
+                    </div>
+                    <div className="detail-form-grid">
+                      <label>
+                        <span>{t('aliases.alias')}</span>
+                        <input
+                          type="text"
+                          value={aliasForm.alias}
+                          onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
+                          placeholder={t('aliases.placeholderAlias')}
+                        />
+                      </label>
+                      <label>
+                        <span>{t('aliases.displayName')}</span>
+                        <input
+                          type="text"
+                          value={aliasForm.displayName}
+                          onChange={(event) => setAliasForm((current) => ({ ...current, displayName: event.target.value }))}
+                          placeholder={t('aliases.placeholderDisplayName')}
+                        />
+                      </label>
+                    </div>
+                    <div className="toggle-grid">
+                      <label className="checkbox-row checkbox-card detail-form-span">
+                        <input
+                          type="checkbox"
+                          checked={aliasForm.disabled}
+                          onChange={(event) => setAliasForm((current) => ({ ...current, disabled: event.target.checked }))}
+                        />
+                        <span>{t('aliases.createDisabled')}</span>
+                      </label>
+                    </div>
+                  </section>
+
+                  <div className="toolbar detail-actions">
                     <button type="submit" className="primary">
                       {t('actions.save')}
                     </button>
@@ -2301,20 +2425,32 @@ export default function App() {
                   </div>
                 </form>
 
-                <section className="subpanel">
-                  <div className="subpanel-header">
-                    <h4>{t('aliases.targets')}</h4>
+                <section className="detail-section detail-targets-section">
+                  <div className="detail-section-header">
+                    <div>
+                      <h4>{t('aliases.targets')}</h4>
+                      <p className="subtle">{t('aliases.detailTargetsHint')}</p>
+                    </div>
                     {selectedAlias ? <span className="subtle">{t('aliases.targetsCount', { count: selectedAlias.targets.length })}</span> : null}
                   </div>
                   <div className="target-list target-list-compact">
-                    {!selectedAlias || selectedAlias.targets.length === 0 ? <p className="subtle">{t('aliases.noTargets')}</p> : null}
+                    {!selectedAlias || selectedAlias.targets.length === 0 ? (
+                      <article className="empty-card compact-empty detail-empty-card">
+                        <div className="empty-illustration" aria-hidden="true">◎</div>
+                        <h4>{t('aliases.noTargets')}</h4>
+                        <p className="subtle">{t('aliases.emptyHint')}</p>
+                      </article>
+                    ) : null}
                     {selectedAlias?.targets.map((target) => (
                       <div className="target-card" key={`${selectedAlias.alias}-${target.provider}-${target.model}`}>
                         <div className="target-card-main">
-                          <code>
-                            {target.provider}/{target.model}
-                          </code>
-                          <span className={`badge ${target.enabled ? 'live' : 'idle'}`}>
+                          <div className="target-card-copy">
+                            <code>
+                              {target.provider}/{target.model}
+                            </code>
+                            <span className="subtle target-card-subtitle">{selectedAlias.alias}</span>
+                          </div>
+                          <span className={`badge status-badge ${target.enabled ? 'live' : 'idle'}`}>
                             {target.enabled ? t('status.enabled') : t('status.disabled')}
                           </span>
                         </div>

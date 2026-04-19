@@ -3,19 +3,19 @@
   "name": "04-18-finish-windows-desktop",
   "title": "Finish Windows desktop integration",
   "description": "",
-  "status": "planning",
-  "dev_type": null,
-  "scope": null,
+  "status": "completed",
+  "dev_type": "feature",
+  "scope": "desktop",
   "package": null,
   "priority": "P2",
   "creator": "OpenCode",
   "assignee": "OpenCode",
   "createdAt": "2026-04-18",
-  "completedAt": null,
-  "branch": null,
+  "completedAt": "2026-04-20",
+  "branch": "master",
   "base_branch": "master",
   "worktree_path": null,
-  "current_phase": 0,
+  "current_phase": 6,
   "next_action": [
     {
       "phase": 1,
@@ -47,7 +47,32 @@
   "subtasks": [],
   "children": [],
   "parent": null,
-  "relatedFiles": [],
-  "notes": "",
-  "meta": {}
+  "relatedFiles": [
+    "build/windows/icon.ico",
+    "frontend/assets.go",
+    "frontend/src/App.tsx",
+    "frontend/src/api.ts",
+    "frontend/src/i18n/locales/en.json",
+    "frontend/src/i18n/locales/zh-CN.json",
+    "frontend/src/styles.css",
+    "internal/desktop/app.go",
+    "internal/desktop/runtime_wails.go",
+    "internal/desktop/tray_wails.go",
+    "internal/desktop/tray_language.go",
+    "internal/desktop/tray_language_windows.go",
+    "internal/desktop/wails.go"
+  ],
+  "notes": "Finished the Windows desktop integration pass. Reworked tray startup onto a stable systray event loop with icon embedding, click-to-open behavior, localized menu labels, and Windows system-language fallback. Replaced desktop/window branding assets, wired repository opening through the system browser, and refreshed the providers and aliases list/detail panels into a denser, product-style UI with updated i18n strings.",
+  "meta": {
+    "tests": [
+      "npm run build",
+      "go test -tags desktop_wails ./internal/desktop/..."
+    ],
+    "desktopAreas": [
+      "windows tray",
+      "window icon and branding",
+      "providers panel",
+      "aliases panel"
+    ]
+  }
 }

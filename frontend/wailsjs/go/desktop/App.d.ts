@@ -30,6 +30,8 @@ export function ImportProviders(arg1:app.ProviderImportInput):Promise<app.Provid
 
 export function Meta():Promise<Record<string, string>>;
 
+export function OpenExternalURL(arg1:string):Promise<void>;
+
 export function Overview():Promise<app.Overview>;
 
 export function PreviewSync(arg1:app.SyncInput):Promise<app.SyncPreview>;
