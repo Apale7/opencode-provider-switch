@@ -772,6 +772,14 @@ export default function App() {
     }
   }
 
+  function onResourceCardKeyDown(event: KeyboardEvent<HTMLElement>, onActivate: () => void) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return
+    }
+    event.preventDefault()
+    onActivate()
+  }
+
   async function onSavePrefs(event: FormEvent) {
     event.preventDefault()
     setPrefsStatus(i18n.t('messages.saving'))
@@ -1375,11 +1383,13 @@ export default function App() {
                   </article>
                 ) : null}
                 {filteredProviders.map((provider) => (
-                  <button
+                  <article
                     key={provider.id}
-                    type="button"
                     className={`resource-card ${providerDetailOpen && selectedProviderId === provider.id ? 'active' : ''}`}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => onEditProvider(provider)}
+                    onKeyDown={(event) => onResourceCardKeyDown(event, () => onEditProvider(provider))}
                   >
                     <div className="resource-card-top">
                       <div className="resource-card-heading">
@@ -1409,7 +1419,7 @@ export default function App() {
                         <span className="resource-meta-value">{provider.apiKeyMasked || t('providers.apiKeyNotSet')}</span>
                       </div>
                     </div>
-                  </button>
+                  </article>
                 ))}
               </div>
             </article>
@@ -1490,11 +1500,13 @@ export default function App() {
                   </article>
                 ) : null}
                 {filteredAliases.map((alias) => (
-                  <button
+                  <article
                     key={alias.alias}
-                    type="button"
                     className={`resource-card ${aliasDetailOpen && selectedAliasId === alias.alias ? 'active' : ''}`}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => onEditAlias(alias)}
+                    onKeyDown={(event) => onResourceCardKeyDown(event, () => onEditAlias(alias))}
                   >
                     <div className="resource-card-top">
                       <div className="resource-card-heading">
@@ -1530,7 +1542,7 @@ export default function App() {
                         </span>
                       </div>
                     </div>
-                  </button>
+                  </article>
                 ))}
               </div>
             </article>

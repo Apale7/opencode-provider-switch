@@ -845,17 +845,30 @@ html[data-theme='dark'] button.ghost-danger:hover {
   display: grid;
   gap: 0.88rem;
   width: 100%;
+  min-height: auto;
+  height: auto;
   padding: 1rem 1.05rem;
   border: 1px solid var(--border);
   border-radius: 20px;
   background: var(--panel);
   text-align: left;
   box-shadow: none;
+  align-content: start;
+  overflow: visible;
   transition:
     border-color 160ms ease,
     background 160ms ease,
     box-shadow 160ms ease,
     transform 160ms ease;
+}
+
+.resource-card[role='button'] {
+  cursor: pointer;
+}
+
+.resource-card[role='button']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .resource-card:hover {
@@ -934,6 +947,7 @@ html[data-theme='dark'] button.ghost-danger:hover {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.7rem;
+  align-items: stretch;
 }
 
 .resource-meta-item {
