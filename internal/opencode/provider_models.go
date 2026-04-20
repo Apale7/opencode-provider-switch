@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
 type ModelListResponse struct {
@@ -15,8 +17,9 @@ type ModelListResponse struct {
 	} `json:"data"`
 }
 
-func FetchProviderModels(baseURL, apiKey string, headers map[string]string) ([]string, error) {
-	url := strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/models"
+func FetchProviderModels(protocol, baseURL, apiKey string, headers map[string]string) ([]string, error) {
+	protocol = config.NormalizeProviderProtocol(strings.TrimSpace(protocol))
+	url := strings.TrimRight(strings.TrimSpace(baseURL), "/") + config.ProtocolUpstreamModelsPath(protocol)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)

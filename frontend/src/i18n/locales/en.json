@@ -65,6 +65,7 @@
     "unbindTargetTitle": "Unbind target"
   },
   "status": {
+    "status": "Status",
     "proxyRunning": "Proxy running",
     "proxyIdle": "Proxy idle",
     "enabled": "Enabled",
@@ -124,7 +125,8 @@
     "listTitle": "Provider list",
     "formCreateTitle": "Create provider",
     "formEditTitle": "Edit provider {{id}}",
-    "importTitle": "Import from OpenCode",
+    "importTitle": "Import supported provider protocol",
+    "importHint": "Currently imports only providers compatible with the openai-responses protocol from OpenCode config.",
     "search": "Search providers",
     "searchPlaceholder": "Filter by id, name, or URL",
     "filter": "Status filter",
@@ -136,7 +138,7 @@
     "selectTitle": "Select a provider",
     "selectHint": "The left list is optimized for density. Pick one row to inspect or edit details here.",
     "empty": "No providers configured yet.",
-    "emptyHint": "Create one manually or import providers from your OpenCode config.",
+    "emptyHint": "Create one manually or import supported provider protocols from your OpenCode config. Current import scope: openai-responses.",
     "noMatches": "No providers match the current filters.",
     "noMatchesHint": "Try a broader search term or switch the status filter.",
     "id": "Provider id",
@@ -161,7 +163,7 @@
     "modelsNone": "none",
     "modelsCount": "{{count}} models",
     "sourceLabel": "Source",
-    "placeholderId": "su8",
+    "placeholderId": "provider-id",
     "placeholderName": "SU8",
     "placeholderBaseUrl": "https://example.com/v1",
     "placeholderApiKey": "Leave blank to keep existing key when editing",
@@ -204,7 +206,8 @@
     "placeholderAlias": "gpt-5.4",
     "placeholderDisplayName": "GPT 5.4",
     "placeholderAliasBinding": "Existing alias or new alias",
-    "placeholderProviderId": "su8",
+    "placeholderProviderId": "provider-id",
+    "placeholderProviderSelect": "Select a compatible provider",
     "placeholderModel": "gpt-5.4",
     "targets": "Targets",
     "targetsCount": "{{count}} targets",
@@ -226,7 +229,9 @@
     "statusDisabling": "Disabling {{provider}}/{{model}} on {{alias}}...",
     "statusEnabled": "Enabled {{provider}}/{{model}} on {{alias}}",
     "statusDisabled": "Disabled {{provider}}/{{model}} on {{alias}}",
-    "noTargets": "No targets bound."
+    "noTargets": "No targets bound.",
+    "bindableProviders": "{{count}} compatible provider",
+    "noProvidersForProtocol": "No providers available for protocol {{protocol}}."
   },
   "sync": {
     "title": "Sync",
@@ -262,6 +267,9 @@
     "totalTime": "Total time",
     "startedAt": "Started at",
     "firstByte": "First byte",
+    "inputTokens": "Input tokens",
+    "outputTokens": "Output tokens",
+    "outputRate": "Output rate",
     "stream": "Stream",
     "chainTitle": "Attempt chain",
     "attemptLabel": "Attempt {{attempt}}",
@@ -332,5 +340,8 @@
   "errors": {
     "invalidHeaderFormat": "Invalid header \"{{line}}\". Use KEY=VALUE.",
     "invalidHeaderName": "Invalid header \"{{line}}\". Header name must not be empty."
+  },
+  "common": {
+    "protocol": "Protocol"
   }
 }

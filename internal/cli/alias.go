@@ -33,7 +33,7 @@ result with alias list, then run doctor and opencode sync.`,
 }
 
 func newAliasAddCmd() *cobra.Command {
-	var name, display string
+	var name, display, protocol string
 	var disabled bool
 	cmd := &cobra.Command{
 		Use:   "add",
@@ -59,10 +59,13 @@ ocswitch alias bind.`,
 				return err
 			}
 			existing := cfg.FindAlias(name)
-			a := config.Alias{Alias: name, DisplayName: display, Enabled: !disabled}
+			a := config.Alias{Alias: name, DisplayName: display, Protocol: config.NormalizeAliasProtocol(protocol), Enabled: !disabled}
 			if existing != nil {
 				if display == "" {
 					a.DisplayName = existing.DisplayName
+				}
+				if strings.TrimSpace(protocol) == "" {
+					a.Protocol = existing.Protocol
 				}
 				a.Enabled = existing.Enabled
 				if disabled {
@@ -74,12 +77,13 @@ ocswitch alias bind.`,
 			if err := cfg.Save(); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "saved alias %q (enabled=%v)\n", name, a.Enabled)
+			fmt.Fprintf(cmd.OutOrStdout(), "saved alias %q [%s] (enabled=%v)\n", name, a.Protocol, a.Enabled)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "alias name exposed as ocswitch/<name> in OpenCode (required)")
 	cmd.Flags().StringVar(&display, "display-name", "", "human-friendly display name")
+	cmd.Flags().StringVar(&protocol, "protocol", config.ProtocolOpenAIResponses, "alias protocol")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "create in disabled state")
 	return cmd
 }
@@ -114,7 +118,7 @@ This command does not modify config and does not contact upstream providers.`,
 				if !a.Enabled {
 					state = "disabled"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s  [%s]\n", a.Alias, state)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  [%s] [%s]\n", a.Alias, state, config.NormalizeAliasProtocol(a.Protocol))
 				for i, t := range a.Targets {
 					mark := "x"
 					if !t.Enabled {
@@ -178,11 +182,15 @@ and so on. Typical next step: inspect with alias list, then run doctor.`,
 			if p == nil {
 				return fmt.Errorf("provider %q does not exist; add it first", provider)
 			}
+			providerProtocol := config.NormalizeProviderProtocol(p.Protocol)
 			if err := validateProviderModelKnown(provider, p.Models, p.ModelsSource, model); err != nil {
 				return err
 			}
-			if cfg.FindAlias(alias) == nil {
-				cfg.UpsertAlias(config.Alias{Alias: alias, Enabled: true})
+			currentAlias := cfg.FindAlias(alias)
+			if currentAlias == nil {
+				cfg.UpsertAlias(config.Alias{Alias: alias, Protocol: providerProtocol, Enabled: true})
+			} else if !config.ProtocolsMatch(currentAlias.Protocol, providerProtocol) {
+				return fmt.Errorf("alias %q protocol %q does not match provider %q protocol %q", alias, config.NormalizeAliasProtocol(currentAlias.Protocol), provider, providerProtocol)
 			}
 			if err := cfg.AddTarget(alias, config.Target{Provider: provider, Model: model, Enabled: !disabled}); err != nil {
 				return err
@@ -190,7 +198,7 @@ and so on. Typical next step: inspect with alias list, then run doctor.`,
 			if err := cfg.Save(); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "bound %s → %s/%s\n", alias, provider, model)
+			fmt.Fprintf(cmd.OutOrStdout(), "bound %s [%s] → %s/%s\n", alias, providerProtocol, provider, model)
 			return nil
 		},
 	}

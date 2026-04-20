@@ -65,6 +65,7 @@
     "unbindTargetTitle": "确认解绑目标"
   },
   "status": {
+    "status": "状态",
     "proxyRunning": "代理运行中",
     "proxyIdle": "代理未运行",
     "enabled": "已启用",
@@ -124,7 +125,8 @@
     "listTitle": "提供商列表",
     "formCreateTitle": "新建提供商",
     "formEditTitle": "编辑提供商 {{id}}",
-    "importTitle": "从 OpenCode 导入",
+    "importTitle": "导入支持的 Provider 协议",
+    "importHint": "当前仅从 OpenCode 配置导入兼容 openai-responses 协议的 provider。",
     "search": "搜索提供商",
     "searchPlaceholder": "按 id、名称或 URL 过滤",
     "filter": "状态筛选",
@@ -136,7 +138,7 @@
     "selectTitle": "选择一个提供商",
     "selectHint": "左侧列表已压缩为高密度模式，适合首屏浏览更多条目；选中一行后在这里查看或编辑详情。",
     "empty": "还没有配置任何提供商。",
-    "emptyHint": "你可以手动新建提供商，或从 OpenCode 配置中批量导入。",
+    "emptyHint": "你可以手动新建提供商，或从 OpenCode 配置中导入支持的 provider 协议。当前导入范围：openai-responses。",
     "noMatches": "当前筛选条件下没有匹配的提供商。",
     "noMatchesHint": "尝试放宽搜索词或切换状态筛选。",
     "id": "提供商 id",
@@ -161,7 +163,7 @@
     "modelsNone": "无",
     "modelsCount": "{{count}} 个模型",
     "sourceLabel": "来源",
-    "placeholderId": "su8",
+    "placeholderId": "provider-id",
     "placeholderName": "SU8",
     "placeholderBaseUrl": "https://example.com/v1",
     "placeholderApiKey": "编辑时留空表示保留现有 key",
@@ -204,7 +206,8 @@
     "placeholderAlias": "gpt-5.4",
     "placeholderDisplayName": "GPT 5.4",
     "placeholderAliasBinding": "已有别名或新别名",
-    "placeholderProviderId": "su8",
+    "placeholderProviderId": "provider-id",
+    "placeholderProviderSelect": "选择兼容的 provider",
     "placeholderModel": "gpt-5.4",
     "targets": "目标",
     "targetsCount": "{{count}} 个目标",
@@ -226,7 +229,9 @@
     "statusDisabling": "正在禁用 {{alias}} 上的 {{provider}}/{{model}}...",
     "statusEnabled": "已启用 {{alias}} 上的 {{provider}}/{{model}}",
     "statusDisabled": "已禁用 {{alias}} 上的 {{provider}}/{{model}}",
-    "noTargets": "还没有绑定目标。"
+    "noTargets": "还没有绑定目标。",
+    "bindableProviders": "{{count}} 个兼容 provider",
+    "noProvidersForProtocol": "当前没有可用于协议 {{protocol}} 的 provider。"
   },
   "sync": {
     "title": "同步与体检",
@@ -262,6 +267,9 @@
     "totalTime": "总耗时",
     "startedAt": "开始时间",
     "firstByte": "首字节时间",
+    "inputTokens": "输入 token",
+    "outputTokens": "输出 token",
+    "outputRate": "输出速率",
     "stream": "流式",
     "chainTitle": "尝试链路",
     "attemptLabel": "第 {{attempt}} 次尝试",
@@ -332,5 +340,8 @@
   "errors": {
     "invalidHeaderFormat": "Header \"{{line}}\" 格式无效，请使用 KEY=VALUE。",
     "invalidHeaderName": "Header \"{{line}}\" 无效，名称不能为空。"
+  },
+  "common": {
+    "protocol": "协议"
   }
 }

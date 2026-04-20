@@ -41,6 +41,7 @@ import type {
   ProviderImportInput,
   ProviderImportResult,
   ProviderSaveResult,
+  ProviderProtocol,
   ProviderUpsertInput,
   ProviderView,
   ProxySettingsSaveResult,
@@ -61,6 +62,7 @@ type MetaState = {
 type ProviderFormState = {
   id: string
   name: string
+  protocol: ProviderProtocol
   baseUrl: string
   apiKey: string
   headersText: string
@@ -72,6 +74,7 @@ type ProviderFormState = {
 type AliasFormState = {
   alias: string
   displayName: string
+  protocol: ProviderProtocol
   disabled: boolean
 }
 
@@ -88,6 +91,7 @@ type ConfirmIntent =
 
 const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'sync', 'settings']
 const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switch'
+const protocolOptions: ProviderProtocol[] = ['openai-responses']
 
 const emptyPrefs: DesktopPrefsView = {
   launchAtLogin: false,
@@ -115,6 +119,7 @@ const emptySync: SyncInput = {
 const emptyProviderForm: ProviderFormState = {
   id: '',
   name: '',
+  protocol: 'openai-responses',
   baseUrl: '',
   apiKey: '',
   headersText: '',
@@ -131,7 +136,20 @@ const emptyProviderImport: ProviderImportInput = {
 const emptyAliasForm: AliasFormState = {
   alias: '',
   displayName: '',
+  protocol: 'openai-responses',
   disabled: false,
+}
+
+function protocolLabel(protocol: ProviderProtocol): string {
+	return protocol === 'openai-responses' ? 'OpenAI Responses' : protocol
+}
+
+function resolveAliasProtocol(alias: AliasView | null): ProviderProtocol {
+	return alias?.protocol || 'openai-responses'
+}
+
+function protocolBadgeClass(protocol: ProviderProtocol): string {
+	return `badge protocol-badge protocol-${protocol}`
 }
 
 const emptyTargetForm: AliasTargetInput = {
@@ -197,6 +215,7 @@ function providerFormFromView(provider: ProviderView): ProviderFormState {
   return {
     id: provider.id,
     name: provider.name || '',
+    protocol: provider.protocol,
     baseUrl: provider.baseUrl,
     apiKey: '',
     headersText: headersTextFromMap(provider.headers),
@@ -210,6 +229,7 @@ function aliasFormFromView(alias: AliasView): AliasFormState {
   return {
     alias: alias.alias,
     displayName: alias.displayName || '',
+    protocol: alias.protocol,
     disabled: !alias.enabled,
   }
 }
@@ -281,6 +301,20 @@ function formatDuration(value?: number): string {
     return '-'
   }
   return `${value} ms`
+}
+
+function formatTokenCount(value?: number): string {
+  if (value == null || value <= 0) {
+    return '-'
+  }
+  return value.toLocaleString()
+}
+
+function formatTokenRate(trace: RequestTrace): string {
+  if (!trace.outputTokens || trace.outputTokens <= 0 || !trace.durationMs || trace.durationMs <= 0) {
+    return '-'
+  }
+  return `${((trace.outputTokens * 1000) / trace.durationMs).toFixed(1)} token/s`
 }
 
 function tracePrimaryText(trace: RequestTrace): string {
@@ -489,6 +523,11 @@ export default function App() {
   const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch))
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null
   const selectedAlias = aliases.find((alias) => alias.alias === selectedAliasId) || null
+  const targetAlias = aliases.find((alias) => alias.alias === targetForm.alias.trim()) || null
+  const targetProtocol = resolveAliasProtocol(targetAlias || selectedAlias)
+  const bindableProviders = providers
+    .filter((provider) => provider.protocol === targetProtocol)
+    .sort((left, right) => left.id.localeCompare(right.id))
   const providerDetailOpen = providerDetailMode !== 'empty'
   const aliasDetailOpen = aliasDetailMode !== 'empty'
   const selectedLogTrace = requestTraces.find((trace) => trace.id === selectedLogTraceId) || null
@@ -702,7 +741,11 @@ export default function App() {
   }
 
   function openAliasTargetModal(alias?: string) {
-    setTargetForm({ ...emptyTargetForm, alias: alias || '' })
+    const aliasName = alias || ''
+    const currentAlias = aliases.find((item) => item.alias === aliasName) || null
+    const nextProtocol = resolveAliasProtocol(currentAlias)
+    const nextProvider = providers.find((provider) => provider.protocol === nextProtocol)?.id || ''
+    setTargetForm({ ...emptyTargetForm, alias: aliasName, provider: nextProvider })
     setActiveModal('alias-target')
   }
 
@@ -873,6 +916,7 @@ export default function App() {
       const input: ProviderUpsertInput = {
         id: providerForm.id.trim(),
         name: providerForm.name.trim(),
+        protocol: providerForm.protocol,
         baseUrl: providerForm.baseUrl.trim(),
         apiKey: providerForm.apiKey,
         headers: parseHeadersText(providerForm.headersText),
@@ -952,6 +996,7 @@ export default function App() {
       const input: AliasUpsertInput = {
         alias: aliasForm.alias.trim(),
         displayName: aliasForm.displayName.trim(),
+        protocol: aliasForm.protocol,
         disabled: aliasForm.disabled,
       }
       await saveAlias(input)
@@ -1005,6 +1050,18 @@ export default function App() {
     } catch (error) {
       setAliasStatus(formatError(error))
     }
+  }
+
+  function onTargetAliasChange(event: ChangeEvent<HTMLInputElement>) {
+    const alias = event.target.value
+    const currentAlias = aliases.find((item) => item.alias === alias.trim()) || null
+    const nextProtocol = resolveAliasProtocol(currentAlias || selectedAlias)
+    setTargetForm((current) => {
+      const nextProvider = current.provider && providers.some((provider) => provider.id === current.provider && provider.protocol === nextProtocol)
+        ? current.provider
+        : providers.find((provider) => provider.protocol === nextProtocol)?.id || ''
+      return { ...current, alias, provider: nextProvider }
+    })
   }
 
   async function onUnbindTarget(alias: string, provider: string, model: string) {
@@ -1407,6 +1464,10 @@ export default function App() {
                     </div>
                     <div className="resource-card-meta">
                       <div className="resource-meta-item resource-meta-route">
+                        <span className="resource-meta-label">{t('common.protocol')}</span>
+                        <span className={protocolBadgeClass(provider.protocol)}>{protocolLabel(provider.protocol)}</span>
+                      </div>
+                      <div className="resource-meta-item resource-meta-route">
                         <span className="resource-meta-label">{t('providers.cardBaseUrl')}</span>
                         <span className="resource-meta-value">{provider.baseUrl}</span>
                       </div>
@@ -1527,6 +1588,10 @@ export default function App() {
                       </div>
                     </div>
                     <div className="resource-card-meta">
+                      <div className="resource-meta-item resource-meta-route">
+                        <span className="resource-meta-label">{t('common.protocol')}</span>
+                        <span className={protocolBadgeClass(alias.protocol)}>{protocolLabel(alias.protocol)}</span>
+                      </div>
                       <div className="resource-meta-item resource-meta-route">
                         <span className="resource-meta-label">{t('aliases.cardRoute')}</span>
                         <span className="resource-meta-value">{t('aliases.routable', { available: alias.availableTargetCount, total: alias.targetCount })}</span>
@@ -1689,6 +1754,10 @@ export default function App() {
                     </div>
                     <div className="resource-card-meta">
                       <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('common.protocol')}</span>
+                        <span className={protocolBadgeClass(trace.protocol)}>{protocolLabel(trace.protocol)}</span>
+                      </div>
+                      <div className="resource-meta-item">
                         <span className="resource-meta-label">{t('log.startedAt')}</span>
                         <span className="resource-meta-value">{formatDateTime(trace.startedAt)}</span>
                       </div>
@@ -1703,6 +1772,14 @@ export default function App() {
                             ? `${trace.attemptCount} · ${t('log.failover')}`
                             : `${trace.attemptCount}`}
                         </span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('log.outputTokens')}</span>
+                        <span className="resource-meta-value">{formatTokenCount(trace.outputTokens)}</span>
+                      </div>
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('log.outputRate')}</span>
+                        <span className="resource-meta-value">{formatTokenRate(trace)}</span>
                       </div>
                     </div>
                   </article>
@@ -1756,6 +1833,10 @@ export default function App() {
                       </div>
                     </div>
                     <div className="resource-card-meta">
+                      <div className="resource-meta-item">
+                        <span className="resource-meta-label">{t('common.protocol')}</span>
+                        <span className={protocolBadgeClass(trace.protocol)}>{protocolLabel(trace.protocol)}</span>
+                      </div>
                       <div className="resource-meta-item">
                         <span className="resource-meta-label">{t('log.startedAt')}</span>
                         <span className="resource-meta-value">{formatDateTime(trace.startedAt)}</span>
@@ -2086,6 +2167,7 @@ export default function App() {
                 </button>
               </div>
               <form className="stack" onSubmit={(event) => void onImportProviders(event)}>
+                <p className="subtle">{t('providers.importHint')}</p>
                 <label>
                   <span>{t('providers.sourcePath')}</span>
                   <input
@@ -2165,6 +2247,10 @@ export default function App() {
                     <strong>{providerForm.disabled ? t('status.disabled') : t('status.enabled')}</strong>
                   </div>
                   <div className="detail-hero-card">
+                    <span className="meta-label">{t('common.protocol')}</span>
+                    <strong><span className={protocolBadgeClass(providerForm.protocol)}>{protocolLabel(providerForm.protocol)}</span></strong>
+                  </div>
+                  <div className="detail-hero-card">
                     <span className="meta-label">{t('providers.models')}</span>
                     <strong>{t('providers.modelsCount', { count: selectedProvider?.models?.length || 0 })}</strong>
                   </div>
@@ -2196,6 +2282,22 @@ export default function App() {
                         placeholder={t('providers.placeholderName')}
                       />
                     </label>
+                    <fieldset className="detail-form-span">
+                      <legend>{t('common.protocol')}</legend>
+                      <div className="toggle-grid">
+                        {protocolOptions.map((protocol) => (
+                          <label className="checkbox-row checkbox-card" key={protocol}>
+                            <input
+                              type="radio"
+                              name="provider-protocol"
+                              checked={providerForm.protocol === protocol}
+                              onChange={() => setProviderForm((current) => ({ ...current, protocol }))}
+                            />
+                            <span>{protocolLabel(protocol)}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
                     <label className="detail-form-span">
                       <span>{t('providers.baseUrl')}</span>
                       <input
@@ -2306,18 +2408,32 @@ export default function App() {
                   <input
                     type="text"
                     value={targetForm.alias}
-                    onChange={(event) => setTargetForm((current) => ({ ...current, alias: event.target.value }))}
+                    onChange={onTargetAliasChange}
                     placeholder={t('aliases.placeholderAliasBinding')}
                   />
                 </label>
                 <label>
                   <span>{t('aliases.providerId')}</span>
-                  <input
-                    type="text"
+                  <div className="inline-pills bind-modal-pills">
+                    <span className={protocolBadgeClass(targetProtocol)}>{protocolLabel(targetProtocol)}</span>
+                    <span className="pill">{t('aliases.bindableProviders', { count: bindableProviders.length })}</span>
+                  </div>
+                  <select
                     value={targetForm.provider}
                     onChange={(event) => setTargetForm((current) => ({ ...current, provider: event.target.value }))}
-                    placeholder={t('aliases.placeholderProviderId')}
-                  />
+                  >
+                    <option value="">{t('aliases.placeholderProviderSelect')}</option>
+                    {bindableProviders.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.id} · {protocolLabel(provider.protocol)}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="subtle">
+                    {bindableProviders.length > 0
+                      ? `${t('common.protocol')}: ${protocolLabel(targetProtocol)}`
+                      : t('aliases.noProvidersForProtocol', { protocol: protocolLabel(targetProtocol) })}
+                  </span>
                 </label>
                 <label>
                   <span>{t('aliases.model')}</span>
@@ -2338,7 +2454,14 @@ export default function App() {
                 </label>
                 <div className="toolbar">
                   <button type="submit" className="primary">{t('actions.bind')}</button>
-                  <button type="button" onClick={() => setTargetForm((current) => ({ ...emptyTargetForm, alias: current.alias }))}>
+                  <button
+                    type="button"
+                    onClick={() => setTargetForm((current) => ({
+                      ...emptyTargetForm,
+                      alias: current.alias,
+                      provider: bindableProviders[0]?.id || '',
+                    }))}
+                  >
                     {t('actions.reset')}
                   </button>
                 </div>
@@ -2401,6 +2524,10 @@ export default function App() {
                     <strong>{aliasForm.disabled ? t('status.disabled') : t('status.enabled')}</strong>
                   </div>
                   <div className="detail-hero-card">
+                    <span className="meta-label">{t('common.protocol')}</span>
+                    <strong><span className={protocolBadgeClass(aliasForm.protocol)}>{protocolLabel(aliasForm.protocol)}</span></strong>
+                  </div>
+                  <div className="detail-hero-card">
                     <span className="meta-label">{t('aliases.targets')}</span>
                     <strong>{t('aliases.targetsCount', { count: selectedAlias?.targets.length || 0 })}</strong>
                   </div>
@@ -2433,6 +2560,22 @@ export default function App() {
                           placeholder={t('aliases.placeholderDisplayName')}
                         />
                       </label>
+                      <fieldset className="detail-form-span">
+                        <legend>{t('common.protocol')}</legend>
+                        <div className="toggle-grid">
+                          {protocolOptions.map((protocol) => (
+                            <label className="checkbox-row checkbox-card" key={protocol}>
+                              <input
+                                type="radio"
+                                name="alias-protocol"
+                                checked={aliasForm.protocol === protocol}
+                                onChange={() => setAliasForm((current) => ({ ...current, protocol }))}
+                              />
+                              <span>{protocolLabel(protocol)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
                     </div>
                     <div className="toggle-grid">
                       <label className="checkbox-row checkbox-card detail-form-span">
@@ -2562,6 +2705,10 @@ export default function App() {
                     <strong>{tracePrimaryText(selectedLogTrace)}</strong>
                   </div>
                   <div>
+                    <span className="meta-label">{t('common.protocol')}</span>
+                    <strong><span className={protocolBadgeClass(selectedLogTrace.protocol)}>{protocolLabel(selectedLogTrace.protocol)}</span></strong>
+                  </div>
+                  <div>
                     <span className="meta-label">{t('log.status')}</span>
                     <strong>{selectedLogTrace.statusCode || '-'}</strong>
                   </div>
@@ -2587,6 +2734,18 @@ export default function App() {
                   <div>
                     <dt>{t('log.failover')}</dt>
                     <dd>{selectedLogTrace.failover ? t('status.yes') : t('status.no')}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.inputTokens')}</dt>
+                    <dd>{formatTokenCount(selectedLogTrace.inputTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.outputTokens')}</dt>
+                    <dd>{formatTokenCount(selectedLogTrace.outputTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.outputRate')}</dt>
+                    <dd>{formatTokenRate(selectedLogTrace)}</dd>
                   </div>
                 </div>
 
@@ -2662,6 +2821,10 @@ export default function App() {
                   <div>
                     <span className="meta-label">{t('network.url')}</span>
                     <strong>{selectedNetworkTrace.finalUrl || '-'}</strong>
+                  </div>
+                  <div>
+                    <span className="meta-label">{t('common.protocol')}</span>
+                    <strong><span className={protocolBadgeClass(selectedNetworkTrace.protocol)}>{protocolLabel(selectedNetworkTrace.protocol)}</span></strong>
                   </div>
                   <div>
                     <span className="meta-label">{t('network.firstByte')}</span>

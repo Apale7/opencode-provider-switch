@@ -29,7 +29,7 @@ func TestValidateProviderBaseURL(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateProviderBaseURL(tt.input)
+			err := ValidateProviderBaseURL(ProtocolOpenAIResponses, tt.input)
 			if tt.wantErr == "" && err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -107,8 +107,9 @@ func TestValidateRejectsDefaultKeyOnNonLoopbackHost(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
-		Server: Server{Host: "0.0.0.0", Port: 9982, APIKey: DefaultLocalAPIKey},
+		Server: Default().Server,
 	}
+	cfg.Server.Host = "0.0.0.0"
 
 	errs := cfg.Validate()
 	if len(errs) != 1 {
@@ -123,7 +124,7 @@ func TestValidateReportsAliasWithoutAvailableTargets(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
-		Server:    Server{Host: "127.0.0.1", Port: 9982, APIKey: DefaultLocalAPIKey},
+		Server:    Default().Server,
 		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", Disabled: true}},
 		Aliases: []Alias{{
 			Alias:   "gpt-5.4",
@@ -145,7 +146,7 @@ func TestValidateRejectsInvalidModelsSource(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
-		Server:    Server{Host: "127.0.0.1", Port: 9982, APIKey: DefaultLocalAPIKey},
+		Server:    Default().Server,
 		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", ModelsSource: "manual"}},
 	}
 
@@ -162,7 +163,7 @@ func TestValidateRejectsModelsSourceWithoutModels(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
-		Server:    Server{Host: "127.0.0.1", Port: 9982, APIKey: DefaultLocalAPIKey},
+		Server:    Default().Server,
 		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", ModelsSource: "discovered"}},
 	}
 

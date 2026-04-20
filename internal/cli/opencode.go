@@ -71,14 +71,14 @@ needed.`,
 				return err
 			}
 			if !result.Changed {
-				fmt.Fprintf(cmd.OutOrStdout(), "✓ no changes required at %s\n", result.TargetPath)
+				fmt.Fprintf(cmd.OutOrStdout(), "✓ no changes required at %s [%s]\n", result.TargetPath, result.Protocol)
 				return nil
 			}
 			if result.DryRun {
-				fmt.Fprintf(cmd.OutOrStdout(), "would write %s (dry-run)\n", result.TargetPath)
+				fmt.Fprintf(cmd.OutOrStdout(), "would write %s [%s] (dry-run)\n", result.TargetPath, result.Protocol)
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "synced provider.ocswitch into %s (%d alias(es))\n", result.TargetPath, len(result.AliasNames))
+			fmt.Fprintf(cmd.OutOrStdout(), "synced provider.ocswitch into %s [%s] (%d alias(es))\n", result.TargetPath, result.Protocol, len(result.AliasNames))
 			if setModel != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "  model = %s\n", setModel)
 			}

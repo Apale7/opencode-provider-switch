@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/Apale7/opencode-provider-switch/internal/fileutil"
 	"github.com/tidwall/jsonc"
@@ -422,7 +423,11 @@ func lineIndent(data []byte, pos int) string {
 // sync owns only the alias set: same-name model objects are left untouched so
 // OpenCode-only metadata survives round-trips. Returns true if the file would
 // actually change.
-func EnsureOcswitchProvider(raw Raw, baseURL, apiKey string, aliases []string) bool {
+func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, aliases []string) bool {
+	providerNPM, setCacheKey, err := syncedProviderContract(protocol)
+	if err != nil {
+		return false
+	}
 	changed := false
 	if _, ok := raw["$schema"]; !ok {
 		raw["$schema"] = "https://opencode.ai/config.json"
@@ -440,7 +445,7 @@ func EnsureOcswitchProvider(raw Raw, baseURL, apiKey string, aliases []string) b
 		provRaw[ProviderKey] = providerEntry
 		changed = true
 	}
-	if setIfDiff(providerEntry, "npm", "@ai-sdk/openai") {
+	if setIfDiff(providerEntry, "npm", providerNPM) {
 		changed = true
 	}
 	if setIfDiff(providerEntry, "name", ProviderName) {
@@ -458,7 +463,7 @@ func EnsureOcswitchProvider(raw Raw, baseURL, apiKey string, aliases []string) b
 	if setIfDiff(opts, "apiKey", apiKey) {
 		changed = true
 	}
-	if setIfDiff(opts, "setCacheKey", true) {
+	if setIfDiff(opts, "setCacheKey", setCacheKey) {
 		changed = true
 	}
 	// Build models map from alias list. Preserve any existing per-model objects
@@ -487,8 +492,12 @@ func EnsureOcswitchProvider(raw Raw, baseURL, apiKey string, aliases []string) b
 	return changed
 }
 
-// ValidateOcswitchProvider checks that provider.ocswitch matches the MVP sync contract.
-func ValidateOcswitchProvider(raw Raw, baseURL, apiKey string, aliases []string) error {
+// ValidateOcswitchProvider checks that provider.ocswitch matches current sync contract.
+func ValidateOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, aliases []string) error {
+	providerNPM, setCacheKey, err := syncedProviderContract(protocol)
+	if err != nil {
+		return err
+	}
 	provRaw, _ := raw["provider"].(map[string]any)
 	if provRaw == nil {
 		return fmt.Errorf("missing provider object")
@@ -497,8 +506,8 @@ func ValidateOcswitchProvider(raw Raw, baseURL, apiKey string, aliases []string)
 	if providerEntry == nil {
 		return fmt.Errorf("missing provider.%s", ProviderKey)
 	}
-	if npm, _ := providerEntry["npm"].(string); npm != "@ai-sdk/openai" {
-		return fmt.Errorf("provider.%s.npm must be @ai-sdk/openai", ProviderKey)
+	if npm, _ := providerEntry["npm"].(string); npm != providerNPM {
+		return fmt.Errorf("provider.%s.npm must be %s", ProviderKey, providerNPM)
 	}
 	if name, _ := providerEntry["name"].(string); name != ProviderName {
 		return fmt.Errorf("provider.%s.name must be %s", ProviderKey, ProviderName)
@@ -513,8 +522,8 @@ func ValidateOcswitchProvider(raw Raw, baseURL, apiKey string, aliases []string)
 	if got, _ := opts["apiKey"].(string); got != apiKey {
 		return fmt.Errorf("provider.%s.options.apiKey mismatch", ProviderKey)
 	}
-	if got, ok := opts["setCacheKey"].(bool); !ok || !got {
-		return fmt.Errorf("provider.%s.options.setCacheKey must be true", ProviderKey)
+	if got, ok := opts["setCacheKey"].(bool); !ok || got != setCacheKey {
+		return fmt.Errorf("provider.%s.options.setCacheKey mismatch", ProviderKey)
 	}
 	models, _ := providerEntry["models"].(map[string]any)
 	if models == nil {
@@ -540,6 +549,15 @@ func ValidateOcswitchProvider(raw Raw, baseURL, apiKey string, aliases []string)
 		}
 	}
 	return nil
+}
+
+func syncedProviderContract(protocol string) (npm string, setCacheKey bool, err error) {
+	switch strings.TrimSpace(protocol) {
+	case "", "openai-responses":
+		return "@ai-sdk/openai", true, nil
+	default:
+		return "", false, fmt.Errorf("unsupported sync protocol %q", protocol)
+	}
 }
 
 // setIfDiff assigns key=val and returns true if the value actually changed.

@@ -69,7 +69,7 @@ func TestValidateOcswitchProvider(t *testing.T) {
 	aliases := []string{"gpt-5.4", "gpt-5.4-mini"}
 	baseURL := "http://127.0.0.1:9982/v1"
 	apiKey := "ocswitch-local"
-	EnsureOcswitchProvider(raw, baseURL, apiKey, aliases)
+	EnsureOcswitchProvider("openai-responses", raw, baseURL, apiKey, aliases)
 
 	providerRaw, _ := raw["provider"].(map[string]any)
 	providerEntry, _ := providerRaw[ProviderKey].(map[string]any)
@@ -78,7 +78,7 @@ func TestValidateOcswitchProvider(t *testing.T) {
 		t.Fatalf("provider.%s.options.setCacheKey = %#v, want true", ProviderKey, opts["setCacheKey"])
 	}
 
-	if err := ValidateOcswitchProvider(raw, baseURL, apiKey, aliases); err != nil {
+	if err := ValidateOcswitchProvider("openai-responses", raw, baseURL, apiKey, aliases); err != nil {
 		t.Fatalf("ValidateOcswitchProvider() unexpected error: %v", err)
 	}
 }
@@ -116,7 +116,7 @@ func TestEnsureOcswitchProviderPreservesExistingModelMetadata(t *testing.T) {
 		},
 	}
 
-	changed := EnsureOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
+	changed := EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
 	if changed {
 		t.Fatal("EnsureOcswitchProvider() reported change for unchanged same-name alias")
 	}
@@ -173,7 +173,7 @@ func TestEnsureOcswitchProviderDoesNotPanicOnComparableMetadata(t *testing.T) {
 		}
 	}()
 
-	changed := EnsureOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
+	changed := EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
 	if changed {
 		t.Fatal("EnsureOcswitchProvider() reported change for unchanged alias metadata with slices")
 	}
@@ -200,7 +200,7 @@ func TestValidateOcswitchProviderAllowsCustomModelMetadata(t *testing.T) {
 		},
 	}
 
-	if err := ValidateOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"}); err != nil {
+	if err := ValidateOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"}); err != nil {
 		t.Fatalf("ValidateOcswitchProvider() unexpected error for custom metadata: %v", err)
 	}
 }
@@ -241,7 +241,7 @@ func TestPatchProviderDocumentReplacesExistingProviderOnly(t *testing.T) {
 	if err := json.Unmarshal(got, &saved); err != nil {
 		t.Fatalf("unmarshal patched json: %v", err)
 	}
-	if err := ValidateOcswitchProvider(saved, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"}); err != nil {
+	if err := ValidateOcswitchProvider("openai-responses", saved, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"}); err != nil {
 		t.Fatalf("ValidateOcswitchProvider(saved) error: %v", err)
 	}
 }
@@ -398,7 +398,7 @@ func TestPatchProviderDocumentRejectsInvalidJSONC(t *testing.T) {
 
 func TestPatchProviderDocumentRejectsNonObjectProvider(t *testing.T) {
 	raw := Raw{}
-	EnsureOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
+	EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
 
 	if _, err := patchProviderDocument([]byte(`{"provider":"bad"}`), raw); err == nil {
 		t.Fatal("expected provider object error")
@@ -407,7 +407,7 @@ func TestPatchProviderDocumentRejectsNonObjectProvider(t *testing.T) {
 
 func TestPatchProviderDocumentRejectsNonObjectTopLevel(t *testing.T) {
 	raw := Raw{}
-	EnsureOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
+	EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
 
 	if _, err := patchProviderDocument([]byte(`[]`), raw); err == nil {
 		t.Fatal("expected top-level object error")
@@ -423,7 +423,7 @@ func TestSaveWritesValidJSONToDisk(t *testing.T) {
 		t.Fatalf("write seed config: %v", err)
 	}
 	raw := Raw{}
-	EnsureOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
+	EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
 
 	if err := Save(path, raw); err != nil {
 		t.Fatalf("Save() error: %v", err)
@@ -437,7 +437,7 @@ func TestSaveWritesValidJSONToDisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(saved) error: %v", err)
 	}
-	if err := ValidateOcswitchProvider(loaded, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"}); err != nil {
+	if err := ValidateOcswitchProvider("openai-responses", loaded, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"}); err != nil {
 		t.Fatalf("ValidateOcswitchProvider(loaded) error: %v", err)
 	}
 }
@@ -453,7 +453,7 @@ func TestSavePreservesExistingModelMetadataForSameAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(seed) error: %v", err)
 	}
-	changed := EnsureOcswitchProvider(raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
+	changed := EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
 	if changed {
 		t.Fatal("EnsureOcswitchProvider() reported change for preserved same-name alias metadata")
 	}

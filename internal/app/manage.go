@@ -17,7 +17,8 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 	if strings.TrimSpace(in.ID) == "" {
 		return ProviderSaveResult{}, fmt.Errorf("provider id is required")
 	}
-	if err := config.ValidateProviderBaseURL(in.BaseURL); err != nil {
+	protocol := config.NormalizeProviderProtocol(strings.TrimSpace(in.Protocol))
+	if err := config.ValidateProviderBaseURL(protocol, in.BaseURL); err != nil {
 		return ProviderSaveResult{}, fmt.Errorf("invalid baseUrl: %w", err)
 	}
 	cfg, err := s.loadConfig()
@@ -28,6 +29,7 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 	provider := config.Provider{
 		ID:       strings.TrimSpace(in.ID),
 		Name:     strings.TrimSpace(in.Name),
+		Protocol: protocol,
 		BaseURL:  config.NormalizeProviderBaseURL(in.BaseURL),
 		APIKey:   in.APIKey,
 		Headers:  normalizeProviderHeaders(in.Headers),
@@ -52,7 +54,7 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 		}
 	}
 	if !in.SkipModels {
-		models, err := opencode.FetchProviderModels(provider.BaseURL, provider.APIKey, provider.Headers)
+		models, err := opencode.FetchProviderModels(provider.Protocol, provider.BaseURL, provider.APIKey, provider.Headers)
 		if err != nil {
 			if existing != nil && !providerConnectionEqual(*existing, provider) {
 				provider.Models = append([]string(nil), existing.Models...)
@@ -178,7 +180,7 @@ func (s *Service) ImportProviders(ctx context.Context, in ProviderImportInput) (
 			continue
 		}
 		baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
-		if err := config.ValidateProviderBaseURL(baseURL); err != nil {
+		if err := config.ValidateProviderBaseURL(config.ProtocolOpenAIResponses, baseURL); err != nil {
 			result.Skipped++
 			result.Warnings = append(result.Warnings, fmt.Sprintf("skip %q (invalid baseURL %q: %v)", ip.ID, ip.BaseURL, err))
 			continue
@@ -211,10 +213,13 @@ func (s *Service) UpsertAlias(ctx context.Context, in AliasUpsertInput) (AliasVi
 	if err != nil {
 		return AliasView{}, err
 	}
-	a := config.Alias{Alias: name, DisplayName: strings.TrimSpace(in.DisplayName), Enabled: !in.Disabled}
+	a := config.Alias{Alias: name, DisplayName: strings.TrimSpace(in.DisplayName), Protocol: config.NormalizeAliasProtocol(strings.TrimSpace(in.Protocol)), Enabled: !in.Disabled}
 	if existing := cfg.FindAlias(name); existing != nil {
 		if a.DisplayName == "" {
 			a.DisplayName = existing.DisplayName
+		}
+		if strings.TrimSpace(in.Protocol) == "" {
+			a.Protocol = existing.Protocol
 		}
 		a.Targets = existing.Targets
 	}
@@ -253,11 +258,15 @@ func (s *Service) BindAliasTarget(ctx context.Context, in AliasTargetInput) (Ali
 	if p == nil {
 		return AliasView{}, fmt.Errorf("provider %q does not exist; add it first", providerID)
 	}
+	providerProtocol := config.NormalizeProviderProtocol(p.Protocol)
 	if err := validateProviderModelKnown(providerID, p.Models, p.ModelsSource, model); err != nil {
 		return AliasView{}, err
 	}
-	if cfg.FindAlias(alias) == nil {
-		cfg.UpsertAlias(config.Alias{Alias: alias, Enabled: true})
+	currentAlias := cfg.FindAlias(alias)
+	if currentAlias == nil {
+		cfg.UpsertAlias(config.Alias{Alias: alias, Protocol: providerProtocol, Enabled: true})
+	} else if !config.ProtocolsMatch(currentAlias.Protocol, providerProtocol) {
+		return AliasView{}, fmt.Errorf("alias %q protocol %q does not match provider %q protocol %q", alias, config.NormalizeAliasProtocol(currentAlias.Protocol), providerID, providerProtocol)
 	}
 	if err := cfg.AddTarget(alias, config.Target{Provider: providerID, Model: model, Enabled: !in.Disabled}); err != nil {
 		return AliasView{}, err
@@ -326,6 +335,7 @@ func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProv
 	merged := config.Provider{
 		ID:           ip.ID,
 		Name:         ip.Name,
+		Protocol:     config.ProtocolOpenAIResponses,
 		BaseURL:      config.NormalizeProviderBaseURL(ip.BaseURL),
 		APIKey:       ip.APIKey,
 		Models:       importedModels,

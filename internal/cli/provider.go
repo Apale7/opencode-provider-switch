@@ -16,7 +16,7 @@ func newProviderCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "provider",
 		Short: "Manage upstream providers",
-		Long: `Provider commands manage upstream OpenAI-compatible endpoints stored in the
+		Long: `Provider commands manage upstream protocol-aware endpoints stored in the
 local ocswitch config file.
 
 Providers are separate from aliases: a provider defines connection details such
@@ -42,6 +42,7 @@ then bind them to aliases with ocswitch alias bind.`,
 
 func newProviderAddCmd() *cobra.Command {
 	var id, name, baseURL, apiKey string
+	var protocol string
 	var headers []string
 	var clearHeaders bool
 	var disabled bool
@@ -52,8 +53,9 @@ func newProviderAddCmd() *cobra.Command {
 		Long: `provider add creates or updates one upstream provider entry in local ocswitch
 config.
 
-It writes only the ocswitch config file. --base-url must point at an
-OpenAI-compatible /v1 root. By default the command also calls the upstream
+It writes only the ocswitch config file. --protocol defaults to openai-responses,
+and current MVP validation still requires --base-url to point at a compatible /v1 root.
+By default the command also calls the upstream
 /v1/models endpoint with the supplied credentials and stores the discovered
 model list so later bind operations can catch typos early. Discovery failures
 only emit warnings and do not block saving connection settings. Use
@@ -79,7 +81,8 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 			if id == "" || baseURL == "" {
 				return fmt.Errorf("--id and --base-url are required")
 			}
-			if err := config.ValidateProviderBaseURL(baseURL); err != nil {
+			protocol = config.NormalizeProviderProtocol(strings.TrimSpace(protocol))
+			if err := config.ValidateProviderBaseURL(protocol, baseURL); err != nil {
 				return fmt.Errorf("invalid --base-url: %w", err)
 			}
 			cfg, err := loadCfg()
@@ -108,6 +111,7 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 			p := config.Provider{
 				ID:       id,
 				Name:     name,
+				Protocol: protocol,
 				BaseURL:  config.NormalizeProviderBaseURL(baseURL),
 				APIKey:   apiKey,
 				Headers:  normalizeProviderHeaders(hdrs),
@@ -132,7 +136,7 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 				connectionChanged = !providerConnectionEqual(*existing, p)
 			}
 			if !skipModels {
-				models, err := opencode.FetchProviderModels(p.BaseURL, p.APIKey, p.Headers)
+				models, err := opencode.FetchProviderModels(p.Protocol, p.BaseURL, p.APIKey, p.Headers)
 				if err != nil {
 					if connectionChanged {
 						p.Models = append([]string(nil), p.Models...)
@@ -165,7 +169,7 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 			if p.Disabled {
 				state = "disabled"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q [%s] → %s\n", id, state, baseURL)
+			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q [%s] %s → %s\n", id, state, p.Protocol, baseURL)
 			if !skipModels && p.ModelsSource == "discovered" {
 				fmt.Fprintf(cmd.OutOrStdout(), "  discovered %d model(s)\n", len(p.Models))
 			}
@@ -174,6 +178,7 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 	}
 	cmd.Flags().StringVar(&id, "id", "", "provider id (required)")
 	cmd.Flags().StringVar(&name, "name", "", "display name")
+	cmd.Flags().StringVar(&protocol, "protocol", config.ProtocolOpenAIResponses, "provider protocol")
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "OpenAI-compatible base URL, including /v1 (required)")
 	cmd.Flags().StringVar(&apiKey, "api-key", "", "upstream API key")
 	cmd.Flags().StringArrayVar(&headers, "header", nil, "extra header KEY=VALUE (repeatable)")
@@ -202,7 +207,7 @@ func newProviderListCmd() *cobra.Command {
 		Short: "List configured providers",
 		Long: `provider list prints the providers currently stored in local ocswitch config.
 
-Output is inspection-oriented: provider ids, enabled state, base URLs, and
+Output is inspection-oriented: provider ids, protocol, enabled state, base URLs, and
 redacted API keys are shown so you can confirm what was saved or imported before
 binding aliases.
 
@@ -227,7 +232,7 @@ This command does not modify config and does not contact upstream providers.`,
 				if p.Disabled {
 					state = "disabled"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%-20s [%s] %s  apiKey=%s\n", p.ID, state, p.BaseURL, key)
+				fmt.Fprintf(cmd.OutOrStdout(), "%-20s [%s] %-18s %s  apiKey=%s\n", p.ID, state, p.Protocol, p.BaseURL, key)
 			}
 			return nil
 		},
@@ -319,7 +324,7 @@ func newProviderImportCmd() *cobra.Command {
 	var overwrite bool
 	cmd := &cobra.Command{
 		Use:   "import-opencode",
-		Short: "Import @ai-sdk/openai custom providers from an OpenCode config file",
+		Short: "Import supported custom providers from OpenCode",
 		Long: `provider import-opencode reads an OpenCode config file and copies supported
 custom providers into local ocswitch config.
 
@@ -328,7 +333,7 @@ opencode.jsonc > opencode.json > config.json under ~/.config/opencode (XDG
 aware). It does not follow OPENCODE_CONFIG_DIR for this default source; use
 --from when you want a different file.
 
-Only config-defined @ai-sdk/openai custom providers with baseURL are imported.
+Only config-defined providers currently supported by local import rules are imported.
 Imported baseURL values must still satisfy the local /v1 requirement. Providers
 with an empty apiKey are allowed and kept as-is. Unsupported provider shapes are
 skipped by design. Existing ocswitch providers are skipped unless --overwrite is
@@ -372,7 +377,7 @@ Typical next step: run ocswitch provider list, then create aliases and bindings.
 					continue
 				}
 				baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
-				if err := config.ValidateProviderBaseURL(baseURL); err != nil {
+				if err := config.ValidateProviderBaseURL(config.ProtocolOpenAIResponses, baseURL); err != nil {
 					skipped++
 					fmt.Fprintf(cmd.OutOrStdout(), "skip %q (invalid baseURL %q: %v)\n", ip.ID, ip.BaseURL, err)
 					continue
@@ -387,7 +392,7 @@ Typical next step: run ocswitch provider list, then create aliases and bindings.
 				})
 				cfg.UpsertProvider(merged)
 				imported++
-				fmt.Fprintf(cmd.OutOrStdout(), "import %q → %s (models: %s)\n", ip.ID, baseURL, strings.Join(merged.Models, ","))
+				fmt.Fprintf(cmd.OutOrStdout(), "import %q [%s] → %s (models: %s)\n", ip.ID, merged.Protocol, baseURL, strings.Join(merged.Models, ","))
 			}
 			if imported > 0 {
 				if err := cfg.Save(); err != nil {
@@ -438,6 +443,7 @@ func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProv
 	merged := config.Provider{
 		ID:           ip.ID,
 		Name:         ip.Name,
+		Protocol:     config.ProtocolOpenAIResponses,
 		BaseURL:      config.NormalizeProviderBaseURL(ip.BaseURL),
 		APIKey:       ip.APIKey,
 		Models:       importedModels,

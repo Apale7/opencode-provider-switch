@@ -35,6 +35,7 @@ aliases, or local server settings.`,
 					marker = "(exists)"
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "  opencode config target: %s %s\n", report.OpenCodeTargetPath, marker)
+				fmt.Fprintf(cmd.OutOrStdout(), "  sync protocol: %s\n", report.SyncProtocol)
 				fmt.Fprintf(cmd.OutOrStdout(), "  provider.ocswitch preview: valid=%v\n", report.OK)
 				fmt.Fprintf(cmd.OutOrStdout(), "  proxy bind: %s\n", report.ProxyBindAddress)
 				return err
@@ -47,6 +48,7 @@ aliases, or local server settings.`,
 				marker = "(exists)"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "  opencode config target: %s %s\n", report.OpenCodeTargetPath, marker)
+			fmt.Fprintf(cmd.OutOrStdout(), "  sync protocol: %s\n", report.SyncProtocol)
 			fmt.Fprintf(cmd.OutOrStdout(), "  provider.ocswitch preview: valid=%v\n", report.OK)
 			fmt.Fprintf(cmd.OutOrStdout(), "  proxy bind: %s\n", report.ProxyBindAddress)
 			return nil

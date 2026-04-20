@@ -28,7 +28,7 @@ func TestFetchProviderModels(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		models, err := FetchProviderModels(srv.URL+"/v1", "sk-test", map[string]string{"X-Test": "1"})
+		models, err := FetchProviderModels("openai-responses", srv.URL+"/v1", "sk-test", map[string]string{"X-Test": "1"})
 		if err != nil {
 			t.Fatalf("FetchProviderModels() error = %v", err)
 		}
@@ -59,7 +59,7 @@ func TestFetchProviderModels(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		_, err := FetchProviderModels(srv.URL+"/v1", "", nil)
+		_, err := FetchProviderModels("openai-responses", srv.URL+"/v1", "", nil)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -75,7 +75,7 @@ func TestFetchProviderModels(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		models, err := FetchProviderModels(srv.URL+"/v1", "", nil)
+		models, err := FetchProviderModels("openai-responses", srv.URL+"/v1", "", nil)
 		if err != nil {
 			t.Fatalf("FetchProviderModels() error = %v", err)
 		}
@@ -91,7 +91,7 @@ func TestFetchProviderModels(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		_, err := FetchProviderModels(srv.URL+"/v1", "", nil)
+		_, err := FetchProviderModels("openai-responses", srv.URL+"/v1", "", nil)
 		if err == nil {
 			t.Fatal("expected error")
 		}

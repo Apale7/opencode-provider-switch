@@ -34,6 +34,19 @@ type openAIError struct {
 	Code    string `json:"code,omitempty"`
 }
 
+const maxUsageCaptureBytes = 256 << 10
+
+type outputTokenCollector struct {
+	contentType string
+	buf         bytes.Buffer
+	truncated   bool
+}
+
+type tokenUsage struct {
+	inputTokens  int64
+	outputTokens int64
+}
+
 // Server is the local ocswitch HTTP proxy.
 type Server struct {
 	cfg    *config.Config
@@ -88,8 +101,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 func (s *Server) ListenAndServeWithReady(ctx context.Context, ready chan<- error) error {
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/responses", s.handleResponses)
-	mux.HandleFunc("/v1/models", s.handleModels)
+	mux.HandleFunc(config.ProtocolLocalRequestPath(config.ProtocolOpenAIResponses), s.handleResponses)
+	mux.HandleFunc(config.ProtocolLocalModelsPath(config.ProtocolOpenAIResponses), s.handleModels)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -192,6 +205,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	trace := RequestTrace{
 		ID:             reqID,
 		StartedAt:      startedAt,
+		Protocol:       config.ProtocolOpenAIResponses,
 		RawModel:       rawModel,
 		Alias:          aliasName,
 		RequestHeaders: sanitizeHeaderMap(r.Header),
@@ -447,6 +461,7 @@ func (s *Server) tryOnce(
 	if mediaType, _, parseErr := mime.ParseMediaType(resp.Header.Get("Content-Type")); parseErr == nil {
 		isEventStream = mediaType == "text/event-stream"
 	}
+	usageCollector := &outputTokenCollector{contentType: resp.Header.Get("Content-Type")}
 
 	s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
 	s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
@@ -454,6 +469,7 @@ func (s *Server) tryOnce(
 	w.WriteHeader(resp.StatusCode)
 	flusher, _ := w.(http.Flusher)
 	if len(firstChunk) > 0 {
+		usageCollector.Add(firstChunk)
 		if _, werr := w.Write(firstChunk); werr != nil {
 			if attemptTrace != nil {
 				attemptTrace.Result = "downstream_write_error"
@@ -477,6 +493,7 @@ func (s *Server) tryOnce(
 			n, rerr = readChunkWithTimeout(resp.Body, buf, streamIdleTimeout)
 		}
 		if n > 0 {
+			usageCollector.Add(buf[:n])
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				if attemptTrace != nil {
 					attemptTrace.Result = "downstream_write_error"
@@ -490,6 +507,12 @@ func (s *Server) tryOnce(
 		}
 		if rerr != nil {
 			if errors.Is(rerr, io.EOF) {
+				if trace != nil {
+					if usage, ok := usageCollector.Usage(); ok {
+						trace.InputTokens = usage.inputTokens
+						trace.OutputTokens = usage.outputTokens
+					}
+				}
 				if attemptTrace != nil {
 					attemptTrace.Result = "success"
 					attemptTrace.Success = true
@@ -503,6 +526,110 @@ func (s *Server) tryOnce(
 			}
 			return true, false, false, rerr, nil
 		}
+	}
+}
+
+func (c *outputTokenCollector) Add(chunk []byte) {
+	if c == nil || c.truncated || len(chunk) == 0 {
+		return
+	}
+	remaining := maxUsageCaptureBytes - c.buf.Len()
+	if remaining <= 0 {
+		c.truncated = true
+		return
+	}
+	if len(chunk) > remaining {
+		chunk = chunk[:remaining]
+		c.truncated = true
+	}
+	_, _ = c.buf.Write(chunk)
+}
+
+func (c *outputTokenCollector) Usage() (tokenUsage, bool) {
+	if c == nil || c.truncated || c.buf.Len() == 0 {
+		return tokenUsage{}, false
+	}
+	return extractTokenUsageFromBody(c.contentType, c.buf.Bytes())
+}
+
+func extractTokenUsageFromBody(contentType string, body []byte) (tokenUsage, bool) {
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	switch mediaType {
+	case "application/json":
+		var payload any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return tokenUsage{}, false
+		}
+		return findTokenUsage(payload)
+	case "text/event-stream":
+		for _, line := range strings.Split(string(body), "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data == "" || data == "[DONE]" {
+				continue
+			}
+			var payload any
+			if err := json.Unmarshal([]byte(data), &payload); err != nil {
+				continue
+			}
+			if usage, ok := findTokenUsage(payload); ok {
+				return usage, true
+			}
+		}
+	}
+	return tokenUsage{}, false
+}
+
+func findTokenUsage(value any) (tokenUsage, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		inputTokens, hasInput := jsonNumberToInt64(typed["input_tokens"])
+		outputTokens, hasOutput := jsonNumberToInt64(typed["output_tokens"])
+		if hasInput || hasOutput {
+			return tokenUsage{inputTokens: inputTokens, outputTokens: outputTokens}, true
+		}
+		if usage, ok := typed["usage"]; ok {
+			if nested, ok := findTokenUsage(usage); ok {
+				return nested, true
+			}
+		}
+		for _, nested := range typed {
+			if usage, ok := findTokenUsage(nested); ok {
+				return usage, true
+			}
+		}
+	case []any:
+		for _, nested := range typed {
+			if usage, ok := findTokenUsage(nested); ok {
+				return usage, true
+			}
+		}
+	}
+	return tokenUsage{}, false
+}
+
+func jsonNumberToInt64(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		if typed < 0 {
+			return 0, false
+		}
+		return int64(typed), true
+	case int:
+		if typed < 0 {
+			return 0, false
+		}
+		return int64(typed), true
+	case int64:
+		if typed < 0 {
+			return 0, false
+		}
+		return typed, true
+	default:
+		return 0, false
 	}
 }
 

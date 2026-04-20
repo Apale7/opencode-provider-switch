@@ -33,6 +33,7 @@ type Target struct {
 type Alias struct {
 	Alias       string   `json:"alias"`
 	DisplayName string   `json:"display_name,omitempty"`
+	Protocol    string   `json:"protocol,omitempty"`
 	Enabled     bool     `json:"enabled"`
 	Targets     []Target `json:"targets"`
 }
@@ -41,6 +42,7 @@ type Alias struct {
 type Provider struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name,omitempty"`
+	Protocol     string            `json:"protocol,omitempty"`
 	BaseURL      string            `json:"base_url"`
 	APIKey       string            `json:"api_key"`
 	Headers      map[string]string `json:"headers,omitempty"`
@@ -101,14 +103,17 @@ func NormalizeProviderBaseURL(baseURL string) string {
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
 }
 
-// ValidateProviderBaseURL checks the MVP requirement that upstream base URLs
-// point at an OpenAI-compatible /v1 root.
-func ValidateProviderBaseURL(baseURL string) error {
+// ValidateProviderBaseURL checks protocol-specific upstream base URL rules.
+func ValidateProviderBaseURL(protocol string, baseURL string) error {
+	protocol = NormalizeProviderProtocol(protocol)
+	if err := ValidateProtocol(protocol); err != nil {
+		return err
+	}
 	trimmed := NormalizeProviderBaseURL(baseURL)
 	if trimmed == "" {
 		return fmt.Errorf("missing base_url")
 	}
-	if !strings.HasSuffix(trimmed, "/v1") {
+	if protocol == ProtocolOpenAIResponses && !strings.HasSuffix(trimmed, ProtocolLocalBasePath(protocol)) {
 		return fmt.Errorf("base_url must end with /v1")
 	}
 	return nil
@@ -168,6 +173,8 @@ func Load(path string) (*Config, error) {
 	if err := json.Unmarshal(data, c); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	normalizeProviders(c.Providers)
+	normalizeAliases(c.Aliases)
 	if c.Server.Host == "" {
 		c.Server.Host = "127.0.0.1"
 	}
@@ -202,8 +209,10 @@ func (c *Config) Save() error {
 	}
 	return fileutil.WithLockedFile(path, func() error {
 		providers := cloneProviders(c.Providers)
+		normalizeProviders(providers)
 		sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
 		aliases := cloneAliases(c.Aliases)
+		normalizeAliases(aliases)
 		sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
 		snap := struct {
 			Server    Server     `json:"server"`
@@ -245,6 +254,7 @@ func (c *Config) findProviderLocked(id string) *Provider {
 func (c *Config) UpsertProvider(p Provider) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	p.Protocol = NormalizeProviderProtocol(p.Protocol)
 	cloned := cloneProvider(p)
 	for i := range c.Providers {
 		if c.Providers[i].ID == p.ID {
@@ -285,6 +295,7 @@ func (c *Config) FindAlias(name string) *Alias {
 func (c *Config) UpsertAlias(a Alias) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	a.Protocol = NormalizeAliasProtocol(a.Protocol)
 	cloned := cloneAlias(a)
 	for i := range c.Aliases {
 		if c.Aliases[i].Alias == a.Alias {
@@ -371,6 +382,9 @@ func (c *Config) availableTargetsLocked(alias Alias) []Target {
 		if provider == nil || !provider.IsEnabled() {
 			continue
 		}
+		if !ProtocolsMatch(alias.Protocol, provider.Protocol) {
+			continue
+		}
 		targets = append(targets, t)
 	}
 	return targets
@@ -381,9 +395,23 @@ func (c *Config) availableTargetsLocked(alias Alias) []Target {
 func (c *Config) AvailableAliasNames() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	return c.availableAliasNamesLocked("")
+}
+
+// AvailableAliasNamesForProtocol returns enabled alias names for one protocol.
+func (c *Config) AvailableAliasNamesForProtocol(protocol string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.availableAliasNamesLocked(protocol)
+}
+
+func (c *Config) availableAliasNamesLocked(protocol string) []string {
 	names := make([]string, 0, len(c.Aliases))
 	for _, a := range c.Aliases {
 		if !a.Enabled {
+			continue
+		}
+		if protocol != "" && NormalizeAliasProtocol(a.Protocol) != NormalizeAliasProtocol(protocol) {
 			continue
 		}
 		if len(c.availableTargetsLocked(a)) == 0 {
@@ -401,6 +429,7 @@ func (c *Config) Validate() []error {
 	var errs []error
 	ids := map[string]bool{}
 	for _, p := range c.Providers {
+		p.Protocol = NormalizeProviderProtocol(p.Protocol)
 		if p.ID == "" {
 			errs = append(errs, fmt.Errorf("provider with empty id"))
 			continue
@@ -413,7 +442,10 @@ func (c *Config) Validate() []error {
 			errs = append(errs, fmt.Errorf("provider %q missing base_url", p.ID))
 			continue
 		}
-		if err := ValidateProviderBaseURL(p.BaseURL); err != nil {
+		if err := ValidateProtocol(p.Protocol); err != nil {
+			errs = append(errs, fmt.Errorf("provider %q %s", p.ID, err))
+		}
+		if err := ValidateProviderBaseURL(p.Protocol, p.BaseURL); err != nil {
 			errs = append(errs, fmt.Errorf("provider %q %s", p.ID, err))
 		}
 		seenModels := map[string]bool{}
@@ -439,6 +471,7 @@ func (c *Config) Validate() []error {
 	}
 	seen := map[string]bool{}
 	for _, a := range c.Aliases {
+		a.Protocol = NormalizeAliasProtocol(a.Protocol)
 		if a.Alias == "" {
 			errs = append(errs, fmt.Errorf("alias with empty name"))
 			continue
@@ -447,6 +480,9 @@ func (c *Config) Validate() []error {
 			errs = append(errs, fmt.Errorf("duplicate alias %q", a.Alias))
 		}
 		seen[a.Alias] = true
+		if err := ValidateProtocol(a.Protocol); err != nil {
+			errs = append(errs, fmt.Errorf("alias %q %s", a.Alias, err))
+		}
 		enabled := 0
 		for _, t := range a.Targets {
 			if t.Provider == "" || t.Model == "" {
@@ -455,6 +491,11 @@ func (c *Config) Validate() []error {
 			}
 			if !ids[t.Provider] {
 				errs = append(errs, fmt.Errorf("alias %q references unknown provider %q", a.Alias, t.Provider))
+				continue
+			}
+			provider := c.findProviderLocked(t.Provider)
+			if provider != nil && !ProtocolsMatch(a.Protocol, provider.Protocol) {
+				errs = append(errs, fmt.Errorf("alias %q target %s/%s protocol %q does not match provider protocol %q", a.Alias, t.Provider, t.Model, a.Protocol, NormalizeProviderProtocol(provider.Protocol)))
 			}
 		}
 		enabled = len(c.availableTargetsLocked(a))
@@ -513,14 +554,29 @@ func isLoopbackHost(host string) bool {
 }
 
 func cloneProvider(p Provider) Provider {
+	p.Protocol = NormalizeProviderProtocol(p.Protocol)
 	p.Headers = cloneStringMap(p.Headers)
 	p.Models = cloneStrings(p.Models)
 	return p
 }
 
 func cloneAlias(a Alias) Alias {
+	a.Protocol = NormalizeAliasProtocol(a.Protocol)
 	a.Targets = cloneTargets(a.Targets)
 	return a
+}
+
+func normalizeProviders(providers []Provider) {
+	for i := range providers {
+		providers[i].Protocol = NormalizeProviderProtocol(providers[i].Protocol)
+		providers[i].BaseURL = NormalizeProviderBaseURL(providers[i].BaseURL)
+	}
+}
+
+func normalizeAliases(aliases []Alias) {
+	for i := range aliases {
+		aliases[i].Protocol = NormalizeAliasProtocol(aliases[i].Protocol)
+	}
 }
 
 func cloneProviders(in []Provider) []Provider {

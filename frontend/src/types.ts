@@ -2,6 +2,8 @@ export type ThemePreference = 'system' | 'light' | 'dark'
 
 export type LanguagePreference = 'system' | 'en-US' | 'zh-CN'
 
+export type ProviderProtocol = 'openai-responses'
+
 export type DesktopPrefsView = {
   launchAtLogin: boolean
   autoStartProxy: boolean
@@ -76,6 +78,9 @@ export type RequestTrace = {
   finishedAt?: string
   durationMs: number
   firstByteMs?: number
+  inputTokens?: number
+  outputTokens?: number
+  protocol: ProviderProtocol
   rawModel?: string
   alias?: string
   stream: boolean
@@ -104,6 +109,7 @@ export type Overview = {
 export type ProviderView = {
   id: string
   name?: string
+  protocol: ProviderProtocol
   baseUrl: string
   apiKeySet: boolean
   apiKeyMasked?: string
@@ -121,6 +127,7 @@ export type ProviderSaveResult = {
 export type ProviderUpsertInput = {
   id: string
   name?: string
+  protocol: ProviderProtocol
   baseUrl: string
   apiKey?: string
   headers?: Record<string, string>
@@ -155,6 +162,7 @@ export type AliasTargetView = {
 export type AliasView = {
   alias: string
   displayName?: string
+  protocol: ProviderProtocol
   enabled: boolean
   targetCount: number
   availableTargetCount: number
@@ -164,6 +172,7 @@ export type AliasView = {
 export type AliasUpsertInput = {
   alias: string
   displayName?: string
+  protocol: ProviderProtocol
   disabled: boolean
 }
 
@@ -181,6 +190,7 @@ export type DoctorIssue = {
 export type DoctorReport = {
   ok: boolean
   issues: DoctorIssue[]
+  syncProtocol: ProviderProtocol
   configPath: string
   providerCount: number
   aliasCount: number
@@ -203,6 +213,7 @@ export type SyncInput = {
 
 export type SyncPreview = {
   targetPath: string
+  protocol: ProviderProtocol
   aliasNames: string[]
   setModel?: string
   setSmallModel?: string
@@ -211,6 +222,7 @@ export type SyncPreview = {
 
 export type SyncResult = {
   targetPath: string
+  protocol: ProviderProtocol
   aliasNames: string[]
   changed: boolean
   dryRun: boolean

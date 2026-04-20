@@ -783,7 +783,7 @@ func TestOpencodeSyncDoesNotPanicOnSliceModelMetadata(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute opencode sync: %v", err)
 	}
-	if got := stdout.String(); got != "✓ no changes required at "+target+"\n" {
+	if got := stdout.String(); got != "✓ no changes required at "+target+" [openai-responses]\n" {
 		t.Fatalf("stdout = %q", got)
 	}
 	data, err := os.ReadFile(target)
@@ -1051,7 +1051,7 @@ func TestProviderImportOpencodeMissingFromFileReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing --from file error")
 	}
-	if !strings.Contains(err.Error(), missing) || !strings.Contains(err.Error(), "no such file or directory") {
+	if !strings.Contains(err.Error(), missing) || (!strings.Contains(strings.ToLower(err.Error()), "no such file or directory") && !strings.Contains(strings.ToLower(err.Error()), "cannot find the file")) {
 		t.Fatalf("error = %q", err.Error())
 	}
 }
@@ -1165,7 +1165,7 @@ func TestProviderImportOpencodeOverwriteClearsRemovedImportedModels(t *testing.T
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute provider import-opencode: %v", err)
 	}
-	if !strings.Contains(stdout.String(), `import "p1" → https://example.com/v1 (models: )`) {
+	if !strings.Contains(stdout.String(), `import "p1" [openai-responses] → https://example.com/v1 (models: )`) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 

@@ -24,6 +24,9 @@ type RequestTrace struct {
 	FinishedAt     time.Time         `json:"finishedAt,omitempty"`
 	DurationMs     int64             `json:"durationMs"`
 	FirstByteMs    int64             `json:"firstByteMs,omitempty"`
+	InputTokens    int64             `json:"inputTokens,omitempty"`
+	OutputTokens   int64             `json:"outputTokens,omitempty"`
+	Protocol       string            `json:"protocol,omitempty"`
 	RawModel       string            `json:"rawModel,omitempty"`
 	Alias          string            `json:"alias,omitempty"`
 	Stream         bool              `json:"stream"`

@@ -45,6 +45,9 @@ type RequestTrace struct {
 	FinishedAt     string            `json:"finishedAt,omitempty"`
 	DurationMs     int64             `json:"durationMs"`
 	FirstByteMs    int64             `json:"firstByteMs,omitempty"`
+	InputTokens    int64             `json:"inputTokens,omitempty"`
+	OutputTokens   int64             `json:"outputTokens,omitempty"`
+	Protocol       string            `json:"protocol"`
 	RawModel       string            `json:"rawModel,omitempty"`
 	Alias          string            `json:"alias,omitempty"`
 	Stream         bool              `json:"stream"`
@@ -92,6 +95,9 @@ func requestTraceView(trace proxy.RequestTrace) RequestTrace {
 		FinishedAt:     formatTimestamp(trace.FinishedAt),
 		DurationMs:     trace.DurationMs,
 		FirstByteMs:    trace.FirstByteMs,
+		InputTokens:    trace.InputTokens,
+		OutputTokens:   trace.OutputTokens,
+		Protocol:       trace.Protocol,
 		RawModel:       trace.RawModel,
 		Alias:          trace.Alias,
 		Stream:         trace.Stream,
@@ -134,6 +140,7 @@ func traceAttemptView(attempt proxy.TraceAttempt) TraceAttempt {
 type ProviderView struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name,omitempty"`
+	Protocol     string            `json:"protocol"`
 	BaseURL      string            `json:"baseUrl"`
 	APIKeySet    bool              `json:"apiKeySet"`
 	APIKeyMasked string            `json:"apiKeyMasked,omitempty"`
@@ -157,6 +164,7 @@ type AliasTargetView struct {
 type AliasView struct {
 	Alias                string            `json:"alias"`
 	DisplayName          string            `json:"displayName,omitempty"`
+	Protocol             string            `json:"protocol"`
 	Enabled              bool              `json:"enabled"`
 	TargetCount          int               `json:"targetCount"`
 	AvailableTargetCount int               `json:"availableTargetCount"`
@@ -170,6 +178,7 @@ type DoctorIssue struct {
 type DoctorReport struct {
 	OK                  bool          `json:"ok"`
 	Issues              []DoctorIssue `json:"issues"`
+	SyncProtocol        string        `json:"syncProtocol"`
 	ConfigPath          string        `json:"configPath"`
 	ProviderCount       int           `json:"providerCount"`
 	AliasCount          int           `json:"aliasCount"`
@@ -192,6 +201,7 @@ type SyncInput struct {
 
 type SyncPreview struct {
 	TargetPath    string   `json:"targetPath"`
+	Protocol      string   `json:"protocol"`
 	AliasNames    []string `json:"aliasNames"`
 	SetModel      string   `json:"setModel,omitempty"`
 	SetSmallModel string   `json:"setSmallModel,omitempty"`
@@ -200,6 +210,7 @@ type SyncPreview struct {
 
 type SyncResult struct {
 	TargetPath    string   `json:"targetPath"`
+	Protocol      string   `json:"protocol"`
 	AliasNames    []string `json:"aliasNames"`
 	Changed       bool     `json:"changed"`
 	DryRun        bool     `json:"dryRun"`
@@ -247,6 +258,7 @@ type ConfigImportResult struct {
 type ProviderUpsertInput struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name,omitempty"`
+	Protocol     string            `json:"protocol"`
 	BaseURL      string            `json:"baseUrl"`
 	APIKey       string            `json:"apiKey,omitempty"`
 	Headers      map[string]string `json:"headers,omitempty"`
@@ -275,6 +287,7 @@ type ProviderStateInput struct {
 type AliasUpsertInput struct {
 	Alias       string `json:"alias"`
 	DisplayName string `json:"displayName,omitempty"`
+	Protocol    string `json:"protocol"`
 	Disabled    bool   `json:"disabled"`
 }
 

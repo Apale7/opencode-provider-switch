@@ -1,0 +1,85 @@
+{
+  "id": "04-20-protocol-foundation-phase-1",
+  "name": "04-20-protocol-foundation-phase-1",
+  "title": "Protocol-aware provider and alias foundation",
+  "description": "将项目重构为 protocol-aware 基础架构：为 provider、alias、trace、CLI、GUI、sync 与模型发现补齐协议字段与抽象，但本期仍只启用 openai-responses。",
+  "status": "completed",
+  "dev_type": "fullstack",
+  "scope": "cross-layer",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-20",
+  "completedAt": "2026-04-21",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "04-20-04-20-anthropic-messages-phase-2"
+  ],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-20-04-20-protocol-foundation-phase-1/prd.md",
+    "internal/config/config.go",
+    "internal/app/manage.go",
+    "internal/app/service.go",
+    "internal/app/types.go",
+    "internal/opencode/opencode.go",
+    "internal/opencode/provider_models.go",
+    "internal/proxy/server.go",
+    "internal/proxy/traces.go",
+    "internal/cli/provider.go",
+    "internal/cli/alias.go",
+    "frontend/src/types.ts",
+    "frontend/src/api.ts",
+    "frontend/src/App.tsx"
+  ],
+  "notes": "Phase 1 只做 protocol-aware foundation，不引入新的代理协议实现。重点是让 provider、alias、trace、sync、CLI 和 GUI 显式表达 protocol，并把旧数据默认迁移到 openai-responses。验收标准是现有功能和 UI 在重构后仍可用。",
+  "meta": {
+    "phase": 1,
+    "statusSummary": "protocol-aware foundation implemented and validated",
+    "enabledProtocols": [
+      "openai-responses"
+    ],
+    "futureProtocols": [
+      "anthropic-messages"
+    ],
+    "acceptanceFocus": [
+      "protocol field round-trip",
+      "cli and gui protocol selection",
+      "trace protocol visibility",
+      "openai responses behavior unchanged"
+    ]
+  }
+}

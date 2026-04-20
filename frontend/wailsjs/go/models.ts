@@ -37,6 +37,7 @@ export namespace app {
 	export class AliasUpsertInput {
 	    alias: string;
 	    displayName?: string;
+	    protocol: string;
 	    disabled: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -47,12 +48,14 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.alias = source["alias"];
 	        this.displayName = source["displayName"];
+	        this.protocol = source["protocol"];
 	        this.disabled = source["disabled"];
 	    }
 	}
 	export class AliasView {
 	    alias: string;
 	    displayName?: string;
+	    protocol: string;
 	    enabled: boolean;
 	    targetCount: number;
 	    availableTargetCount: number;
@@ -66,6 +69,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.alias = source["alias"];
 	        this.displayName = source["displayName"];
+	        this.protocol = source["protocol"];
 	        this.enabled = source["enabled"];
 	        this.targetCount = source["targetCount"];
 	        this.availableTargetCount = source["availableTargetCount"];
@@ -222,6 +226,7 @@ export namespace app {
 	export class DoctorReport {
 	    ok: boolean;
 	    issues: DoctorIssue[];
+	    syncProtocol: string;
 	    configPath: string;
 	    providerCount: number;
 	    aliasCount: number;
@@ -237,6 +242,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ok = source["ok"];
 	        this.issues = this.convertValues(source["issues"], DoctorIssue);
+	        this.syncProtocol = source["syncProtocol"];
 	        this.configPath = source["configPath"];
 	        this.providerCount = source["providerCount"];
 	        this.aliasCount = source["aliasCount"];
@@ -388,6 +394,7 @@ export namespace app {
 	export class ProviderView {
 	    id: string;
 	    name?: string;
+	    protocol: string;
 	    baseUrl: string;
 	    apiKeySet: boolean;
 	    apiKeyMasked?: string;
@@ -404,6 +411,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.protocol = source["protocol"];
 	        this.baseUrl = source["baseUrl"];
 	        this.apiKeySet = source["apiKeySet"];
 	        this.apiKeyMasked = source["apiKeyMasked"];
@@ -462,6 +470,7 @@ export namespace app {
 	export class ProviderUpsertInput {
 	    id: string;
 	    name?: string;
+	    protocol: string;
 	    baseUrl: string;
 	    apiKey?: string;
 	    headers?: Record<string, string>;
@@ -477,6 +486,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.protocol = source["protocol"];
 	        this.baseUrl = source["baseUrl"];
 	        this.apiKey = source["apiKey"];
 	        this.headers = source["headers"];
@@ -610,6 +620,9 @@ export namespace app {
 	    finishedAt?: string;
 	    durationMs: number;
 	    firstByteMs?: number;
+	    inputTokens?: number;
+	    outputTokens?: number;
+	    protocol: string;
 	    rawModel?: string;
 	    alias?: string;
 	    stream: boolean;
@@ -636,6 +649,9 @@ export namespace app {
 	        this.finishedAt = source["finishedAt"];
 	        this.durationMs = source["durationMs"];
 	        this.firstByteMs = source["firstByteMs"];
+	        this.inputTokens = source["inputTokens"];
+	        this.outputTokens = source["outputTokens"];
+	        this.protocol = source["protocol"];
 	        this.rawModel = source["rawModel"];
 	        this.alias = source["alias"];
 	        this.stream = source["stream"];
@@ -702,6 +718,7 @@ export namespace app {
 	}
 	export class SyncPreview {
 	    targetPath: string;
+	    protocol: string;
 	    aliasNames: string[];
 	    setModel?: string;
 	    setSmallModel?: string;
@@ -714,6 +731,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.targetPath = source["targetPath"];
+	        this.protocol = source["protocol"];
 	        this.aliasNames = source["aliasNames"];
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
@@ -722,6 +740,7 @@ export namespace app {
 	}
 	export class SyncResult {
 	    targetPath: string;
+	    protocol: string;
 	    aliasNames: string[];
 	    changed: boolean;
 	    dryRun: boolean;
@@ -735,6 +754,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.targetPath = source["targetPath"];
+	        this.protocol = source["protocol"];
 	        this.aliasNames = source["aliasNames"];
 	        this.changed = source["changed"];
 	        this.dryRun = source["dryRun"];
