@@ -91,7 +91,7 @@ type ConfirmIntent =
 
 const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'sync', 'settings']
 const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switch'
-const protocolOptions: ProviderProtocol[] = ['openai-responses']
+const protocolOptions: ProviderProtocol[] = ['openai-responses', 'anthropic-messages']
 
 const emptyPrefs: DesktopPrefsView = {
   launchAtLogin: false,
@@ -141,7 +141,11 @@ const emptyAliasForm: AliasFormState = {
 }
 
 function protocolLabel(protocol: ProviderProtocol): string {
-	return protocol === 'openai-responses' ? 'OpenAI Responses' : protocol
+	return protocol === 'openai-responses'
+		? 'OpenAI Responses'
+		: protocol === 'anthropic-messages'
+			? 'Anthropic Messages'
+			: protocol
 }
 
 function resolveAliasProtocol(alias: AliasView | null): ProviderProtocol {
@@ -620,11 +624,11 @@ export default function App() {
     }
   }, [activeTab, networkDetailOpen])
 
-  useEffect(() => {
-    const shouldLockScroll = providerDetailOpen || aliasDetailOpen || logDetailOpen || networkDetailOpen
-    const appShell = document.querySelector<HTMLElement>('.app-shell')
-    const sidebar = document.querySelector<HTMLElement>('.sidebar')
-    const workspace = document.querySelector<HTMLElement>('.workspace')
+	useEffect(() => {
+		const shouldLockScroll = providerDetailOpen || aliasDetailOpen
+		const appShell = document.querySelector<HTMLElement>('.app-shell')
+		const sidebar = document.querySelector<HTMLElement>('.sidebar')
+		const workspace = document.querySelector<HTMLElement>('.workspace')
     if (!shouldLockScroll) {
       return
     }
@@ -639,7 +643,7 @@ export default function App() {
       sidebar?.classList.remove('shell-locked')
       workspace?.classList.remove('shell-locked')
     }
-  }, [aliasDetailOpen, logDetailOpen, networkDetailOpen, providerDetailOpen])
+	}, [aliasDetailOpen, providerDetailOpen])
 
   useEffect(() => {
     if (providerDetailMode === 'create') {

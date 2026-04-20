@@ -178,7 +178,7 @@ type DoctorIssue struct {
 type DoctorReport struct {
 	OK                  bool          `json:"ok"`
 	Issues              []DoctorIssue `json:"issues"`
-	SyncProtocol        string        `json:"syncProtocol"`
+	SyncProtocols       []string      `json:"syncProtocols"`
 	ConfigPath          string        `json:"configPath"`
 	ProviderCount       int           `json:"providerCount"`
 	AliasCount          int           `json:"aliasCount"`
@@ -200,22 +200,26 @@ type SyncInput struct {
 }
 
 type SyncPreview struct {
-	TargetPath    string   `json:"targetPath"`
-	Protocol      string   `json:"protocol"`
-	AliasNames    []string `json:"aliasNames"`
-	SetModel      string   `json:"setModel,omitempty"`
-	SetSmallModel string   `json:"setSmallModel,omitempty"`
-	WouldChange   bool     `json:"wouldChange"`
+	TargetPath    string               `json:"targetPath"`
+	Protocols     []SyncedProviderView `json:"protocols"`
+	SetModel      string               `json:"setModel,omitempty"`
+	SetSmallModel string               `json:"setSmallModel,omitempty"`
+	WouldChange   bool                 `json:"wouldChange"`
 }
 
 type SyncResult struct {
-	TargetPath    string   `json:"targetPath"`
-	Protocol      string   `json:"protocol"`
-	AliasNames    []string `json:"aliasNames"`
-	Changed       bool     `json:"changed"`
-	DryRun        bool     `json:"dryRun"`
-	SetModel      string   `json:"setModel,omitempty"`
-	SetSmallModel string   `json:"setSmallModel,omitempty"`
+	TargetPath    string               `json:"targetPath"`
+	Protocols     []SyncedProviderView `json:"protocols"`
+	Changed       bool                 `json:"changed"`
+	DryRun        bool                 `json:"dryRun"`
+	SetModel      string               `json:"setModel,omitempty"`
+	SetSmallModel string               `json:"setSmallModel,omitempty"`
+}
+
+type SyncedProviderView struct {
+	Key        string   `json:"key"`
+	Protocol   string   `json:"protocol"`
+	AliasNames []string `json:"aliasNames"`
 }
 
 type DesktopPrefsView struct {

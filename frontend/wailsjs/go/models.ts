@@ -226,7 +226,7 @@ export namespace app {
 	export class DoctorReport {
 	    ok: boolean;
 	    issues: DoctorIssue[];
-	    syncProtocol: string;
+	    syncProtocols: string[];
 	    configPath: string;
 	    providerCount: number;
 	    aliasCount: number;
@@ -242,7 +242,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ok = source["ok"];
 	        this.issues = this.convertValues(source["issues"], DoctorIssue);
-	        this.syncProtocol = source["syncProtocol"];
+	        this.syncProtocols = source["syncProtocols"];
 	        this.configPath = source["configPath"];
 	        this.providerCount = source["providerCount"];
 	        this.aliasCount = source["aliasCount"];
@@ -716,10 +716,25 @@ export namespace app {
 	        this.dryRun = source["dryRun"];
 	    }
 	}
-	export class SyncPreview {
-	    targetPath: string;
+	export class SyncedProviderView {
+	    key: string;
 	    protocol: string;
 	    aliasNames: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncedProviderView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.protocol = source["protocol"];
+	        this.aliasNames = source["aliasNames"];
+	    }
+	}
+	export class SyncPreview {
+	    targetPath: string;
+	    protocols: SyncedProviderView[];
 	    setModel?: string;
 	    setSmallModel?: string;
 	    wouldChange: boolean;
@@ -731,17 +746,33 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.targetPath = source["targetPath"];
-	        this.protocol = source["protocol"];
-	        this.aliasNames = source["aliasNames"];
+	        this.protocols = this.convertValues(source["protocols"], SyncedProviderView);
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
 	        this.wouldChange = source["wouldChange"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SyncResult {
 	    targetPath: string;
-	    protocol: string;
-	    aliasNames: string[];
+	    protocols: SyncedProviderView[];
 	    changed: boolean;
 	    dryRun: boolean;
 	    setModel?: string;
@@ -754,14 +785,32 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.targetPath = source["targetPath"];
-	        this.protocol = source["protocol"];
-	        this.aliasNames = source["aliasNames"];
+	        this.protocols = this.convertValues(source["protocols"], SyncedProviderView);
 	        this.changed = source["changed"];
 	        this.dryRun = source["dryRun"];
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 
 }
 

@@ -113,7 +113,7 @@ func ValidateProviderBaseURL(protocol string, baseURL string) error {
 	if trimmed == "" {
 		return fmt.Errorf("missing base_url")
 	}
-	if protocol == ProtocolOpenAIResponses && !strings.HasSuffix(trimmed, ProtocolLocalBasePath(protocol)) {
+	if !strings.HasSuffix(trimmed, ProtocolLocalBasePath(protocol)) {
 		return fmt.Errorf("base_url must end with /v1")
 	}
 	return nil

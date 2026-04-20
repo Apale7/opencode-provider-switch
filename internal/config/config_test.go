@@ -45,6 +45,19 @@ func TestValidateProviderBaseURL(t *testing.T) {
 	}
 }
 
+func TestValidateProviderBaseURLAnthropic(t *testing.T) {
+	t.Parallel()
+
+	if err := ValidateProviderBaseURL(ProtocolAnthropicMessages, "https://api.anthropic.com/v1/"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := ValidateProviderBaseURL(ProtocolAnthropicMessages, "https://api.anthropic.com/api"); err == nil {
+		t.Fatal("expected /v1 validation error")
+	} else if err.Error() != "base_url must end with /v1" {
+		t.Fatalf("expected anthropic /v1 validation error, got %q", err.Error())
+	}
+}
+
 func TestNormalizeProviderBaseURL(t *testing.T) {
 	t.Parallel()
 

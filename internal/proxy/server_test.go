@@ -33,6 +33,146 @@ func TestHandleResponsesWritesOpenAIErrorForMissingAlias(t *testing.T) {
 	assertOpenAIError(t, rr.Body.Bytes(), "model_not_found", "invalid_request_error", `alias "missing" not found`)
 }
 
+func TestHandleMessagesWritesAnthropicErrorForMissingAlias(t *testing.T) {
+	t.Parallel()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"missing","stream":true}`))
+	req.Header.Set("X-Api-Key", config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleMessages(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+	assertAnthropicError(t, rr.Body.Bytes(), "invalid_request_error", `alias "missing" not found`)
+}
+
+func TestHandleMessagesProxiesAnthropicRequest(t *testing.T) {
+	t.Parallel()
+
+	var seenPath string
+	var seenAPIKey string
+	var seenVersion string
+	var seenModel string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		seenPath = r.URL.Path
+		seenAPIKey = r.Header.Get("X-Api-Key")
+		seenVersion = r.Header.Get("Anthropic-Version")
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		seenModel, _ = payload["model"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"type":"message","usage":{"input_tokens":11,"output_tokens":7}}`))
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID:       "anthropic",
+			Protocol: config.ProtocolAnthropicMessages,
+			BaseURL:  upstream.URL + "/v1",
+			APIKey:   "sk-ant-upstream",
+		}},
+		Aliases: []config.Alias{{
+			Alias:    "claude",
+			Protocol: config.ProtocolAnthropicMessages,
+			Enabled:  true,
+			Targets:  []config.Target{{Provider: "anthropic", Model: "claude-3-7-sonnet", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"ocswitch/claude","stream":false}`))
+	req.Header.Set("X-Api-Key", config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if seenPath != "/v1/messages" {
+		t.Fatalf("path = %q, want /v1/messages", seenPath)
+	}
+	if seenAPIKey != "sk-ant-upstream" {
+		t.Fatalf("X-Api-Key = %q, want sk-ant-upstream", seenAPIKey)
+	}
+	if seenVersion != "2023-06-01" {
+		t.Fatalf("Anthropic-Version = %q, want 2023-06-01", seenVersion)
+	}
+	if seenModel != "claude-3-7-sonnet" {
+		t.Fatalf("model = %q, want claude-3-7-sonnet", seenModel)
+	}
+	traces := srv.traces.List(10)
+	if len(traces) != 1 || traces[0].Protocol != config.ProtocolAnthropicMessages {
+		t.Fatalf("traces = %#v", traces)
+	}
+}
+
+func TestHandleMessagesFailsOverOn429(t *testing.T) {
+	t.Parallel()
+
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer first.Close()
+
+	var secondSeenModel string
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode second payload: %v", err)
+		}
+		secondSeenModel, _ = payload["model"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"type":"message"}`))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{
+			{ID: "p1", Protocol: config.ProtocolAnthropicMessages, BaseURL: first.URL + "/v1", APIKey: "sk-1"},
+			{ID: "p2", Protocol: config.ProtocolAnthropicMessages, BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+		},
+		Aliases: []config.Alias{{
+			Alias:    "claude",
+			Protocol: config.ProtocolAnthropicMessages,
+			Enabled:  true,
+			Targets:  []config.Target{{Provider: "p1", Model: "claude-a", Enabled: true}, {Provider: "p2", Model: "claude-b", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude","stream":false}`))
+	req.Header.Set("X-Api-Key", config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if secondSeenModel != "claude-b" {
+		t.Fatalf("second upstream model = %q, want claude-b", secondSeenModel)
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 2", got)
+	}
+}
+
 func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	t.Parallel()
 
@@ -632,6 +772,23 @@ func assertOpenAIError(t *testing.T, body []byte, wantCode, wantType, wantMessag
 	}
 	if payload.Error.Code != wantCode {
 		t.Fatalf("error.code = %q, want %q", payload.Error.Code, wantCode)
+	}
+	if payload.Error.Type != wantType {
+		t.Fatalf("error.type = %q, want %q", payload.Error.Type, wantType)
+	}
+	if payload.Error.Message != wantMessage {
+		t.Fatalf("error.message = %q, want %q", payload.Error.Message, wantMessage)
+	}
+}
+
+func assertAnthropicError(t *testing.T, body []byte, wantType, wantMessage string) {
+	t.Helper()
+	var payload anthropicErrorEnvelope
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("unmarshal anthropic error body: %v", err)
+	}
+	if payload.Type != "error" {
+		t.Fatalf("type = %q, want error", payload.Type)
 	}
 	if payload.Error.Type != wantType {
 		t.Fatalf("error.type = %q, want %q", payload.Error.Type, wantType)

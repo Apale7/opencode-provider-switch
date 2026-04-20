@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
 func TestFetchProviderModels(t *testing.T) {
@@ -94,6 +96,44 @@ func TestFetchProviderModels(t *testing.T) {
 		_, err := FetchProviderModels("openai-responses", srv.URL+"/v1", "", nil)
 		if err == nil {
 			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("anthropic headers", func(t *testing.T) {
+		t.Parallel()
+		var auth string
+		var apiKey string
+		var version string
+		var path string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path = r.URL.Path
+			auth = r.Header.Get("Authorization")
+			apiKey = r.Header.Get("X-Api-Key")
+			version = r.Header.Get("Anthropic-Version")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"claude-3-7-sonnet"}]}`))
+		}))
+		defer srv.Close()
+
+		models, err := FetchProviderModels(config.ProtocolAnthropicMessages, srv.URL+"/v1", "sk-ant", nil)
+		if err != nil {
+			t.Fatalf("FetchProviderModels() error = %v", err)
+		}
+		if path != "/v1/models" {
+			t.Fatalf("Path = %q, want /v1/models", path)
+		}
+		if auth != "" {
+			t.Fatalf("Authorization = %q, want empty", auth)
+		}
+		if apiKey != "sk-ant" {
+			t.Fatalf("X-Api-Key = %q, want sk-ant", apiKey)
+		}
+		if version != "2023-06-01" {
+			t.Fatalf("Anthropic-Version = %q, want 2023-06-01", version)
+		}
+		want := []string{"claude-3-7-sonnet"}
+		if !reflect.DeepEqual(models, want) {
+			t.Fatalf("models = %#v, want %#v", models, want)
 		}
 	})
 }

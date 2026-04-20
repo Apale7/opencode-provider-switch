@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	ProviderKey  = "ocswitch"
-	ProviderName = "OpenCode Provider Switch CLI"
+	ProviderKey           = "ocswitch"
+	AnthropicProviderKey  = "ocswitch-anthropic"
+	ProviderName          = "OpenCode Provider Switch CLI"
+	AnthropicProviderName = "OpenCode Provider Switch Anthropic"
 )
 
 // ConfigFileCandidates is the precedence order inside the global config dir.
@@ -130,8 +132,8 @@ func marshalRaw(raw Raw) ([]byte, error) {
 }
 
 func patchProviderDocument(original []byte, raw Raw) ([]byte, error) {
-	providerValue, ok := syncedProviderValue(raw)
-	if !ok {
+	providerValues := syncedProviderValues(raw)
+	if len(providerValues) == 0 {
 		return marshalRaw(raw)
 	}
 	normalized := bytes.TrimSpace(jsonc.ToJSON(original))
@@ -151,7 +153,7 @@ func patchProviderDocument(original []byte, raw Raw) ([]byte, error) {
 	}
 	provider := root.findMember("provider")
 	if provider == nil {
-		return insertObjectMember(normalized, root, "provider", map[string]any{ProviderKey: providerValue})
+		return insertObjectMember(normalized, root, "provider", providerValues)
 	}
 	if normalized[provider.valueStart] != '{' {
 		return nil, fmt.Errorf("top-level provider must be an object")
@@ -160,23 +162,57 @@ func patchProviderDocument(original []byte, raw Raw) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	providerEntry := providerObj.findMember(ProviderKey)
-	if providerEntry == nil {
-		return insertObjectMember(normalized, providerObj, ProviderKey, providerValue)
+	for _, key := range syncedProviderKeys() {
+		providerValue, ok := providerValues[key]
+		if !ok {
+			continue
+		}
+		providerEntry := providerObj.findMember(key)
+		if providerEntry == nil {
+			var insertErr error
+			normalized, insertErr = insertObjectMember(normalized, providerObj, key, providerValue)
+			if insertErr != nil {
+				return nil, insertErr
+			}
+			providerObj, _, err = parseObjectSpan(normalized, provider.valueStart)
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		var replaceErr error
+		normalized, replaceErr = replaceObjectMember(normalized, *providerEntry, providerValue)
+		if replaceErr != nil {
+			return nil, replaceErr
+		}
+		providerObj, _, err = parseObjectSpan(normalized, provider.valueStart)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return replaceObjectMember(normalized, *providerEntry, providerValue)
+	return normalized, nil
 }
 
-func syncedProviderValue(raw Raw) (map[string]any, bool) {
+func syncedProviderValues(raw Raw) map[string]any {
 	providerRaw, _ := raw["provider"].(map[string]any)
 	if providerRaw == nil {
-		return nil, false
+		return nil
 	}
-	providerEntry, _ := providerRaw[ProviderKey].(map[string]any)
-	if providerEntry == nil {
-		return nil, false
+	out := map[string]any{}
+	for _, key := range syncedProviderKeys() {
+		providerEntry, _ := providerRaw[key].(map[string]any)
+		if providerEntry != nil {
+			out[key] = providerEntry
+		}
 	}
-	return providerEntry, true
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func syncedProviderKeys() []string {
+	return []string{ProviderKey, AnthropicProviderKey}
 }
 
 type objectSpan struct {
@@ -424,7 +460,7 @@ func lineIndent(data []byte, pos int) string {
 // OpenCode-only metadata survives round-trips. Returns true if the file would
 // actually change.
 func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, aliases []string) bool {
-	providerNPM, setCacheKey, err := syncedProviderContract(protocol)
+	providerKey, providerName, providerNPM, optionsPatch, err := syncedProviderContract(protocol)
 	if err != nil {
 		return false
 	}
@@ -439,16 +475,16 @@ func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, al
 		raw["provider"] = provRaw
 		changed = true
 	}
-	providerEntry, _ := provRaw[ProviderKey].(map[string]any)
+	providerEntry, _ := provRaw[providerKey].(map[string]any)
 	if providerEntry == nil {
 		providerEntry = map[string]any{}
-		provRaw[ProviderKey] = providerEntry
+		provRaw[providerKey] = providerEntry
 		changed = true
 	}
 	if setIfDiff(providerEntry, "npm", providerNPM) {
 		changed = true
 	}
-	if setIfDiff(providerEntry, "name", ProviderName) {
+	if setIfDiff(providerEntry, "name", providerName) {
 		changed = true
 	}
 	opts, _ := providerEntry["options"].(map[string]any)
@@ -463,8 +499,10 @@ func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, al
 	if setIfDiff(opts, "apiKey", apiKey) {
 		changed = true
 	}
-	if setIfDiff(opts, "setCacheKey", setCacheKey) {
-		changed = true
+	for key, value := range optionsPatch {
+		if setIfDiff(opts, key, value) {
+			changed = true
+		}
 	}
 	// Build models map from alias list. Preserve any existing per-model objects
 	// verbatim if the alias key matches; drop aliases removed locally.
@@ -494,7 +532,7 @@ func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, al
 
 // ValidateOcswitchProvider checks that provider.ocswitch matches current sync contract.
 func ValidateOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, aliases []string) error {
-	providerNPM, setCacheKey, err := syncedProviderContract(protocol)
+	providerKey, providerName, providerNPM, optionsPatch, err := syncedProviderContract(protocol)
 	if err != nil {
 		return err
 	}
@@ -502,32 +540,34 @@ func ValidateOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, 
 	if provRaw == nil {
 		return fmt.Errorf("missing provider object")
 	}
-	providerEntry, _ := provRaw[ProviderKey].(map[string]any)
+	providerEntry, _ := provRaw[providerKey].(map[string]any)
 	if providerEntry == nil {
-		return fmt.Errorf("missing provider.%s", ProviderKey)
+		return fmt.Errorf("missing provider.%s", providerKey)
 	}
 	if npm, _ := providerEntry["npm"].(string); npm != providerNPM {
-		return fmt.Errorf("provider.%s.npm must be %s", ProviderKey, providerNPM)
+		return fmt.Errorf("provider.%s.npm must be %s", providerKey, providerNPM)
 	}
-	if name, _ := providerEntry["name"].(string); name != ProviderName {
-		return fmt.Errorf("provider.%s.name must be %s", ProviderKey, ProviderName)
+	if name, _ := providerEntry["name"].(string); name != providerName {
+		return fmt.Errorf("provider.%s.name must be %s", providerKey, providerName)
 	}
 	opts, _ := providerEntry["options"].(map[string]any)
 	if opts == nil {
-		return fmt.Errorf("provider.%s.options missing", ProviderKey)
+		return fmt.Errorf("provider.%s.options missing", providerKey)
 	}
 	if got, _ := opts["baseURL"].(string); got != baseURL {
-		return fmt.Errorf("provider.%s.options.baseURL mismatch", ProviderKey)
+		return fmt.Errorf("provider.%s.options.baseURL mismatch", providerKey)
 	}
 	if got, _ := opts["apiKey"].(string); got != apiKey {
-		return fmt.Errorf("provider.%s.options.apiKey mismatch", ProviderKey)
+		return fmt.Errorf("provider.%s.options.apiKey mismatch", providerKey)
 	}
-	if got, ok := opts["setCacheKey"].(bool); !ok || got != setCacheKey {
-		return fmt.Errorf("provider.%s.options.setCacheKey mismatch", ProviderKey)
+	for key, want := range optionsPatch {
+		if got, ok := opts[key]; !ok || !reflect.DeepEqual(got, want) {
+			return fmt.Errorf("provider.%s.options.%s mismatch", providerKey, key)
+		}
 	}
 	models, _ := providerEntry["models"].(map[string]any)
 	if models == nil {
-		return fmt.Errorf("provider.%s.models missing", ProviderKey)
+		return fmt.Errorf("provider.%s.models missing", providerKey)
 	}
 	expected := append([]string(nil), aliases...)
 	sort.Strings(expected)
@@ -535,28 +575,35 @@ func ValidateOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, 
 	for alias, v := range models {
 		modelCfg, _ := v.(map[string]any)
 		if modelCfg == nil {
-			return fmt.Errorf("provider.%s.models.%s must be an object", ProviderKey, alias)
+			return fmt.Errorf("provider.%s.models.%s must be an object", providerKey, alias)
 		}
 		actual = append(actual, alias)
 	}
 	sort.Strings(actual)
 	if len(actual) != len(expected) {
-		return fmt.Errorf("provider.%s.models alias set mismatch", ProviderKey)
+		return fmt.Errorf("provider.%s.models alias set mismatch", providerKey)
 	}
 	for i := range actual {
 		if actual[i] != expected[i] {
-			return fmt.Errorf("provider.%s.models alias set mismatch", ProviderKey)
+			return fmt.Errorf("provider.%s.models alias set mismatch", providerKey)
 		}
 	}
 	return nil
 }
 
-func syncedProviderContract(protocol string) (npm string, setCacheKey bool, err error) {
+func syncedProviderContract(protocol string) (providerKey string, providerName string, npm string, options map[string]any, err error) {
 	switch strings.TrimSpace(protocol) {
 	case "", "openai-responses":
-		return "@ai-sdk/openai", true, nil
+		return ProviderKey, ProviderName, "@ai-sdk/openai", map[string]any{"setCacheKey": true}, nil
+	case "anthropic-messages":
+		return AnthropicProviderKey, AnthropicProviderName, "@ai-sdk/anthropic", map[string]any{
+			"setCacheKey": true,
+			"headers": map[string]any{
+				"anthropic-version": "2023-06-01",
+			},
+		}, nil
 	default:
-		return "", false, fmt.Errorf("unsupported sync protocol %q", protocol)
+		return "", "", "", nil, fmt.Errorf("unsupported sync protocol %q", protocol)
 	}
 }
 
@@ -572,21 +619,23 @@ func setIfDiff(m map[string]any, key string, val any) bool {
 
 // ImportableProvider is a subset extracted from an OpenCode custom provider.
 type ImportableProvider struct {
-	ID      string
-	Name    string
-	BaseURL string
-	APIKey  string
-	Models  []string
+	ID       string
+	Name     string
+	Protocol string
+	BaseURL  string
+	APIKey   string
+	Headers  map[string]string
+	Models   []string
 }
 
-// ImportCustomProviders scans raw for @ai-sdk/openai custom providers that
+// ImportCustomProviders scans raw for supported custom providers that
 // declare baseURL and an apiKey-compatible setting. The synced provider id itself is
 // skipped so sync output is not re-imported.
 func ImportCustomProviders(raw Raw) []ImportableProvider {
 	out := []ImportableProvider{}
 	provRaw, _ := raw["provider"].(map[string]any)
 	for id, v := range provRaw {
-		if id == ProviderKey {
+		if id == ProviderKey || id == AnthropicProviderKey {
 			continue
 		}
 		m, ok := v.(map[string]any)
@@ -594,7 +643,8 @@ func ImportCustomProviders(raw Raw) []ImportableProvider {
 			continue
 		}
 		npm, _ := m["npm"].(string)
-		if npm != "@ai-sdk/openai" {
+		protocol, ok := importProtocolForNPM(npm)
+		if !ok {
 			continue
 		}
 		opts, _ := m["options"].(map[string]any)
@@ -607,12 +657,16 @@ func ImportCustomProviders(raw Raw) []ImportableProvider {
 			continue
 		}
 		ip := ImportableProvider{
-			ID:      id,
-			BaseURL: baseURL,
-			APIKey:  apiKey,
+			ID:       id,
+			Protocol: protocol,
+			BaseURL:  baseURL,
+			APIKey:   apiKey,
 		}
 		if n, ok := m["name"].(string); ok {
 			ip.Name = n
+		}
+		if headers, ok := stringMapFromAny(opts["headers"]); ok {
+			ip.Headers = headers
 		}
 		if models, ok := m["models"].(map[string]any); ok {
 			for k := range models {
@@ -623,6 +677,36 @@ func ImportCustomProviders(raw Raw) []ImportableProvider {
 		out = append(out, ip)
 	}
 	return out
+}
+
+func importProtocolForNPM(npm string) (string, bool) {
+	switch strings.TrimSpace(npm) {
+	case "@ai-sdk/openai":
+		return "openai-responses", true
+	case "@ai-sdk/anthropic":
+		return "anthropic-messages", true
+	default:
+		return "", false
+	}
+}
+
+func stringMapFromAny(value any) (map[string]string, bool) {
+	raw, ok := value.(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil, false
+	}
+	out := make(map[string]string, len(raw))
+	for key, item := range raw {
+		str, ok := item.(string)
+		if !ok {
+			continue
+		}
+		out[key] = str
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
 }
 
 // mapsEqualShallow compares two string-keyed maps for structural equality.

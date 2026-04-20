@@ -22,6 +22,11 @@ type openAIErrorEnvelope struct {
 	Error openAIError `json:"error"`
 }
 
+type anthropicErrorEnvelope struct {
+	Type  string         `json:"type"`
+	Error anthropicError `json:"error"`
+}
+
 type upstreamFailure struct {
 	status int
 	header http.Header
@@ -33,6 +38,13 @@ type openAIError struct {
 	Type    string `json:"type,omitempty"`
 	Code    string `json:"code,omitempty"`
 }
+
+type anthropicError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+type protocolErrorWriter func(http.ResponseWriter, int, string, string)
 
 const maxUsageCaptureBytes = 256 << 10
 
@@ -102,6 +114,7 @@ func (s *Server) ListenAndServeWithReady(ctx context.Context, ready chan<- error
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
 	mux := http.NewServeMux()
 	mux.HandleFunc(config.ProtocolLocalRequestPath(config.ProtocolOpenAIResponses), s.handleResponses)
+	mux.HandleFunc(config.ProtocolLocalRequestPath(config.ProtocolAnthropicMessages), s.handleMessages)
 	mux.HandleFunc(config.ProtocolLocalModelsPath(config.ProtocolOpenAIResponses), s.handleModels)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -172,32 +185,42 @@ func (s *Server) authorize(r *http.Request) bool {
 
 var reqCounter uint64
 
-// handleResponses is the main alias→failover proxy entry.
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
+	s.handleProtocolRequest(config.ProtocolOpenAIResponses, w, r)
+}
+
+func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
+	s.handleProtocolRequest(config.ProtocolAnthropicMessages, w, r)
+}
+
+// handleProtocolRequest is the main alias→failover proxy entry.
+func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r *http.Request) {
+	protocol = config.NormalizeProviderProtocol(protocol)
+	writeProtocolError := protocolErrorWriterFor(protocol)
 	reqID := atomic.AddUint64(&reqCounter, 1)
 	startedAt := time.Now()
 	if r.Method != http.MethodPost {
-		writeOpenAIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		writeProtocolError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	if !s.authorize(r) {
-		writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", "unauthorized")
+		writeProtocolError(w, http.StatusUnauthorized, "invalid_api_key", "unauthorized")
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 50<<20))
 	if err != nil {
 		status, msg := requestReadError(err)
-		writeOpenAIError(w, status, "invalid_request_error", msg)
+		writeProtocolError(w, status, "invalid_request_error", msg)
 		return
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
-		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "invalid json: "+err.Error())
+		writeProtocolError(w, http.StatusBadRequest, "invalid_request_error", "invalid json: "+err.Error())
 		return
 	}
 	aliasName, _ := payload["model"].(string)
 	if aliasName == "" {
-		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "missing model field")
+		writeProtocolError(w, http.StatusBadRequest, "invalid_request_error", "missing model field")
 		return
 	}
 	rawModel := aliasName
@@ -205,7 +228,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	trace := RequestTrace{
 		ID:             reqID,
 		StartedAt:      startedAt,
-		Protocol:       config.ProtocolOpenAIResponses,
+		Protocol:       protocol,
 		RawModel:       rawModel,
 		Alias:          aliasName,
 		RequestHeaders: sanitizeHeaderMap(r.Header),
@@ -234,20 +257,25 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if alias == nil {
 		s.logger.Printf("req=%d alias lookup failed for model=%q alias=%q", reqID, rawModel, aliasName)
 		trace.Error = fmt.Sprintf("alias %q not found", aliasName)
-		writeOpenAIError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q not found", aliasName))
+		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q not found", aliasName))
+		return
+	}
+	if !config.ProtocolsMatch(alias.Protocol, protocol) {
+		trace.Error = fmt.Sprintf("alias %q does not support protocol %q", aliasName, protocol)
+		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q does not support protocol %q", aliasName, protocol))
 		return
 	}
 	if !alias.Enabled {
 		s.logger.Printf("req=%d alias=%q disabled", reqID, aliasName)
 		trace.Error = fmt.Sprintf("alias %q is disabled", aliasName)
-		writeOpenAIError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
+		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
 		return
 	}
 	targets := s.cfg.AvailableTargets(*alias)
 	if len(targets) == 0 {
 		s.logger.Printf("req=%d alias=%q has no available targets", reqID, aliasName)
 		trace.Error = fmt.Sprintf("alias %q has no available targets", aliasName)
-		writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("alias %q has no available targets", aliasName))
+		writeProtocolError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("alias %q has no available targets", aliasName))
 		return
 	}
 
@@ -262,7 +290,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			Result:    "pending",
 		}
 		p := s.cfg.FindProvider(t.Provider)
-		if p == nil || !p.IsEnabled() {
+		if p == nil || !p.IsEnabled() || !config.ProtocolsMatch(protocol, p.Protocol) {
 			s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt+1, t.Provider)
 			attemptTrace.Skipped = true
 			attemptTrace.Result = "skipped"
@@ -275,7 +303,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt+1, p.ID, t.Model, failoverCount)
 		cloned := cloneMap(payload)
 		cloned["model"] = t.Model
-		upstreamURL := strings.TrimRight(p.BaseURL, "/") + "/responses"
+		upstreamURL := strings.TrimRight(p.BaseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
 		attemptTrace.URL = upstreamURL
 		attemptTrace.RequestParams = sanitizeJSONValue("", cloned)
 		newBody, err := json.Marshal(cloned)
@@ -286,11 +314,11 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 			trace.Attempts = append(trace.Attempts, attemptTrace)
 			trace.Error = "marshal error"
-			writeOpenAIError(w, http.StatusInternalServerError, "server_error", "marshal error")
+			writeProtocolError(w, http.StatusInternalServerError, "server_error", "marshal error")
 			return
 		}
 
-		handled, success, retryable, upstreamErr, failure := s.tryOnce(r.Context(), w, r, p, t, newBody, aliasName, attempt+1, failoverCount, &attemptTrace, &trace)
+		handled, success, retryable, upstreamErr, failure := s.tryOnce(r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt+1, failoverCount, &attemptTrace, &trace)
 		attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 		trace.Attempts = append(trace.Attempts, attemptTrace)
 		trace.FinalProvider = p.ID
@@ -332,7 +360,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 
 	trace.StatusCode = http.StatusBadGateway
 	trace.Error = fmt.Sprintf("all upstream targets failed for alias %q", aliasName)
-	writeOpenAIError(w, http.StatusBadGateway, "server_error", fmt.Sprintf("all upstream targets failed for alias %q", aliasName))
+	writeProtocolError(w, http.StatusBadGateway, "server_error", fmt.Sprintf("all upstream targets failed for alias %q", aliasName))
 }
 
 // tryOnce proxies one attempt. Returns (handled, success, retryable, err, failure).
@@ -340,6 +368,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 // retryable=true means failure happened before any bytes flushed downstream.
 func (s *Server) tryOnce(
 	ctx context.Context,
+	protocol string,
 	w http.ResponseWriter,
 	clientReq *http.Request,
 	provider *config.Provider,
@@ -354,7 +383,7 @@ func (s *Server) tryOnce(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	upstreamURL := strings.TrimRight(provider.BaseURL, "/") + "/responses"
+	upstreamURL := strings.TrimRight(provider.BaseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
 	upReq, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
 		return false, false, false, fmt.Errorf("build request: %w", err), nil
@@ -362,9 +391,8 @@ func (s *Server) tryOnce(
 	copyForwardHeaders(upReq.Header, clientReq.Header)
 	upReq.Header.Set("Content-Type", "application/json")
 	upReq.Header.Set("Accept", clientReq.Header.Get("Accept"))
-	if provider.APIKey != "" {
-		upReq.Header.Set("Authorization", "Bearer "+provider.APIKey)
-	}
+	config.ApplyProtocolAuthHeaders(upReq.Header, protocol, provider.APIKey)
+	config.ApplyProtocolDefaultHeaders(upReq.Header, protocol)
 	for k, v := range provider.Headers {
 		upReq.Header.Set(k, v)
 	}
@@ -716,6 +744,39 @@ func writeOpenAIError(w http.ResponseWriter, status int, code, message string) {
 			Code:    code,
 		},
 	})
+}
+
+func writeAnthropicError(w http.ResponseWriter, status int, code, message string) {
+	h := w.Header()
+	h.Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(anthropicErrorEnvelope{
+		Type: "error",
+		Error: anthropicError{
+			Type:    anthropicErrorTypeForStatus(status, code),
+			Message: message,
+		},
+	})
+}
+
+func protocolErrorWriterFor(protocol string) protocolErrorWriter {
+	if config.NormalizeProviderProtocol(protocol) == config.ProtocolAnthropicMessages {
+		return writeAnthropicError
+	}
+	return writeOpenAIError
+}
+
+func anthropicErrorTypeForStatus(status int, code string) string {
+	switch {
+	case code == "invalid_api_key":
+		return "authentication_error"
+	case status == http.StatusRequestTimeout:
+		return "request_timeout_error"
+	case status >= 500:
+		return "api_error"
+	default:
+		return "invalid_request_error"
+	}
 }
 
 func errorTypeForStatus(status int) string {

@@ -26,6 +26,7 @@ binding one or more provider/model targets.
 Common workflow: add or import providers first, inspect them with provider list,
 then bind them to aliases with ocswitch alias bind.`,
 		Example: `  ocswitch provider add --id su8 --base-url https://cn2.su8.codes/v1 --api-key sk-example
+  ocswitch provider add --id claude --protocol anthropic-messages --base-url https://api.anthropic.com/v1 --api-key sk-ant-example
   ocswitch provider import-opencode
   ocswitch provider list`,
 	}
@@ -74,6 +75,7 @@ stored header map for this command invocation.
 Typical next step: run ocswitch provider list or bind the provider to an alias.`,
 		Example: `  ocswitch provider add --id su8 --base-url https://cn2.su8.codes/v1
   ocswitch provider add --id su8 --base-url https://cn2.su8.codes/v1 --api-key sk-example
+  ocswitch provider add --id claude --protocol anthropic-messages --base-url https://api.anthropic.com/v1 --api-key sk-ant-example
   ocswitch provider add --id relay --base-url https://example.com/v1 --api-key sk-example --header X-Token=abc --header X-Workspace=my-team
   ocswitch provider add --id relay --base-url https://example.com/v1 --skip-models
   ocswitch provider add --id su8 --base-url https://new.example.com/v1`,
@@ -361,7 +363,7 @@ Typical next step: run ocswitch provider list, then create aliases and bindings.
 			}
 			imports := opencode.ImportCustomProviders(raw)
 			if len(imports) == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "no importable @ai-sdk/openai providers found in %s\n", srcPath)
+				fmt.Fprintf(cmd.OutOrStdout(), "no importable supported providers found in %s\n", srcPath)
 				return nil
 			}
 			cfg, err := loadCfg()
@@ -377,18 +379,20 @@ Typical next step: run ocswitch provider list, then create aliases and bindings.
 					continue
 				}
 				baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
-				if err := config.ValidateProviderBaseURL(config.ProtocolOpenAIResponses, baseURL); err != nil {
+				if err := config.ValidateProviderBaseURL(ip.Protocol, baseURL); err != nil {
 					skipped++
 					fmt.Fprintf(cmd.OutOrStdout(), "skip %q (invalid baseURL %q: %v)\n", ip.ID, ip.BaseURL, err)
 					continue
 				}
 				existing := cfg.FindProvider(ip.ID)
 				merged := mergeImportedProvider(existing, opencode.ImportableProvider{
-					ID:      ip.ID,
-					Name:    ip.Name,
-					BaseURL: baseURL,
-					APIKey:  ip.APIKey,
-					Models:  ip.Models,
+					ID:       ip.ID,
+					Name:     ip.Name,
+					Protocol: ip.Protocol,
+					BaseURL:  baseURL,
+					APIKey:   ip.APIKey,
+					Headers:  ip.Headers,
+					Models:   ip.Models,
 				})
 				cfg.UpsertProvider(merged)
 				imported++
@@ -443,9 +447,10 @@ func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProv
 	merged := config.Provider{
 		ID:           ip.ID,
 		Name:         ip.Name,
-		Protocol:     config.ProtocolOpenAIResponses,
+		Protocol:     config.NormalizeProviderProtocol(ip.Protocol),
 		BaseURL:      config.NormalizeProviderBaseURL(ip.BaseURL),
 		APIKey:       ip.APIKey,
+		Headers:      cloneHeaders(ip.Headers),
 		Models:       importedModels,
 		ModelsSource: "imported",
 	}

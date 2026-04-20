@@ -97,18 +97,22 @@ func (s *Service) RunDoctor(ctx context.Context) (DoctorReport, error) {
 	if err != nil {
 		issues = append(issues, fmt.Errorf("load opencode config target: %w", err))
 	} else {
-		protocol := config.ProtocolOpenAIResponses
-		aliasNames := cfg.AvailableAliasNamesForProtocol(protocol)
-		baseURL := proxyBaseURLForProtocol(cfg, protocol)
-		opencode.EnsureOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, aliasNames)
-		if err := opencode.ValidateOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {
-			issues = append(issues, fmt.Errorf("opencode provider.ocswitch invalid: %w", err))
+		for _, protocol := range syncedProtocols() {
+			aliasNames := cfg.AvailableAliasNamesForProtocol(protocol)
+			if !shouldSyncProtocol(raw, protocol, aliasNames) {
+				continue
+			}
+			baseURL := proxyBaseURLForProtocol(cfg, protocol)
+			opencode.EnsureOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, aliasNames)
+			if err := opencode.ValidateOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {
+				issues = append(issues, fmt.Errorf("opencode %s provider invalid: %w", protocol, err))
+			}
 		}
 	}
 	report := DoctorReport{
 		OK:                  len(issues) == 0,
 		Issues:              doctorIssues(issues),
-		SyncProtocol:        config.ProtocolOpenAIResponses,
+		SyncProtocols:       syncedProtocols(),
 		ConfigPath:          cfg.Path(),
 		ProviderCount:       len(cfg.Providers),
 		AliasCount:          len(cfg.Aliases),
@@ -129,8 +133,7 @@ func (s *Service) PreviewOpenCodeSync(ctx context.Context, in SyncInput) (SyncPr
 	}
 	return SyncPreview{
 		TargetPath:    prepared.targetPath,
-		Protocol:      prepared.protocol,
-		AliasNames:    append([]string(nil), prepared.aliasNames...),
+		Protocols:     cloneSyncedProviders(prepared.protocols),
 		SetModel:      in.SetModel,
 		SetSmallModel: in.SetSmallModel,
 		WouldChange:   prepared.changed,
@@ -144,8 +147,7 @@ func (s *Service) ApplyOpenCodeSync(ctx context.Context, in SyncInput) (SyncResu
 	}
 	result := SyncResult{
 		TargetPath:    prepared.targetPath,
-		Protocol:      prepared.protocol,
-		AliasNames:    append([]string(nil), prepared.aliasNames...),
+		Protocols:     cloneSyncedProviders(prepared.protocols),
 		Changed:       prepared.changed,
 		DryRun:        in.DryRun,
 		SetModel:      in.SetModel,
@@ -318,8 +320,7 @@ func (s *Service) SaveDesktopPrefs(ctx context.Context, in DesktopPrefsInput) (D
 
 type preparedSync struct {
 	targetPath string
-	protocol   string
-	aliasNames []string
+	protocols  []SyncedProviderView
 	raw        opencode.Raw
 	changed    bool
 }
@@ -342,17 +343,35 @@ func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, 
 	if err != nil {
 		return preparedSync{}, err
 	}
-	protocol := config.ProtocolOpenAIResponses
-	aliasNames := cfg.AvailableAliasNamesForProtocol(protocol)
-	sort.Strings(aliasNames)
-	if err := validateSyncedModelSelection(in.SetModel, aliasNames, "--set-model"); err != nil {
+	protocolAliases := make(map[string][]string, len(syncedProtocols()))
+	preparedProtocols := make([]SyncedProviderView, 0, len(syncedProtocols()))
+	for _, protocol := range syncedProtocols() {
+		aliasNames := cfg.AvailableAliasNamesForProtocol(protocol)
+		sort.Strings(aliasNames)
+		if !shouldSyncProtocol(raw, protocol, aliasNames) {
+			continue
+		}
+		protocolAliases[protocol] = aliasNames
+		preparedProtocols = append(preparedProtocols, SyncedProviderView{
+			Key:        syncedProviderKey(protocol),
+			Protocol:   protocol,
+			AliasNames: append([]string(nil), aliasNames...),
+		})
+	}
+	if err := validateSyncedModelSelection(in.SetModel, protocolAliases, "--set-model"); err != nil {
 		return preparedSync{}, err
 	}
-	if err := validateSyncedModelSelection(in.SetSmallModel, aliasNames, "--set-small-model"); err != nil {
+	if err := validateSyncedModelSelection(in.SetSmallModel, protocolAliases, "--set-small-model"); err != nil {
 		return preparedSync{}, err
 	}
-	baseURL := proxyBaseURLForProtocol(cfg, protocol)
-	changed := opencode.EnsureOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, aliasNames)
+	changed := false
+	for _, prepared := range preparedProtocols {
+		protocol := prepared.Protocol
+		baseURL := proxyBaseURLForProtocol(cfg, protocol)
+		if opencode.EnsureOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, protocolAliases[protocol]) {
+			changed = true
+		}
+	}
 	if in.SetModel != "" && raw["model"] != in.SetModel {
 		raw["model"] = in.SetModel
 		changed = true
@@ -361,7 +380,7 @@ func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, 
 		raw["small_model"] = in.SetSmallModel
 		changed = true
 	}
-	return preparedSync{targetPath: targetPath, protocol: protocol, aliasNames: aliasNames, raw: raw, changed: changed}, nil
+	return preparedSync{targetPath: targetPath, protocols: preparedProtocols, raw: raw, changed: changed}, nil
 }
 
 func (s *Service) loadConfig() (*config.Config, error) {
@@ -491,7 +510,7 @@ func normalizeLanguagePreference(value string) string {
 	}
 }
 
-func validateSyncedModelSelection(value string, aliases []string, flagName string) error {
+func validateSyncedModelSelection(value string, aliasesByProtocol map[string][]string, flagName string) error {
 	if value == "" {
 		return nil
 	}
@@ -503,19 +522,55 @@ func validateSyncedModelSelection(value string, aliases []string, flagName strin
 	if alias == "" {
 		return fmt.Errorf("%s must use the ocswitch/<alias> form", flagName)
 	}
-	for _, name := range aliases {
-		if name == alias {
-			return nil
+	choices := []string{}
+	for _, aliases := range aliasesByProtocol {
+		for _, name := range aliases {
+			choices = append(choices, prefix+name)
+			if name == alias {
+				return nil
+			}
 		}
 	}
-	if len(aliases) == 0 {
+	sort.Strings(choices)
+	if len(choices) == 0 {
 		return fmt.Errorf("%s requires at least one routable alias; run ocswitch alias list or doctor first", flagName)
 	}
-	choices := make([]string, 0, len(aliases))
-	for _, name := range aliases {
-		choices = append(choices, prefix+name)
-	}
 	return fmt.Errorf("%s %q is not a routable alias; available: %s", flagName, value, strings.Join(choices, ", "))
+}
+
+func syncedProtocols() []string {
+	return []string{config.ProtocolOpenAIResponses, config.ProtocolAnthropicMessages}
+}
+
+func syncedProviderKey(protocol string) string {
+	if config.NormalizeProviderProtocol(protocol) == config.ProtocolAnthropicMessages {
+		return opencode.AnthropicProviderKey
+	}
+	return opencode.ProviderKey
+}
+
+func shouldSyncProtocol(raw opencode.Raw, protocol string, aliasNames []string) bool {
+	if len(aliasNames) > 0 {
+		return true
+	}
+	providerRaw, _ := raw["provider"].(map[string]any)
+	if providerRaw == nil {
+		return false
+	}
+	_, ok := providerRaw[syncedProviderKey(protocol)]
+	return ok
+}
+
+func cloneSyncedProviders(in []SyncedProviderView) []SyncedProviderView {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]SyncedProviderView, len(in))
+	copy(out, in)
+	for i := range out {
+		out[i].AliasNames = append([]string(nil), out[i].AliasNames...)
+	}
+	return out
 }
 
 func proxyBindAddress(cfg *config.Config) string {

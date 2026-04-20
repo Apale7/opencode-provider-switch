@@ -83,6 +83,29 @@ func TestValidateOcswitchProvider(t *testing.T) {
 	}
 }
 
+func TestValidateOcswitchProviderAnthropic(t *testing.T) {
+	raw := Raw{}
+	aliases := []string{"claude-3-7-sonnet"}
+	baseURL := "http://127.0.0.1:9982/v1"
+	apiKey := "ocswitch-local"
+	EnsureOcswitchProvider("anthropic-messages", raw, baseURL, apiKey, aliases)
+
+	providerRaw, _ := raw["provider"].(map[string]any)
+	providerEntry, _ := providerRaw[AnthropicProviderKey].(map[string]any)
+	if providerEntry == nil {
+		t.Fatalf("missing provider.%s", AnthropicProviderKey)
+	}
+	opts, _ := providerEntry["options"].(map[string]any)
+	headers, _ := opts["headers"].(map[string]any)
+	if headers["anthropic-version"] != "2023-06-01" {
+		t.Fatalf("provider.%s.options.headers = %#v", AnthropicProviderKey, headers)
+	}
+
+	if err := ValidateOcswitchProvider("anthropic-messages", raw, baseURL, apiKey, aliases); err != nil {
+		t.Fatalf("ValidateOcswitchProvider() unexpected error: %v", err)
+	}
+}
+
 func TestEnsureOcswitchProviderPreservesExistingModelMetadata(t *testing.T) {
 	raw := Raw{
 		"$schema": "https://opencode.ai/config.json",
@@ -374,6 +397,61 @@ func TestImportCustomProvidersSortsModels(t *testing.T) {
 	}
 	if got := strings.Join(imports[0].Models, ","); got != "a-model,z-model" {
 		t.Fatalf("Models = %q", got)
+	}
+}
+
+func TestImportCustomProvidersAnthropic(t *testing.T) {
+	raw := Raw{
+		"provider": map[string]any{
+			"anthropic-custom": map[string]any{
+				"npm":  "@ai-sdk/anthropic",
+				"name": "Anthropic Custom",
+				"options": map[string]any{
+					"baseURL": "https://api.anthropic.com/v1",
+					"apiKey":  "sk-ant",
+					"headers": map[string]any{"anthropic-version": "2023-06-01"},
+				},
+				"models": map[string]any{
+					"claude-3-7-sonnet": map[string]any{},
+				},
+			},
+		},
+	}
+
+	imports := ImportCustomProviders(raw)
+	if len(imports) != 1 {
+		t.Fatalf("len(imports) = %d, want 1", len(imports))
+	}
+	if imports[0].Protocol != "anthropic-messages" {
+		t.Fatalf("protocol = %q, want anthropic-messages", imports[0].Protocol)
+	}
+	if imports[0].Headers["anthropic-version"] != "2023-06-01" {
+		t.Fatalf("headers = %#v", imports[0].Headers)
+	}
+}
+
+func TestPatchProviderDocumentAddsAnthropicSyncedProvider(t *testing.T) {
+	raw := Raw{}
+	EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"})
+	EnsureOcswitchProvider("anthropic-messages", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"claude-3-7-sonnet"})
+	original := []byte("{\n  \"provider\": {\n    \"openai\": {\"npm\": \"@ai-sdk/openai\"}\n  }\n}\n")
+
+	got, err := patchProviderDocument(original, raw)
+	if err != nil {
+		t.Fatalf("patchProviderDocument() error: %v", err)
+	}
+	assertValidJSON(t, got)
+	assertStringOrder(t, string(got), []string{`"openai"`, `"ocswitch"`, `"ocswitch-anthropic"`})
+
+	var saved Raw
+	if err := json.Unmarshal(got, &saved); err != nil {
+		t.Fatalf("unmarshal patched json: %v", err)
+	}
+	if err := ValidateOcswitchProvider("openai-responses", saved, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-5.4"}); err != nil {
+		t.Fatalf("ValidateOcswitchProvider(openai) error: %v", err)
+	}
+	if err := ValidateOcswitchProvider("anthropic-messages", saved, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"claude-3-7-sonnet"}); err != nil {
+		t.Fatalf("ValidateOcswitchProvider(anthropic) error: %v", err)
 	}
 }
 func TestPatchProviderDocumentRejectsInvalidJSONC(t *testing.T) {

@@ -2,7 +2,13 @@ export type ThemePreference = 'system' | 'light' | 'dark'
 
 export type LanguagePreference = 'system' | 'en-US' | 'zh-CN'
 
-export type ProviderProtocol = 'openai-responses'
+export type ProviderProtocol = 'openai-responses' | 'anthropic-messages'
+
+export type SyncedProviderView = {
+  key: string
+  protocol: ProviderProtocol
+  aliasNames: string[]
+}
 
 export type DesktopPrefsView = {
   launchAtLogin: boolean
@@ -190,7 +196,7 @@ export type DoctorIssue = {
 export type DoctorReport = {
   ok: boolean
   issues: DoctorIssue[]
-  syncProtocol: ProviderProtocol
+  syncProtocols: ProviderProtocol[]
   configPath: string
   providerCount: number
   aliasCount: number
@@ -213,8 +219,7 @@ export type SyncInput = {
 
 export type SyncPreview = {
   targetPath: string
-  protocol: ProviderProtocol
-  aliasNames: string[]
+  protocols: SyncedProviderView[]
   setModel?: string
   setSmallModel?: string
   wouldChange: boolean
@@ -222,8 +227,7 @@ export type SyncPreview = {
 
 export type SyncResult = {
   targetPath: string
-  protocol: ProviderProtocol
-  aliasNames: string[]
+  protocols: SyncedProviderView[]
   changed: boolean
   dryRun: boolean
   setModel?: string

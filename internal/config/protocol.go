@@ -1,9 +1,14 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+	"strings"
+)
 
 const (
-	ProtocolOpenAIResponses = "openai-responses"
+	ProtocolOpenAIResponses   = "openai-responses"
+	ProtocolAnthropicMessages = "anthropic-messages"
 )
 
 func DefaultProviderProtocol() string {
@@ -29,6 +34,8 @@ func normalizeProtocol(protocol string, fallback string) string {
 	switch protocol {
 	case ProtocolOpenAIResponses:
 		return protocol
+	case ProtocolAnthropicMessages:
+		return protocol
 	default:
 		return protocol
 	}
@@ -37,6 +44,8 @@ func normalizeProtocol(protocol string, fallback string) string {
 func ValidateProtocol(protocol string) error {
 	switch protocol {
 	case ProtocolOpenAIResponses:
+		return nil
+	case ProtocolAnthropicMessages:
 		return nil
 	case "":
 		return fmt.Errorf("missing protocol")
@@ -53,6 +62,8 @@ func ProtocolDisplayName(protocol string) string {
 	switch protocol {
 	case ProtocolOpenAIResponses:
 		return "OpenAI Responses"
+	case ProtocolAnthropicMessages:
+		return "Anthropic Messages"
 	default:
 		return protocol
 	}
@@ -71,8 +82,21 @@ func ProtocolLocalRequestPath(protocol string) string {
 	switch NormalizeProviderProtocol(protocol) {
 	case ProtocolOpenAIResponses:
 		return ProtocolLocalBasePath(protocol) + "/responses"
+	case ProtocolAnthropicMessages:
+		return ProtocolLocalBasePath(protocol) + "/messages"
 	default:
 		return ProtocolLocalBasePath(protocol) + "/responses"
+	}
+}
+
+func ProtocolUpstreamRequestPath(protocol string) string {
+	switch NormalizeProviderProtocol(protocol) {
+	case ProtocolOpenAIResponses:
+		return "/responses"
+	case ProtocolAnthropicMessages:
+		return "/messages"
+	default:
+		return "/responses"
 	}
 }
 
@@ -91,5 +115,26 @@ func ProtocolUpstreamModelsPath(protocol string) string {
 		return "/models"
 	default:
 		return "/models"
+	}
+}
+
+func ApplyProtocolAuthHeaders(header http.Header, protocol string, apiKey string) {
+	if strings.TrimSpace(apiKey) == "" {
+		return
+	}
+	switch NormalizeProviderProtocol(protocol) {
+	case ProtocolAnthropicMessages:
+		header.Set("X-Api-Key", apiKey)
+	default:
+		header.Set("Authorization", "Bearer "+apiKey)
+	}
+}
+
+func ApplyProtocolDefaultHeaders(header http.Header, protocol string) {
+	switch NormalizeProviderProtocol(protocol) {
+	case ProtocolAnthropicMessages:
+		if strings.TrimSpace(header.Get("Anthropic-Version")) == "" {
+			header.Set("Anthropic-Version", "2023-06-01")
+		}
 	}
 }

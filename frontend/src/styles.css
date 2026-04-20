@@ -849,7 +849,7 @@ html[data-theme='dark'] button.ghost-danger:hover {
 .trace-scroll-list {
   max-height: none;
   padding-right: 0;
-  overflow: visible;
+  overflow: auto;
 }
 
 .resource-card {

@@ -24,9 +24,8 @@ func FetchProviderModels(protocol, baseURL, apiKey string, headers map[string]st
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
+	config.ApplyProtocolAuthHeaders(req.Header, protocol, apiKey)
+	config.ApplyProtocolDefaultHeaders(req.Header, protocol)
 	for key, value := range headers {
 		key = strings.TrimSpace(key)
 		if key == "" {

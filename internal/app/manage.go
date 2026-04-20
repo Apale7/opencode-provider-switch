@@ -180,17 +180,19 @@ func (s *Service) ImportProviders(ctx context.Context, in ProviderImportInput) (
 			continue
 		}
 		baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
-		if err := config.ValidateProviderBaseURL(config.ProtocolOpenAIResponses, baseURL); err != nil {
+		if err := config.ValidateProviderBaseURL(ip.Protocol, baseURL); err != nil {
 			result.Skipped++
 			result.Warnings = append(result.Warnings, fmt.Sprintf("skip %q (invalid baseURL %q: %v)", ip.ID, ip.BaseURL, err))
 			continue
 		}
 		merged := mergeImportedProvider(cfg.FindProvider(ip.ID), opencode.ImportableProvider{
-			ID:      ip.ID,
-			Name:    ip.Name,
-			BaseURL: baseURL,
-			APIKey:  ip.APIKey,
-			Models:  ip.Models,
+			ID:       ip.ID,
+			Name:     ip.Name,
+			Protocol: ip.Protocol,
+			BaseURL:  baseURL,
+			APIKey:   ip.APIKey,
+			Headers:  ip.Headers,
+			Models:   ip.Models,
 		})
 		cfg.UpsertProvider(merged)
 		result.Imported++
@@ -335,9 +337,10 @@ func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProv
 	merged := config.Provider{
 		ID:           ip.ID,
 		Name:         ip.Name,
-		Protocol:     config.ProtocolOpenAIResponses,
+		Protocol:     config.NormalizeProviderProtocol(ip.Protocol),
 		BaseURL:      config.NormalizeProviderBaseURL(ip.BaseURL),
 		APIKey:       ip.APIKey,
+		Headers:      cloneHeaders(ip.Headers),
 		Models:       importedModels,
 		ModelsSource: "imported",
 	}
