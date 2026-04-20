@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-04-20
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~200 | Active |
+| `journal-1.md` | ~233 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-04-20 | Fix desktop sidebar scroll containment | `a5d6a58` | `release-please--branches--master` |
 | 4 | 2026-04-20 | Unify log and network layouts | `a82754e` | `master` |
 | 3 | 2026-04-20 | Add WebView2 runtime note to README | `b00ee4c8dc2256a18dd155d5da619b48e0d722cc` | `master` |
 | 2 | 2026-04-19 | Proxy SSE minimal fix | `e4789d0` | `master` |

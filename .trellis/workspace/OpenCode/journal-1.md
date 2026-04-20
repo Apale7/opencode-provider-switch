@@ -198,3 +198,36 @@ Refactored the desktop log and network pages to reuse the alias full-width card 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Fix desktop sidebar scroll containment
+
+**Date**: 2026-04-20
+**Task**: Fix desktop sidebar scroll containment
+**Branch**: `release-please--branches--master`
+
+### Summary
+
+Contained desktop shell scrolling so the sidebar stays visible while the workspace scrolls, and tightened list-page height handling to avoid nested outer-plus-inner scrolling on long pages.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a5d6a58` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
