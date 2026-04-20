@@ -1,0 +1,87 @@
+{
+  "id": "04-20-anthropic-messages-phase-2",
+  "name": "04-20-anthropic-messages-phase-2",
+  "title": "Anthropic Messages protocol support",
+  "description": "在 Phase 1 protocol-aware foundation 的基础上新增 anthropic-messages 协议支持，包括 provider import、模型发现、/v1/messages 代理、OpenCode sync 与日志展示。",
+  "status": "planning",
+  "dev_type": "fullstack",
+  "scope": "cross-layer",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-20",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 2,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "04-20-04-20-protocol-foundation-phase-1",
+  "relatedFiles": [
+    ".trellis/tasks/04-20-04-20-anthropic-messages-phase-2/prd.md",
+    "internal/config/config.go",
+    "internal/app/manage.go",
+    "internal/app/service.go",
+    "internal/app/types.go",
+    "internal/opencode/opencode.go",
+    "internal/opencode/provider_models.go",
+    "internal/proxy/server.go",
+    "internal/proxy/server_test.go",
+    "internal/proxy/traces.go",
+    "frontend/src/types.ts",
+    "frontend/src/api.ts",
+    "frontend/src/App.tsx"
+  ],
+  "notes": "Phase 2 新增 anthropic-messages 原生支持，但坚持不做跨协议翻译。实现边界是 provider/alias/select/import/discovery/proxy/sync/trace 全链路支持，严格避免 tools、thinking、multimodal 和协议转换范围膨胀。",
+  "meta": {
+    "phase": 2,
+    "dependsOn": "04-20-04-20-protocol-foundation-phase-1",
+    "enabledProtocols": [
+      "openai-responses",
+      "anthropic-messages"
+    ],
+    "acceptanceFocus": [
+      "anthropic provider and alias flow",
+      "anthropic model discovery",
+      "local /v1/messages proxy",
+      "opencode sync adds anthropic provider",
+      "protocol-visible logs"
+    ],
+    "outOfScope": [
+      "protocol translation",
+      "full tools compatibility",
+      "thinking ui semantics",
+      "multimodal enhancements"
+    ]
+  }
+}
