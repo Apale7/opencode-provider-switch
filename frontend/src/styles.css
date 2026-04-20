@@ -241,7 +241,8 @@ h4 {
 .app-shell {
   display: grid;
   grid-template-columns: 224px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   min-width: 1120px;
 }
 
@@ -252,13 +253,12 @@ h4 {
 }
 
 .sidebar {
-  position: sticky;
-  top: 0;
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
-  min-height: 100vh;
+  height: 100vh;
   padding: 1rem;
+  overflow: auto;
   border-right: 1px solid var(--border);
   background: var(--sidebar);
   box-shadow: 22px 0 50px rgba(15, 23, 42, 0.04);
@@ -489,7 +489,13 @@ dd {
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
+  min-height: 0;
   padding: 1.35rem;
+  overflow: auto;
+}
+
+.workspace > .tab-layout {
+  min-height: 0;
 }
 
 .tab-layout {
@@ -520,7 +526,8 @@ dd {
 }
 
 .panel-fill {
-  min-height: calc(100vh - 13rem);
+  min-height: 0;
+  height: 100%;
 }
 
 .panel-full {
@@ -694,6 +701,7 @@ html[data-theme='dark'] button.ghost-danger:hover {
 .providers-layout,
 .aliases-layout {
   grid-template-columns: minmax(0, 1fr);
+  height: 100%;
 }
 
 .editor-column,
@@ -702,8 +710,10 @@ html[data-theme='dark'] button.ghost-danger:hover {
 }
 
 .list-column {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 1.25rem;
+  min-height: 0;
 }
 
 .list-toolbar {
@@ -782,7 +792,9 @@ html[data-theme='dark'] button.ghost-danger:hover {
 
 .scroll-list {
   display: grid;
+  flex: 1 1 auto;
   gap: 0.8rem;
+  min-height: 0;
   max-height: calc(100vh - 18rem);
   padding-right: 0.25rem;
   overflow: auto;
@@ -1516,12 +1528,14 @@ html[data-theme='dark'] .detail-empty-card {
 @media (max-width: 1240px) {
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
     min-width: 0;
   }
 
   .sidebar {
-    position: static;
-    min-height: auto;
+    height: auto;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }

@@ -1,0 +1,84 @@
+{
+  "id": "cliproxyapi-opencode-enhancements",
+  "name": "cliproxyapi-opencode-enhancements",
+  "title": "Assess CLIProxyAPI-inspired enhancements for OpenCode",
+  "description": "整理基于 CLIProxyAPI 可供当前项目参考的增强方向，明确立即可做、中期可做以及不建议引入的能力边界。",
+  "status": "completed",
+  "dev_type": "docs",
+  "scope": "product",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-20",
+  "completedAt": "2026-04-20",
+  "branch": "release-please--branches--master",
+  "base_branch": "release-please--branches--master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-20-cliproxyapi-opencode-enhancements/prd.md",
+    "README.md",
+    "README_EN.md",
+    "frontend/src/App.tsx",
+    "frontend/src/api.ts",
+    "internal/app/service.go",
+    "internal/app/types.go",
+    "internal/proxy/server.go",
+    "internal/proxy/traces.go"
+  ],
+  "notes": "结论是保留当前以 OpenCode 为中心的 alias + deterministic failover 核心，不转向 CLIProxyAPI 那种通用代理平台；优先借鉴其观测、管理、桌面化和生态接入思路。PRD 已按立即参考增强、中期增强、不建议做三类整理。",
+  "meta": {
+    "referenceProject": "CLIProxyAPI",
+    "recommendedStrategy": "keep-ocswitch-core-and-borrow-management-observability",
+    "immediateEnhancements": [
+      "request-trace-observability",
+      "provider-health-surface",
+      "sync-and-config-diff-ux",
+      "desktop-ops-ux"
+    ],
+    "mediumTermEnhancements": [
+      "management-api",
+      "external-tool-integration",
+      "routing-policy-visualization",
+      "advanced-provider-import"
+    ],
+    "notRecommended": [
+      "multi-protocol-gateway-expansion",
+      "oauth-account-system",
+      "quota-billing-platform",
+      "full-cli-tool-agnostic-rewrite"
+    ]
+  }
+}
