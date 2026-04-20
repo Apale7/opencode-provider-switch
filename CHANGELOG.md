@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/Apale7/opencode-provider-switch/compare/v1.1.0...v1.1.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* **ci:** keep frontend dist embeddable in clean builds ([d00001f](https://github.com/Apale7/opencode-provider-switch/commit/d00001f88c9c5d47abe3b2f6d720e10de4f94711))
+
 ## [1.1.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.0.0...v1.1.0) (2026-04-20)
 
 
