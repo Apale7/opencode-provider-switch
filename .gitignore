@@ -3,6 +3,14 @@
 *.tmp
 output
 build/
+!build/
+build/*
+!build/appicon.png
+!build/windows/
+build/windows/*
+!build/windows/icon.ico
+!build/windows/info.json
+!build/windows/wails.exe.manifest
 frontend/dist/
 !frontend/dist/
 frontend/dist/*

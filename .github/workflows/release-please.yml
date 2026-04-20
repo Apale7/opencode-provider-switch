@@ -37,11 +37,6 @@ jobs:
             archive_name: ocswitch-desktop-windows-amd64.zip
             raw_name: ocswitch-desktop-windows-amd64.exe
             output: build/bin/ocswitch-desktop.exe
-          - name: macos
-            runs-on: macos-13
-            archive_name: ocswitch-desktop-darwin-amd64.zip
-            raw_name: ''
-            output: build/bin/ocswitch-desktop.app
           - name: linux
             runs-on: ubuntu-22.04
             archive_name: ocswitch-desktop-linux-amd64.zip
