@@ -3,13 +3,14 @@
 1. Confirm release-please is enabled on `master`.
 2. Confirm conventional commits are used for release notes grouping.
 3. Confirm `release-please-config.json` targets the repo root and `CHANGELOG.md`.
-4. Confirm Wails output name matches `wails.json`:
+4. Confirm a Chinese release note file exists at `.github/release-notes/vX.Y.Z.zh-CN.md` before merging the release PR.
+5. Confirm Wails output name matches `wails.json`:
    - `build/bin/ocswitch-desktop.exe` on Windows
    - `build/bin/ocswitch-desktop.app` on macOS
    - `build/bin/ocswitch-desktop` on Linux
-5. Confirm Linux runner has the GTK/WebKit packages needed by Wails.
-6. Confirm `npm install` is sufficient for frontend build in CI.
-7. Confirm release assets are uploaded only after the GitHub Release is published.
-8. Confirm each asset has a matching `.sha256` file.
-9. Confirm tag format is `v*`.
-10. Confirm the generated release contains the three platform archives.
+6. Confirm Linux runner has the GTK/WebKit packages needed by Wails.
+7. Confirm `npm install` is sufficient for frontend build in CI.
+8. Confirm release assets are built from the released tag and uploaded in the same workflow run.
+9. Confirm each asset has a matching `.sha256` file.
+10. Confirm the generated release contains the three platform archives and the Windows `.exe`.
+11. Confirm tag format is `v*`.
