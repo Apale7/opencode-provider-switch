@@ -1,0 +1,1 @@
+This file keeps frontend/dist present for go:embed in clean checkouts before the frontend build runs.
