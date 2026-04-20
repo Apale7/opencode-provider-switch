@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/Apale7/opencode-provider-switch/compare/v1.1.2...v1.1.3) (2026-04-20)
+
+
+### Bug Fixes
+
+* **ui:** contain desktop layout scrolling ([cb4061d](https://github.com/Apale7/opencode-provider-switch/commit/cb4061d84b1a26a4f4ba49fd82997a29478feec5))
+
 ## [1.1.2](https://github.com/Apale7/opencode-provider-switch/compare/v1.1.1...v1.1.2) (2026-04-20)
 
 
