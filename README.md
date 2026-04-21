@@ -60,7 +60,7 @@ go run ./cmd/ocswitch --help
 
 当前桌面界面提供：
 
-- 左侧导航页签：`Overview` / `Providers` / `Aliases` / `Sync` / `Settings`
+- 左侧导航页签：`Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Sync` / `Settings`
 - 中英文界面切换：`en-US` / `zh-CN` / `system`
 - 主题偏好：`light` / `dark` / `system`
 - 与浏览器 fallback shell 共用同一套前端
@@ -109,8 +109,12 @@ wails dev -tags desktop_wails
 - 查看当前代理状态、配置路径和 Doctor 摘要
 - 管理 provider，包括搜索、筛选、编辑和从 OpenCode 导入
 - 管理 alias 和 target 绑定关系
+- 查看业务日志与网络详情，包括 failover 链路、状态码、TTFB、请求/响应元数据
+- 查看 token / usage 诊断信息，包括 input/output、reasoning、cache、usage source/precision 和 estimated cost
 - 预览并应用 `ocswitch opencode sync`
 - 保存桌面偏好，包括开机启动、托盘行为、通知、主题和语言
+
+日志字段参考见：`docs/ocswitch-log-field-reference.md`
 
 如果你已经构建出可执行文件，也可以直接运行：
 

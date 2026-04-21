@@ -28,7 +28,7 @@ providers, aliases, sync flows, and desktop preferences on Windows.
 
 Current desktop capabilities:
 
-- Sidebar tabs: `Overview` / `Providers` / `Aliases` / `Sync` / `Settings`
+- Sidebar tabs: `Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Sync` / `Settings`
 - UI language preference: `en-US` / `zh-CN` / `system`
 - Theme preference: `light` / `dark` / `system`
 - Shared frontend between the desktop shell and the browser fallback shell
@@ -77,9 +77,13 @@ After launching the desktop app, you can:
 - inspect proxy state, config path, and doctor summary
 - manage providers with search, filtering, editing, and OpenCode import
 - manage aliases and target bindings
+- inspect business logs and network traces, including failover chains, status codes, TTFB, and request/response metadata
+- inspect token and usage diagnostics, including input/output, reasoning, cache, usage source/precision, and estimated cost
 - preview and apply `ocswitch opencode sync`
 - save desktop preferences including launch-at-login, tray behavior,
   notifications, theme, and language
+
+Log field reference: `docs/ocswitch-log-field-reference.md`
 
 If you already built the executable, you can run it directly:
 
