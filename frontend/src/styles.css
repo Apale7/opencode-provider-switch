@@ -1569,6 +1569,28 @@ input[type='file']::file-selector-button {
   padding: 0.9rem 1rem;
 }
 
+.issue-card-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.issue-summary {
+  padding: 0.2rem 0;
+}
+
+.tone-warning {
+  color: var(--warning);
+}
+
+.badge.warn {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  background: var(--warning-soft);
+}
+
 .tone-error {
   color: var(--danger);
 }

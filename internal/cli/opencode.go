@@ -32,6 +32,8 @@ func newOpencodeSyncCmd() *cobra.Command {
 	var target string
 	var setModel string
 	var setSmallModel string
+	var runtimeBaseURL string
+	var runtimeDirectory string
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "sync",
@@ -54,18 +56,22 @@ If the target file is JSONC, sync rewrites it as normalized plain JSON and any
 		routable.
 Use --dry-run to preview the resolved target file without writing it. Typical
 workflow: run ocswitch doctor first, then sync, then start or restart ocswitch serve if
-needed.`,
+needed. Use --runtime-base-url / --runtime-directory when you want reconciliation
+against a non-default OpenCode runtime context.`,
 		Example: `  ocswitch opencode sync
   ocswitch opencode sync --dry-run
   ocswitch opencode sync --set-model ocswitch/gpt-5.4
   ocswitch opencode sync --set-model ocswitch/gpt-5.4 --set-small-model ocswitch/gpt-5.4-mini
+  ocswitch opencode sync --runtime-base-url http://localhost:54321 --runtime-directory /workspace/demo
   ocswitch opencode sync --target /path/to/opencode.jsonc`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := appService().ApplyOpenCodeSync(cmd.Context(), app.SyncInput{
-				Target:        target,
-				SetModel:      setModel,
-				SetSmallModel: setSmallModel,
-				DryRun:        dryRun,
+				Target:           target,
+				SetModel:         setModel,
+				SetSmallModel:    setSmallModel,
+				DryRun:           dryRun,
+				RuntimeBaseURL:   runtimeBaseURL,
+				RuntimeDirectory: runtimeDirectory,
 			})
 			if err != nil {
 				return err
@@ -87,6 +93,7 @@ needed.`,
 				for _, provider := range result.Protocols {
 					fmt.Fprintf(cmd.OutOrStdout(), "  %s [%s] (%d alias(es))\n", provider.Key, provider.Protocol, len(provider.AliasNames))
 				}
+				printSyncSummary(cmd, result)
 				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "synced providers into %s\n", result.TargetPath)
@@ -99,12 +106,27 @@ needed.`,
 			if setSmallModel != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "  small_model = %s\n", setSmallModel)
 			}
+			printSyncSummary(cmd, result)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&target, "target", "", "explicit opencode config file to write (default: global)")
 	cmd.Flags().StringVar(&setModel, "set-model", "", "also set top-level model (opt-in only)")
 	cmd.Flags().StringVar(&setSmallModel, "set-small-model", "", "also set top-level small_model (opt-in only)")
+	cmd.Flags().StringVar(&runtimeBaseURL, "runtime-base-url", "", "OpenCode runtime base URL for reconciliation preview")
+	cmd.Flags().StringVar(&runtimeDirectory, "runtime-directory", "", "OpenCode runtime directory for reconciliation preview")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "do not write, just report intent")
 	return cmd
+}
+
+func printSyncSummary(cmd *cobra.Command, result app.SyncResult) {
+	fmt.Fprintf(cmd.OutOrStdout(), "  runtime: %s", result.RuntimeBaseURL)
+	if result.RuntimeDirectory != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), " [dir=%s]", result.RuntimeDirectory)
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintf(cmd.OutOrStdout(), "  file providers: %d | runtime providers: %d\n", len(result.FileSnapshot.SyncedProviders), len(result.RuntimeSnapshot.Providers))
+	if len(result.DoctorIssues) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "  doctor issues: %d\n", len(result.DoctorIssues))
+	}
 }

@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	fyne.io/systray v1.11.1-0.20250603113521-ca66a66d8b58
 	github.com/spf13/cobra v1.8.1
+	github.com/sst/opencode-sdk-go v0.19.2
 	github.com/tidwall/jsonc v0.3.2
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/sys v0.42.0
@@ -36,6 +37,10 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.49.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect

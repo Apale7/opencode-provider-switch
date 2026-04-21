@@ -212,7 +212,20 @@ export namespace app {
 	}
 	
 	export class DoctorIssue {
+	    code: string;
+	    severity: string;
 	    message: string;
+	    protocol?: string;
+	    providerKey?: string;
+	    alias?: string;
+	    path?: string;
+	    directory?: string;
+	    expected?: string;
+	    actual?: string;
+	    actionHint?: string;
+	    autoFixAvailable?: boolean;
+	    details?: string[];
+	    relatedFields?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new DoctorIssue(source);
@@ -220,8 +233,283 @@ export namespace app {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.severity = source["severity"];
 	        this.message = source["message"];
+	        this.protocol = source["protocol"];
+	        this.providerKey = source["providerKey"];
+	        this.alias = source["alias"];
+	        this.path = source["path"];
+	        this.directory = source["directory"];
+	        this.expected = source["expected"];
+	        this.actual = source["actual"];
+	        this.actionHint = source["actionHint"];
+	        this.autoFixAvailable = source["autoFixAvailable"];
+	        this.details = source["details"];
+	        this.relatedFields = source["relatedFields"];
 	    }
+	}
+	export class OpenCodeReconciliationSummary {
+	    availableAliases?: string[];
+	    missingProviders?: string[];
+	    invalidDefaultModels?: string[];
+	    catalogMismatches?: string[];
+	    fileOnlyProviders?: string[];
+	    runtimeOnlyProviders?: string[];
+	    runtimeReachable: boolean;
+	    fileSnapshotAvailable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenCodeReconciliationSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.availableAliases = source["availableAliases"];
+	        this.missingProviders = source["missingProviders"];
+	        this.invalidDefaultModels = source["invalidDefaultModels"];
+	        this.catalogMismatches = source["catalogMismatches"];
+	        this.fileOnlyProviders = source["fileOnlyProviders"];
+	        this.runtimeOnlyProviders = source["runtimeOnlyProviders"];
+	        this.runtimeReachable = source["runtimeReachable"];
+	        this.fileSnapshotAvailable = source["fileSnapshotAvailable"];
+	    }
+	}
+	export class OpenCodeRuntimeModelSnapshot {
+	    id: string;
+	    name?: string;
+	    providerId?: string;
+	    providerNpm?: string;
+	    rawJson?: string;
+	    extraFieldKeys?: string[];
+	    optionKeys?: string[];
+	    experimental?: boolean;
+	    reasoning?: boolean;
+	    toolCall?: boolean;
+	    temperature?: boolean;
+	    attachment?: boolean;
+	    contextLimit?: number;
+	    outputLimit?: number;
+	    releaseDate?: string;
+	    status?: string;
+	    inputModalities?: string[];
+	    outputModalities?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenCodeRuntimeModelSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.providerId = source["providerId"];
+	        this.providerNpm = source["providerNpm"];
+	        this.rawJson = source["rawJson"];
+	        this.extraFieldKeys = source["extraFieldKeys"];
+	        this.optionKeys = source["optionKeys"];
+	        this.experimental = source["experimental"];
+	        this.reasoning = source["reasoning"];
+	        this.toolCall = source["toolCall"];
+	        this.temperature = source["temperature"];
+	        this.attachment = source["attachment"];
+	        this.contextLimit = source["contextLimit"];
+	        this.outputLimit = source["outputLimit"];
+	        this.releaseDate = source["releaseDate"];
+	        this.status = source["status"];
+	        this.inputModalities = source["inputModalities"];
+	        this.outputModalities = source["outputModalities"];
+	    }
+	}
+	export class OpenCodeRuntimeProviderSnapshot {
+	    id: string;
+	    name?: string;
+	    api?: string;
+	    npm?: string;
+	    env?: string[];
+	    modelIds?: string[];
+	    models?: OpenCodeRuntimeModelSnapshot[];
+	    extraFieldKeys?: string[];
+	    rawJson?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenCodeRuntimeProviderSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.api = source["api"];
+	        this.npm = source["npm"];
+	        this.env = source["env"];
+	        this.modelIds = source["modelIds"];
+	        this.models = this.convertValues(source["models"], OpenCodeRuntimeModelSnapshot);
+	        this.extraFieldKeys = source["extraFieldKeys"];
+	        this.rawJson = source["rawJson"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OpenCodeRuntimeSnapshot {
+	    baseUrl: string;
+	    directory?: string;
+	    reachable: boolean;
+	    configLoaded: boolean;
+	    providersLoaded: boolean;
+	    defaultModel?: string;
+	    smallModel?: string;
+	    providerKeys?: string[];
+	    defaultProviderModels?: Record<string, string>;
+	    providers?: OpenCodeRuntimeProviderSnapshot[];
+	    errorCode?: string;
+	    errorMessage?: string;
+	    httpStatus?: number;
+	    rawConfigJson?: string;
+	    rawProvidersJson?: string;
+	    configExtraFieldKeys?: string[];
+	    providerExtraFieldMap?: Record<string, Array<string>>;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenCodeRuntimeSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.baseUrl = source["baseUrl"];
+	        this.directory = source["directory"];
+	        this.reachable = source["reachable"];
+	        this.configLoaded = source["configLoaded"];
+	        this.providersLoaded = source["providersLoaded"];
+	        this.defaultModel = source["defaultModel"];
+	        this.smallModel = source["smallModel"];
+	        this.providerKeys = source["providerKeys"];
+	        this.defaultProviderModels = source["defaultProviderModels"];
+	        this.providers = this.convertValues(source["providers"], OpenCodeRuntimeProviderSnapshot);
+	        this.errorCode = source["errorCode"];
+	        this.errorMessage = source["errorMessage"];
+	        this.httpStatus = source["httpStatus"];
+	        this.rawConfigJson = source["rawConfigJson"];
+	        this.rawProvidersJson = source["rawProvidersJson"];
+	        this.configExtraFieldKeys = source["configExtraFieldKeys"];
+	        this.providerExtraFieldMap = source["providerExtraFieldMap"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OpenCodeProviderSnapshot {
+	    key: string;
+	    name?: string;
+	    npm?: string;
+	    protocol?: string;
+	    baseUrl?: string;
+	    modelAliases?: string[];
+	    missingFields?: string[];
+	    unknownFieldKeys?: string[];
+	    rawJsonFragment?: string;
+	    contractConfigured: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenCodeProviderSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.name = source["name"];
+	        this.npm = source["npm"];
+	        this.protocol = source["protocol"];
+	        this.baseUrl = source["baseUrl"];
+	        this.modelAliases = source["modelAliases"];
+	        this.missingFields = source["missingFields"];
+	        this.unknownFieldKeys = source["unknownFieldKeys"];
+	        this.rawJsonFragment = source["rawJsonFragment"];
+	        this.contractConfigured = source["contractConfigured"];
+	    }
+	}
+	export class OpenCodeFileSnapshot {
+	    targetPath: string;
+	    exists: boolean;
+	    schema?: string;
+	    defaultModel?: string;
+	    smallModel?: string;
+	    providerKeys?: string[];
+	    expectedProtocols?: string[];
+	    syncedProviders?: OpenCodeProviderSnapshot[];
+	    unknownTopLevelKeys?: string[];
+	    parseError?: string;
+	    defaultModelRoutable: boolean;
+	    smallModelRoutable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenCodeFileSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.targetPath = source["targetPath"];
+	        this.exists = source["exists"];
+	        this.schema = source["schema"];
+	        this.defaultModel = source["defaultModel"];
+	        this.smallModel = source["smallModel"];
+	        this.providerKeys = source["providerKeys"];
+	        this.expectedProtocols = source["expectedProtocols"];
+	        this.syncedProviders = this.convertValues(source["syncedProviders"], OpenCodeProviderSnapshot);
+	        this.unknownTopLevelKeys = source["unknownTopLevelKeys"];
+	        this.parseError = source["parseError"];
+	        this.defaultModelRoutable = source["defaultModelRoutable"];
+	        this.smallModelRoutable = source["smallModelRoutable"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DoctorReport {
 	    ok: boolean;
@@ -233,6 +521,11 @@ export namespace app {
 	    proxyBindAddress: string;
 	    openCodeTargetPath: string;
 	    openCodeTargetFound: boolean;
+	    runtimeBaseUrl?: string;
+	    runtimeDirectory?: string;
+	    fileSnapshot: OpenCodeFileSnapshot;
+	    runtimeSnapshot: OpenCodeRuntimeSnapshot;
+	    summary: OpenCodeReconciliationSummary;
 	
 	    static createFrom(source: any = {}) {
 	        return new DoctorReport(source);
@@ -249,6 +542,11 @@ export namespace app {
 	        this.proxyBindAddress = source["proxyBindAddress"];
 	        this.openCodeTargetPath = source["openCodeTargetPath"];
 	        this.openCodeTargetFound = source["openCodeTargetFound"];
+	        this.runtimeBaseUrl = source["runtimeBaseUrl"];
+	        this.runtimeDirectory = source["runtimeDirectory"];
+	        this.fileSnapshot = this.convertValues(source["fileSnapshot"], OpenCodeFileSnapshot);
+	        this.runtimeSnapshot = this.convertValues(source["runtimeSnapshot"], OpenCodeRuntimeSnapshot);
+	        this.summary = this.convertValues(source["summary"], OpenCodeReconciliationSummary);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -301,6 +599,12 @@ export namespace app {
 		    return a;
 		}
 	}
+	
+	
+	
+	
+	
+	
 	export class ProxyStatusView {
 	    running: boolean;
 	    bindAddress: string;
@@ -777,6 +1081,8 @@ export namespace app {
 	    setModel?: string;
 	    setSmallModel?: string;
 	    dryRun: boolean;
+	    runtimeBaseUrl?: string;
+	    runtimeDirectory?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncInput(source);
@@ -788,6 +1094,8 @@ export namespace app {
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
 	        this.dryRun = source["dryRun"];
+	        this.runtimeBaseUrl = source["runtimeBaseUrl"];
+	        this.runtimeDirectory = source["runtimeDirectory"];
 	    }
 	}
 	export class SyncedProviderView {
@@ -812,6 +1120,12 @@ export namespace app {
 	    setModel?: string;
 	    setSmallModel?: string;
 	    wouldChange: boolean;
+	    runtimeBaseUrl?: string;
+	    runtimeDirectory?: string;
+	    fileSnapshot: OpenCodeFileSnapshot;
+	    runtimeSnapshot: OpenCodeRuntimeSnapshot;
+	    doctorIssues?: DoctorIssue[];
+	    summary: OpenCodeReconciliationSummary;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncPreview(source);
@@ -824,6 +1138,12 @@ export namespace app {
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
 	        this.wouldChange = source["wouldChange"];
+	        this.runtimeBaseUrl = source["runtimeBaseUrl"];
+	        this.runtimeDirectory = source["runtimeDirectory"];
+	        this.fileSnapshot = this.convertValues(source["fileSnapshot"], OpenCodeFileSnapshot);
+	        this.runtimeSnapshot = this.convertValues(source["runtimeSnapshot"], OpenCodeRuntimeSnapshot);
+	        this.doctorIssues = this.convertValues(source["doctorIssues"], DoctorIssue);
+	        this.summary = this.convertValues(source["summary"], OpenCodeReconciliationSummary);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -851,6 +1171,12 @@ export namespace app {
 	    dryRun: boolean;
 	    setModel?: string;
 	    setSmallModel?: string;
+	    runtimeBaseUrl?: string;
+	    runtimeDirectory?: string;
+	    fileSnapshot: OpenCodeFileSnapshot;
+	    runtimeSnapshot: OpenCodeRuntimeSnapshot;
+	    doctorIssues?: DoctorIssue[];
+	    summary: OpenCodeReconciliationSummary;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncResult(source);
@@ -864,6 +1190,12 @@ export namespace app {
 	        this.dryRun = source["dryRun"];
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
+	        this.runtimeBaseUrl = source["runtimeBaseUrl"];
+	        this.runtimeDirectory = source["runtimeDirectory"];
+	        this.fileSnapshot = this.convertValues(source["fileSnapshot"], OpenCodeFileSnapshot);
+	        this.runtimeSnapshot = this.convertValues(source["runtimeSnapshot"], OpenCodeRuntimeSnapshot);
+	        this.doctorIssues = this.convertValues(source["doctorIssues"], DoctorIssue);
+	        this.summary = this.convertValues(source["summary"], OpenCodeReconciliationSummary);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

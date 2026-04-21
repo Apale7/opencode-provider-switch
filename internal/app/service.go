@@ -97,32 +97,21 @@ func (s *Service) ListAliases(ctx context.Context) ([]AliasView, error) {
 }
 
 func (s *Service) RunDoctor(ctx context.Context) (DoctorReport, error) {
-	_ = ctx
 	cfg, err := s.loadConfig()
 	if err != nil {
 		return DoctorReport{}, err
 	}
-	issues := cfg.Validate()
+	issues := doctorIssues(cfg.Validate())
 	path, existed := opencode.ResolveGlobalConfigPath()
-	raw, err := opencode.Load(path)
-	if err != nil {
-		issues = append(issues, fmt.Errorf("load opencode config target: %w", err))
-	} else {
-		for _, protocol := range syncedProtocols() {
-			aliasNames := cfg.AvailableAliasNamesForProtocol(protocol)
-			if !shouldSyncProtocol(raw, protocol, aliasNames) {
-				continue
-			}
-			baseURL := proxyBaseURLForProtocol(cfg, protocol)
-			opencode.EnsureOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, aliasNames)
-			if err := opencode.ValidateOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, aliasNames); err != nil {
-				issues = append(issues, fmt.Errorf("opencode %s provider invalid: %w", protocol, err))
-			}
-		}
-	}
+	raw, loadErr := opencode.Load(path)
+	fileSnapshotRaw := opencode.SnapshotFileConfig(path, existed, raw, loadErr, syncedProtocols())
+	issues = append(issues, reconcileFileSnapshot(cfg, fileSnapshotRaw)...)
+	runtimeSnapshotRaw := opencode.ReadRuntimeConfig(ctx, opencode.RuntimeReadOptions{RequestTimeout: 3 * time.Second, MaxRetries: 0})
+	issues = append(issues, reconcileRuntimeSnapshot(cfg, fileSnapshotRaw, runtimeSnapshotRaw)...)
+	issues = sortDoctorIssues(issues)
 	report := DoctorReport{
 		OK:                  len(issues) == 0,
-		Issues:              doctorIssues(issues),
+		Issues:              issues,
 		SyncProtocols:       syncedProtocols(),
 		ConfigPath:          cfg.Path(),
 		ProviderCount:       len(cfg.Providers),
@@ -130,6 +119,11 @@ func (s *Service) RunDoctor(ctx context.Context) (DoctorReport, error) {
 		ProxyBindAddress:    proxyBindAddress(cfg),
 		OpenCodeTargetPath:  path,
 		OpenCodeTargetFound: existed,
+		RuntimeBaseURL:      runtimeSnapshotRaw.BaseURL,
+		RuntimeDirectory:    runtimeSnapshotRaw.Directory,
+		FileSnapshot:        fileSnapshotView(fileSnapshotRaw, cfg),
+		RuntimeSnapshot:     runtimeSnapshotView(runtimeSnapshotRaw),
+		Summary:             summarizeReconciliation(cfg, fileSnapshotRaw, runtimeSnapshotRaw, issues),
 	}
 	if report.OK {
 		return report, nil
@@ -143,11 +137,17 @@ func (s *Service) PreviewOpenCodeSync(ctx context.Context, in SyncInput) (SyncPr
 		return SyncPreview{}, err
 	}
 	return SyncPreview{
-		TargetPath:    prepared.targetPath,
-		Protocols:     cloneSyncedProviders(prepared.protocols),
-		SetModel:      in.SetModel,
-		SetSmallModel: in.SetSmallModel,
-		WouldChange:   prepared.changed,
+		TargetPath:       prepared.targetPath,
+		Protocols:        cloneSyncedProviders(prepared.protocols),
+		SetModel:         in.SetModel,
+		SetSmallModel:    in.SetSmallModel,
+		WouldChange:      prepared.changed,
+		RuntimeBaseURL:   prepared.runtimeBaseURL,
+		RuntimeDirectory: prepared.runtimeDirectory,
+		FileSnapshot:     prepared.fileSnapshot,
+		RuntimeSnapshot:  prepared.runtimeSnapshot,
+		DoctorIssues:     append([]DoctorIssue(nil), prepared.doctorIssues...),
+		Summary:          prepared.summary,
 	}, nil
 }
 
@@ -157,18 +157,27 @@ func (s *Service) ApplyOpenCodeSync(ctx context.Context, in SyncInput) (SyncResu
 		return SyncResult{}, err
 	}
 	result := SyncResult{
-		TargetPath:    prepared.targetPath,
-		Protocols:     cloneSyncedProviders(prepared.protocols),
-		Changed:       prepared.changed,
-		DryRun:        in.DryRun,
-		SetModel:      in.SetModel,
-		SetSmallModel: in.SetSmallModel,
+		TargetPath:       prepared.targetPath,
+		Protocols:        cloneSyncedProviders(prepared.protocols),
+		Changed:          prepared.changed,
+		DryRun:           in.DryRun,
+		SetModel:         in.SetModel,
+		SetSmallModel:    in.SetSmallModel,
+		RuntimeBaseURL:   prepared.runtimeBaseURL,
+		RuntimeDirectory: prepared.runtimeDirectory,
+		FileSnapshot:     prepared.fileSnapshot,
+		RuntimeSnapshot:  prepared.runtimeSnapshot,
+		DoctorIssues:     append([]DoctorIssue(nil), prepared.doctorIssues...),
+		Summary:          prepared.summary,
 	}
 	if !prepared.changed || in.DryRun {
 		return result, nil
 	}
 	if err := opencode.Save(prepared.targetPath, prepared.raw); err != nil {
 		return SyncResult{}, err
+	}
+	if cfg, cfgErr := s.loadConfig(); cfgErr == nil {
+		result.FileSnapshot = fileSnapshotView(opencode.SnapshotFileConfig(prepared.targetPath, true, prepared.raw, nil, syncedProtocols()), cfg)
 	}
 	return result, nil
 }
@@ -346,14 +355,20 @@ func (s *Service) SaveDesktopPrefs(ctx context.Context, in DesktopPrefsInput) (D
 }
 
 type preparedSync struct {
-	targetPath string
-	protocols  []SyncedProviderView
-	raw        opencode.Raw
-	changed    bool
+	targetPath       string
+	targetExisted    bool
+	runtimeBaseURL   string
+	runtimeDirectory string
+	protocols        []SyncedProviderView
+	raw              opencode.Raw
+	changed          bool
+	fileSnapshot     OpenCodeFileSnapshot
+	runtimeSnapshot  OpenCodeRuntimeSnapshot
+	doctorIssues     []DoctorIssue
+	summary          OpenCodeReconciliationSummary
 }
 
 func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, error) {
-	_ = ctx
 	cfg, err := s.loadConfig()
 	if err != nil {
 		return preparedSync{}, err
@@ -362,6 +377,9 @@ func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, 
 		return preparedSync{}, errs[0]
 	}
 	targetPath := strings.TrimSpace(in.Target)
+	runtimeBaseURL := strings.TrimSpace(in.RuntimeBaseURL)
+	runtimeDirectory := strings.TrimSpace(in.RuntimeDirectory)
+	_, targetExisted := opencode.ResolveGlobalConfigPath()
 	if targetPath == "" {
 		resolved, _ := opencode.ResolveGlobalConfigPath()
 		targetPath = resolved
@@ -407,7 +425,24 @@ func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, 
 		raw["small_model"] = in.SetSmallModel
 		changed = true
 	}
-	return preparedSync{targetPath: targetPath, protocols: preparedProtocols, raw: raw, changed: changed}, nil
+	fileSnapshotRaw := opencode.SnapshotFileConfig(targetPath, targetExisted, raw, nil, syncedProtocols())
+	runtimeSnapshotRaw := opencode.ReadRuntimeConfig(ctx, opencode.RuntimeReadOptions{BaseURL: runtimeBaseURL, Directory: runtimeDirectory, RequestTimeout: 3 * time.Second, MaxRetries: 0})
+	issues := reconcileFileSnapshot(cfg, fileSnapshotRaw)
+	issues = append(issues, reconcileRuntimeSnapshot(cfg, fileSnapshotRaw, runtimeSnapshotRaw)...)
+	issues = sortDoctorIssues(issues)
+	return preparedSync{
+		targetPath:       targetPath,
+		targetExisted:    targetExisted,
+		runtimeBaseURL:   runtimeSnapshotRaw.BaseURL,
+		runtimeDirectory: runtimeSnapshotRaw.Directory,
+		protocols:        preparedProtocols,
+		raw:              raw,
+		changed:          changed,
+		fileSnapshot:     fileSnapshotView(fileSnapshotRaw, cfg),
+		runtimeSnapshot:  runtimeSnapshotView(runtimeSnapshotRaw),
+		doctorIssues:     issues,
+		summary:          summarizeReconciliation(cfg, fileSnapshotRaw, runtimeSnapshotRaw, issues),
+	}, nil
 }
 
 func (s *Service) loadConfig() (*config.Config, error) {
@@ -491,7 +526,7 @@ func aliasView(cfg *config.Config, alias config.Alias) AliasView {
 func doctorIssues(errs []error) []DoctorIssue {
 	issues := make([]DoctorIssue, 0, len(errs))
 	for _, err := range errs {
-		issues = append(issues, DoctorIssue{Message: err.Error()})
+		issues = append(issues, DoctorIssue{Code: "config_invalid", Severity: "error", Message: err.Error(), ActionHint: "fix local ocswitch config and rerun doctor"})
 	}
 	return issues
 }
@@ -641,4 +676,348 @@ func maskKey(k string) string {
 		return "***"
 	}
 	return k[:4] + "…" + k[len(k)-4:]
+}
+
+func reconcileFileSnapshot(cfg *config.Config, snapshot opencode.FileConfigSnapshot) []DoctorIssue {
+	issues := []DoctorIssue{}
+	if snapshot.ParseError != "" {
+		issues = append(issues, DoctorIssue{Code: "file_parse_error", Severity: "error", Message: snapshot.ParseError, Path: snapshot.TargetPath, ActionHint: "fix OpenCode config JSON/JSONC syntax"})
+		return issues
+	}
+	availableByProtocol := map[string][]string{}
+	for _, protocol := range syncedProtocols() {
+		available := cfg.AvailableAliasNamesForProtocol(protocol)
+		sort.Strings(available)
+		availableByProtocol[protocol] = available
+	}
+	for _, provider := range snapshot.SyncedProviders {
+		wantAliases := availableByProtocol[provider.Protocol]
+		wantBaseURL := proxyBaseURLForProtocol(cfg, provider.Protocol)
+		if !provider.ContractConfigured && len(wantAliases) > 0 {
+			issues = append(issues, DoctorIssue{Code: "sync_contract_mismatch", Severity: "warning", Protocol: provider.Protocol, ProviderKey: provider.Key, Path: snapshot.TargetPath, Message: fmt.Sprintf("provider.%s missing from target file", provider.Key), Expected: strings.Join(wantAliases, ", "), ActionHint: "run ocswitch opencode sync"})
+			continue
+		}
+		if len(provider.MissingFields) > 0 {
+			issues = append(issues, DoctorIssue{Code: "sync_contract_mismatch", Severity: "error", Protocol: provider.Protocol, ProviderKey: provider.Key, Path: snapshot.TargetPath, Message: fmt.Sprintf("provider.%s contract incomplete in target file", provider.Key), Details: append([]string(nil), provider.MissingFields...), ActionHint: "run ocswitch opencode sync"})
+		}
+		if provider.BaseURL != "" && provider.BaseURL != wantBaseURL {
+			issues = append(issues, DoctorIssue{Code: "sync_contract_mismatch", Severity: "error", Protocol: provider.Protocol, ProviderKey: provider.Key, Path: snapshot.TargetPath, Message: fmt.Sprintf("provider.%s baseURL drift", provider.Key), Expected: wantBaseURL, Actual: provider.BaseURL, ActionHint: "run ocswitch opencode sync"})
+		}
+		if !sameStringSet(provider.ModelAliases, wantAliases) {
+			issues = append(issues, DoctorIssue{Code: "catalog_drift", Severity: "warning", Protocol: provider.Protocol, ProviderKey: provider.Key, Path: snapshot.TargetPath, Message: fmt.Sprintf("provider.%s alias catalog drift", provider.Key), Expected: strings.Join(wantAliases, ", "), Actual: strings.Join(provider.ModelAliases, ", "), ActionHint: "run ocswitch opencode sync"})
+		}
+	}
+	issues = append(issues, validateDefaultModelSelections(snapshot.DefaultModel, snapshot.SmallModel, availableByProtocol, snapshot.TargetPath)...)
+	return issues
+}
+
+func reconcileRuntimeSnapshot(cfg *config.Config, fileSnapshot opencode.FileConfigSnapshot, runtime opencode.RuntimeConfigSnapshot) []DoctorIssue {
+	issues := []DoctorIssue{}
+	if runtime.ErrorCode != "" {
+		severity := "warning"
+		if runtime.ErrorCode == "runtime_auth_failed" || runtime.ErrorCode == "runtime_bad_status" {
+			severity = "error"
+		}
+		issues = append(issues, DoctorIssue{Code: runtime.ErrorCode, Severity: severity, Message: runtime.ErrorMessage, Directory: runtime.Directory, Expected: runtime.BaseURL, ActionHint: "ensure OpenCode runtime is reachable and authenticated"})
+		return issues
+	}
+	runtimeProviders := map[string]opencode.RuntimeProviderSnapshot{}
+	for _, provider := range runtime.Providers {
+		runtimeProviders[provider.ID] = provider
+	}
+	for _, fileProvider := range fileSnapshot.SyncedProviders {
+		if !fileProvider.ContractConfigured {
+			continue
+		}
+		runtimeProvider, ok := runtimeProviders[fileProvider.Key]
+		if !ok {
+			issues = append(issues, DoctorIssue{Code: "runtime_provider_missing", Severity: "warning", Protocol: fileProvider.Protocol, ProviderKey: fileProvider.Key, Directory: runtime.Directory, Message: fmt.Sprintf("runtime provider %s not exposed by OpenCode", fileProvider.Key), ActionHint: "restart or reload OpenCode after sync"})
+			continue
+		}
+		if fileProvider.NPM != "" && runtimeProvider.NPM != "" && fileProvider.NPM != runtimeProvider.NPM {
+			issues = append(issues, DoctorIssue{Code: "runtime_provider_protocol_mismatch", Severity: "error", Protocol: fileProvider.Protocol, ProviderKey: fileProvider.Key, Directory: runtime.Directory, Message: fmt.Sprintf("runtime provider %s npm drift", fileProvider.Key), Expected: fileProvider.NPM, Actual: runtimeProvider.NPM, ActionHint: "reload OpenCode config or inspect provider overrides"})
+		}
+		if !sameStringSet(fileProvider.ModelAliases, runtimeProvider.ModelIDs) {
+			issues = append(issues, DoctorIssue{Code: "catalog_drift", Severity: "warning", Protocol: fileProvider.Protocol, ProviderKey: fileProvider.Key, Directory: runtime.Directory, Message: fmt.Sprintf("runtime provider %s model catalog drift", fileProvider.Key), Expected: strings.Join(fileProvider.ModelAliases, ", "), Actual: strings.Join(runtimeProvider.ModelIDs, ", "), ActionHint: "compare target file with runtime-loaded provider catalog"})
+		}
+	}
+	availableByProtocol := map[string][]string{}
+	for _, protocol := range syncedProtocols() {
+		available := cfg.AvailableAliasNamesForProtocol(protocol)
+		sort.Strings(available)
+		availableByProtocol[protocol] = available
+	}
+	issues = append(issues, validateRuntimeDefaultModelSelections(runtime.DefaultModel, runtime.SmallModel, availableByProtocol, runtime.Directory)...)
+	if fileSnapshot.DefaultModel != "" && runtime.DefaultModel != "" && fileSnapshot.DefaultModel != runtime.DefaultModel {
+		issues = append(issues, DoctorIssue{Code: "catalog_drift", Severity: "warning", Message: "runtime default model differs from target file", Expected: fileSnapshot.DefaultModel, Actual: runtime.DefaultModel, Directory: runtime.Directory, ActionHint: "reload OpenCode runtime to pick up file changes"})
+	}
+	if fileSnapshot.SmallModel != "" && runtime.SmallModel != "" && fileSnapshot.SmallModel != runtime.SmallModel {
+		issues = append(issues, DoctorIssue{Code: "catalog_drift", Severity: "warning", Message: "runtime small_model differs from target file", Expected: fileSnapshot.SmallModel, Actual: runtime.SmallModel, Directory: runtime.Directory, ActionHint: "reload OpenCode runtime to pick up file changes"})
+	}
+	return issues
+}
+
+func validateDefaultModelSelections(model string, smallModel string, aliasesByProtocol map[string][]string, path string) []DoctorIssue {
+	issues := []DoctorIssue{}
+	if issue := validateDefaultModelSelectionIssue("default_model_invalid", model, aliasesByProtocol, path, "model"); issue != nil {
+		issues = append(issues, *issue)
+	}
+	if issue := validateDefaultModelSelectionIssue("small_model_invalid", smallModel, aliasesByProtocol, path, "small_model"); issue != nil {
+		issues = append(issues, *issue)
+	}
+	return issues
+}
+
+func validateRuntimeDefaultModelSelections(model string, smallModel string, aliasesByProtocol map[string][]string, directory string) []DoctorIssue {
+	issues := []DoctorIssue{}
+	if issue := validateDefaultModelSelectionIssue("default_model_invalid", model, aliasesByProtocol, directory, "runtime model"); issue != nil {
+		issue.Directory = directory
+		issue.Path = ""
+		issues = append(issues, *issue)
+	}
+	if issue := validateDefaultModelSelectionIssue("small_model_invalid", smallModel, aliasesByProtocol, directory, "runtime small_model"); issue != nil {
+		issue.Directory = directory
+		issue.Path = ""
+		issues = append(issues, *issue)
+	}
+	return issues
+}
+
+func validateDefaultModelSelectionIssue(code string, value string, aliasesByProtocol map[string][]string, location string, fieldLabel string) *DoctorIssue {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	const prefix = "ocswitch/"
+	if !strings.HasPrefix(value, prefix) {
+		return &DoctorIssue{Code: code, Severity: "warning", Message: fmt.Sprintf("%s %q does not point to ocswitch/<alias>", fieldLabel, value), Path: location, ActionHint: "set model to an ocswitch/<alias> value or clear it"}
+	}
+	alias := strings.TrimPrefix(value, prefix)
+	for _, aliases := range aliasesByProtocol {
+		for _, candidate := range aliases {
+			if candidate == alias {
+				return nil
+			}
+		}
+	}
+	available := []string{}
+	for _, aliases := range aliasesByProtocol {
+		for _, aliasName := range aliases {
+			available = append(available, prefix+aliasName)
+		}
+	}
+	sort.Strings(available)
+	return &DoctorIssue{Code: code, Severity: "warning", Alias: alias, Message: fmt.Sprintf("%s %q is not routable", fieldLabel, value), Path: location, Expected: strings.Join(available, ", "), ActionHint: "choose one of available routable aliases"}
+}
+
+func sortDoctorIssues(in []DoctorIssue) []DoctorIssue {
+	out := append([]DoctorIssue(nil), in...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := doctorSeverityWeight(out[i].Severity)
+		right := doctorSeverityWeight(out[j].Severity)
+		if left != right {
+			return left > right
+		}
+		if out[i].Code != out[j].Code {
+			return out[i].Code < out[j].Code
+		}
+		return out[i].Message < out[j].Message
+	})
+	return out
+}
+
+func doctorSeverityWeight(severity string) int {
+	switch strings.TrimSpace(severity) {
+	case "error":
+		return 3
+	case "warning":
+		return 2
+	case "info":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func summarizeReconciliation(cfg *config.Config, fileSnapshot opencode.FileConfigSnapshot, runtime opencode.RuntimeConfigSnapshot, issues []DoctorIssue) OpenCodeReconciliationSummary {
+	summary := OpenCodeReconciliationSummary{
+		AvailableAliases:      sortedCopy(cfg.AvailableAliasNames()),
+		RuntimeReachable:      runtime.Reachable,
+		FileSnapshotAvailable: fileSnapshot.ParseError == "",
+	}
+	for _, issue := range issues {
+		switch issue.Code {
+		case "runtime_provider_missing":
+			if issue.ProviderKey != "" {
+				summary.MissingProviders = append(summary.MissingProviders, issue.ProviderKey)
+			}
+		case "default_model_invalid", "small_model_invalid":
+			summary.InvalidDefaultModels = append(summary.InvalidDefaultModels, issue.Message)
+		case "catalog_drift":
+			summary.CatalogMismatches = append(summary.CatalogMismatches, issue.Message)
+		}
+	}
+	fileProviders := map[string]bool{}
+	for _, provider := range fileSnapshot.SyncedProviders {
+		if provider.ContractConfigured {
+			fileProviders[provider.Key] = true
+		}
+	}
+	runtimeProviders := map[string]bool{}
+	for _, provider := range runtime.Providers {
+		runtimeProviders[provider.ID] = true
+	}
+	for key := range fileProviders {
+		if !runtimeProviders[key] {
+			summary.FileOnlyProviders = append(summary.FileOnlyProviders, key)
+		}
+	}
+	for key := range runtimeProviders {
+		if !fileProviders[key] && strings.HasPrefix(key, "ocswitch") {
+			summary.RuntimeOnlyProviders = append(summary.RuntimeOnlyProviders, key)
+		}
+	}
+	summary.MissingProviders = uniqueSorted(summary.MissingProviders)
+	summary.InvalidDefaultModels = uniqueSorted(summary.InvalidDefaultModels)
+	summary.CatalogMismatches = uniqueSorted(summary.CatalogMismatches)
+	summary.FileOnlyProviders = uniqueSorted(summary.FileOnlyProviders)
+	summary.RuntimeOnlyProviders = uniqueSorted(summary.RuntimeOnlyProviders)
+	return summary
+}
+
+func fileSnapshotView(snapshot opencode.FileConfigSnapshot, cfg *config.Config) OpenCodeFileSnapshot {
+	available := map[string]bool{}
+	for _, alias := range cfg.AvailableAliasNames() {
+		available[alias] = true
+	}
+	providers := make([]OpenCodeProviderSnapshot, 0, len(snapshot.SyncedProviders))
+	for _, provider := range snapshot.SyncedProviders {
+		providers = append(providers, OpenCodeProviderSnapshot{
+			Key:                provider.Key,
+			Name:               provider.Name,
+			NPM:                provider.NPM,
+			Protocol:           provider.Protocol,
+			BaseURL:            provider.BaseURL,
+			ModelAliases:       append([]string(nil), provider.ModelAliases...),
+			MissingFields:      append([]string(nil), provider.MissingFields...),
+			UnknownFieldKeys:   append([]string(nil), provider.UnknownFieldKeys...),
+			RawJSONFragment:    provider.RawJSONFragment,
+			ContractConfigured: provider.ContractConfigured,
+		})
+	}
+	return OpenCodeFileSnapshot{
+		TargetPath:           snapshot.TargetPath,
+		Exists:               snapshot.Exists,
+		Schema:               snapshot.Schema,
+		DefaultModel:         snapshot.DefaultModel,
+		SmallModel:           snapshot.SmallModel,
+		ProviderKeys:         append([]string(nil), snapshot.ProviderKeys...),
+		ExpectedProtocols:    append([]string(nil), snapshot.ExpectedProtocols...),
+		SyncedProviders:      providers,
+		UnknownTopLevelKeys:  append([]string(nil), snapshot.UnknownTopLevelKeys...),
+		ParseError:           snapshot.ParseError,
+		DefaultModelRoutable: defaultModelRoutable(snapshot.DefaultModel, available),
+		SmallModelRoutable:   defaultModelRoutable(snapshot.SmallModel, available),
+	}
+}
+
+func runtimeSnapshotView(snapshot opencode.RuntimeConfigSnapshot) OpenCodeRuntimeSnapshot {
+	providers := make([]OpenCodeRuntimeProviderSnapshot, 0, len(snapshot.Providers))
+	for _, provider := range snapshot.Providers {
+		models := make([]OpenCodeRuntimeModelSnapshot, 0, len(provider.Models))
+		for _, model := range provider.Models {
+			models = append(models, OpenCodeRuntimeModelSnapshot{
+				ID:               model.ID,
+				Name:             model.Name,
+				ProviderID:       model.ProviderID,
+				ProviderNPM:      model.ProviderNPM,
+				RawJSON:          model.RawJSON,
+				ExtraFieldKeys:   append([]string(nil), model.ExtraFieldKeys...),
+				OptionKeys:       append([]string(nil), model.OptionKeys...),
+				Experimental:     model.Experimental,
+				Reasoning:        model.Reasoning,
+				ToolCall:         model.ToolCall,
+				Temperature:      model.Temperature,
+				Attachment:       model.Attachment,
+				ContextLimit:     model.ContextLimit,
+				OutputLimit:      model.OutputLimit,
+				ReleaseDate:      model.ReleaseDate,
+				Status:           model.Status,
+				InputModalities:  append([]string(nil), model.InputModalities...),
+				OutputModalities: append([]string(nil), model.OutputModalities...),
+			})
+		}
+		providers = append(providers, OpenCodeRuntimeProviderSnapshot{
+			ID:             provider.ID,
+			Name:           provider.Name,
+			API:            provider.API,
+			NPM:            provider.NPM,
+			Env:            append([]string(nil), provider.Env...),
+			ModelIDs:       append([]string(nil), provider.ModelIDs...),
+			Models:         models,
+			ExtraFieldKeys: append([]string(nil), provider.ExtraFieldKeys...),
+			RawJSON:        provider.RawJSON,
+		})
+	}
+	defaultProviderModels := map[string]string{}
+	for key, value := range snapshot.DefaultProviderModels {
+		defaultProviderModels[key] = value
+	}
+	providerExtraFieldMap := map[string][]string{}
+	for key, values := range snapshot.ProviderExtraFieldMap {
+		providerExtraFieldMap[key] = append([]string(nil), values...)
+	}
+	return OpenCodeRuntimeSnapshot{
+		BaseURL:               snapshot.BaseURL,
+		Directory:             snapshot.Directory,
+		Reachable:             snapshot.Reachable,
+		ConfigLoaded:          snapshot.ConfigLoaded,
+		ProvidersLoaded:       snapshot.ProvidersLoaded,
+		DefaultModel:          snapshot.DefaultModel,
+		SmallModel:            snapshot.SmallModel,
+		ProviderKeys:          append([]string(nil), snapshot.ProviderKeys...),
+		DefaultProviderModels: defaultProviderModels,
+		Providers:             providers,
+		ErrorCode:             snapshot.ErrorCode,
+		ErrorMessage:          snapshot.ErrorMessage,
+		HTTPStatus:            snapshot.HTTPStatus,
+		RawConfigJSON:         snapshot.RawConfigJSON,
+		RawProvidersJSON:      snapshot.RawProvidersJSON,
+		ConfigExtraFieldKeys:  append([]string(nil), snapshot.ConfigExtraFieldKeys...),
+		ProviderExtraFieldMap: providerExtraFieldMap,
+	}
+}
+
+func sameStringSet(left []string, right []string) bool {
+	return strings.Join(uniqueSorted(left), "\x00") == strings.Join(uniqueSorted(right), "\x00")
+}
+
+func uniqueSorted(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sortedCopy(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
+}
+
+func defaultModelRoutable(value string, available map[string]bool) bool {
+	if value == "" || !strings.HasPrefix(value, "ocswitch/") {
+		return false
+	}
+	return available[strings.TrimPrefix(value, "ocswitch/")]
 }

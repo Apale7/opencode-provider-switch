@@ -37,8 +37,10 @@ import type {
   AliasUpsertInput,
   DesktopPrefsSaveResult,
   DesktopPrefsView,
+  DoctorIssue,
   DoctorRunResult,
   LanguagePreference,
+  OpenCodeReconciliationSummary,
   Overview,
   ProviderImportInput,
   ProviderImportResult,
@@ -245,6 +247,60 @@ function toggleNumberFilter(values: number[], value: number): number[] {
 
 function pretty(value: unknown): string {
   return JSON.stringify(value, null, 2)
+}
+
+function issueToneClass(severity?: string): string {
+  if (severity === 'error') {
+    return 'tone-error'
+  }
+  if (severity === 'warning') {
+    return 'tone-warning'
+  }
+  return 'tone-ok'
+}
+
+function issueBadgeClass(severity?: string): string {
+  return `badge outline ${severity === 'error' ? 'idle' : severity === 'warning' ? 'warn' : 'live'}`
+}
+
+function issueLocation(issue: DoctorIssue): string {
+  return issue.path || issue.directory || issue.providerKey || issue.protocol || ''
+}
+
+function renderIssue(issue: DoctorIssue, key: string) {
+  const location = issueLocation(issue)
+  return (
+    <div className="issue-card" key={key}>
+      <div className="issue-card-head">
+        <span className={issueBadgeClass(issue.severity)}>{issue.severity || 'info'}</span>
+        {issue.code ? <code>{issue.code}</code> : null}
+        {issue.protocol ? <span className={protocolBadgeClass(issue.protocol as ProviderProtocol)}>{protocolLabel(issue.protocol as ProviderProtocol)}</span> : null}
+      </div>
+      <div className={issueToneClass(issue.severity)}>{issue.message}</div>
+      {location ? <div className="subtle">{location}</div> : null}
+      {issue.expected || issue.actual ? <div className="subtle">{issue.expected ? `expected: ${issue.expected}` : ''}{issue.expected && issue.actual ? ' | ' : ''}{issue.actual ? `actual: ${issue.actual}` : ''}</div> : null}
+      {issue.actionHint ? <div className="subtle">{issue.actionHint}</div> : null}
+      {issue.details && issue.details.length > 0 ? <div className="subtle">{issue.details.join(' | ')}</div> : null}
+    </div>
+  )
+}
+
+function renderReconciliationSummary(summary?: OpenCodeReconciliationSummary) {
+  if (!summary) {
+    return null
+  }
+  const facts = [
+    `runtime ${summary.runtimeReachable ? 'reachable' : 'unreachable'}`,
+    `file ${summary.fileSnapshotAvailable ? 'loaded' : 'unavailable'}`,
+    `aliases ${(summary.availableAliases || []).length}`,
+    `missing ${(summary.missingProviders || []).length}`,
+    `catalog drift ${(summary.catalogMismatches || []).length}`,
+  ]
+  return <div className="issue-summary subtle">{facts.join(' · ')}</div>
+}
+
+function syncOutputChanged(value: SyncPreview | SyncResult): boolean {
+  return 'changed' in value ? value.changed : value.wouldChange
 }
 
 function overviewDebugSnapshot(overview: Overview | null) {
@@ -1493,11 +1549,10 @@ export default function App() {
                   doctorResult.error ? (
                     <p className="tone-error">{doctorResult.error}</p>
                   ) : doctorResult.report.issues.length > 0 ? (
-                    doctorResult.report.issues.map((issue, index) => (
-                      <div className="issue-card" key={`${index}-${issue.message}`}>
-                        {issue.message}
-                      </div>
-                    ))
+                    <>
+                      {renderReconciliationSummary(doctorResult.report.summary)}
+                      {doctorResult.report.issues.map((issue, index) => renderIssue(issue, `${index}-${issue.code}-${issue.message}`))}
+                    </>
                   ) : (
                     <p className="tone-ok">{t('overview.doctorHealthy')}</p>
                   )
@@ -1841,7 +1896,35 @@ export default function App() {
                   <h3>{t('sync.outputTitle')}</h3>
                 </div>
               </div>
-              <pre className="details">{typeof syncOutput === 'string' ? syncOutput || t('messages.noData') : pretty(syncOutput)}</pre>
+              {typeof syncOutput === 'string' ? (
+                <pre className="details">{syncOutput || t('messages.noData')}</pre>
+              ) : syncOutput ? (
+                <div className="stack-blocks">
+                  {renderReconciliationSummary(syncOutput.summary)}
+                  <div className="issue-card">
+                    <div className="issue-card-head">
+                      <span className={`badge status-badge ${syncOutputChanged(syncOutput) ? 'live' : 'idle'}`}>
+                        {syncOutputChanged(syncOutput) ? 'changed' : 'no change'}
+                      </span>
+                      <code>{syncOutput.targetPath}</code>
+                    </div>
+                    <div className="subtle">
+                      {(syncOutput.protocols || []).map((provider) => `${provider.key}(${provider.aliasNames.length})`).join(' · ') || t('messages.noData')}
+                    </div>
+                  </div>
+                  {syncOutput.doctorIssues && syncOutput.doctorIssues.length > 0 ? (
+                    <div className="issue-stack">
+                      {syncOutput.doctorIssues.map((issue, index) => renderIssue(issue, `sync-${index}-${issue.code}-${issue.message}`))}
+                    </div>
+                  ) : null}
+                  <details className="details-toggle">
+                    <summary>{t('sync.debugSummary')}</summary>
+                    <pre className="details">{pretty(syncOutput)}</pre>
+                  </details>
+                </div>
+              ) : (
+                <pre className="details">{t('messages.noData')}</pre>
+              )}
             </article>
 
             <article className="panel panel-full">
@@ -1856,11 +1939,10 @@ export default function App() {
                   {doctorResult.error ? <p className="tone-error">{doctorResult.error}</p> : null}
                   <div className="issue-stack">
                     {doctorResult.report.issues.length > 0 ? (
-                      doctorResult.report.issues.map((issue, index) => (
-                        <div className="issue-card" key={`${index}-${issue.message}`}>
-                          {issue.message}
-                        </div>
-                      ))
+                      <>
+                        {renderReconciliationSummary(doctorResult.report.summary)}
+                        {doctorResult.report.issues.map((issue, index) => renderIssue(issue, `${index}-${issue.code}-${issue.message}`))}
+                      </>
                     ) : (
                       <p className="tone-ok">{t('sync.noIssues')}</p>
                     )}

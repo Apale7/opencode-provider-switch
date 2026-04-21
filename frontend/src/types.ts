@@ -212,7 +212,112 @@ export type AliasTargetInput = {
 }
 
 export type DoctorIssue = {
+  code: string
+  severity: string
   message: string
+  protocol?: string
+  providerKey?: string
+  alias?: string
+  path?: string
+  directory?: string
+  expected?: string
+  actual?: string
+  actionHint?: string
+  autoFixAvailable?: boolean
+  details?: string[]
+  relatedFields?: string[]
+}
+
+export type OpenCodeProviderSnapshot = {
+  key: string
+  name?: string
+  npm?: string
+  protocol?: ProviderProtocol
+  baseUrl?: string
+  modelAliases?: string[]
+  missingFields?: string[]
+  unknownFieldKeys?: string[]
+  rawJsonFragment?: string
+  contractConfigured: boolean
+}
+
+export type OpenCodeFileSnapshot = {
+  targetPath: string
+  exists: boolean
+  schema?: string
+  defaultModel?: string
+  smallModel?: string
+  providerKeys?: string[]
+  expectedProtocols?: ProviderProtocol[]
+  syncedProviders?: OpenCodeProviderSnapshot[]
+  unknownTopLevelKeys?: string[]
+  parseError?: string
+  defaultModelRoutable: boolean
+  smallModelRoutable: boolean
+}
+
+export type OpenCodeRuntimeModelSnapshot = {
+  id: string
+  name?: string
+  providerId?: string
+  providerNpm?: string
+  rawJson?: string
+  extraFieldKeys?: string[]
+  optionKeys?: string[]
+  experimental?: boolean
+  reasoning?: boolean
+  toolCall?: boolean
+  temperature?: boolean
+  attachment?: boolean
+  contextLimit?: number
+  outputLimit?: number
+  releaseDate?: string
+  status?: string
+  inputModalities?: string[]
+  outputModalities?: string[]
+}
+
+export type OpenCodeRuntimeProviderSnapshot = {
+  id: string
+  name?: string
+  api?: string
+  npm?: string
+  env?: string[]
+  modelIds?: string[]
+  models?: OpenCodeRuntimeModelSnapshot[]
+  extraFieldKeys?: string[]
+  rawJson?: string
+}
+
+export type OpenCodeRuntimeSnapshot = {
+  baseUrl: string
+  directory?: string
+  reachable: boolean
+  configLoaded: boolean
+  providersLoaded: boolean
+  defaultModel?: string
+  smallModel?: string
+  providerKeys?: string[]
+  defaultProviderModels?: Record<string, string>
+  providers?: OpenCodeRuntimeProviderSnapshot[]
+  errorCode?: string
+  errorMessage?: string
+  httpStatus?: number
+  rawConfigJson?: string
+  rawProvidersJson?: string
+  configExtraFieldKeys?: string[]
+  providerExtraFieldMap?: Record<string, string[]>
+}
+
+export type OpenCodeReconciliationSummary = {
+  availableAliases?: string[]
+  missingProviders?: string[]
+  invalidDefaultModels?: string[]
+  catalogMismatches?: string[]
+  fileOnlyProviders?: string[]
+  runtimeOnlyProviders?: string[]
+  runtimeReachable: boolean
+  fileSnapshotAvailable: boolean
 }
 
 export type DoctorReport = {
@@ -225,6 +330,11 @@ export type DoctorReport = {
   proxyBindAddress: string
   openCodeTargetPath: string
   openCodeTargetFound: boolean
+  runtimeBaseUrl?: string
+  runtimeDirectory?: string
+  fileSnapshot: OpenCodeFileSnapshot
+  runtimeSnapshot: OpenCodeRuntimeSnapshot
+  summary: OpenCodeReconciliationSummary
 }
 
 export type DoctorRunResult = {
@@ -237,6 +347,8 @@ export type SyncInput = {
   setModel?: string
   setSmallModel?: string
   dryRun?: boolean
+  runtimeBaseUrl?: string
+  runtimeDirectory?: string
 }
 
 export type SyncPreview = {
@@ -245,6 +357,12 @@ export type SyncPreview = {
   setModel?: string
   setSmallModel?: string
   wouldChange: boolean
+  runtimeBaseUrl?: string
+  runtimeDirectory?: string
+  fileSnapshot: OpenCodeFileSnapshot
+  runtimeSnapshot: OpenCodeRuntimeSnapshot
+  doctorIssues?: DoctorIssue[]
+  summary: OpenCodeReconciliationSummary
 }
 
 export type SyncResult = {
@@ -254,6 +372,12 @@ export type SyncResult = {
   dryRun: boolean
   setModel?: string
   setSmallModel?: string
+  runtimeBaseUrl?: string
+  runtimeDirectory?: string
+  fileSnapshot: OpenCodeFileSnapshot
+  runtimeSnapshot: OpenCodeRuntimeSnapshot
+  doctorIssues?: DoctorIssue[]
+  summary: OpenCodeReconciliationSummary
 }
 
 export type MetaView = {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 )
 
 func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
@@ -576,6 +577,90 @@ func TestUpsertAliasCanReEnableExistingAlias(t *testing.T) {
 	}
 }
 
+func TestReconcileRuntimeSnapshotReportsDriftCategories(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.Server{Host: "127.0.0.1", Port: 9982},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		}},
+	}
+	fileSnapshot := opencode.FileConfigSnapshot{
+		TargetPath:   "opencode.jsonc",
+		DefaultModel: "ocswitch/legacy",
+		SmallModel:   "ocswitch/legacy-mini",
+		SyncedProviders: []opencode.FileProviderSnapshot{{
+			Key:                "ocswitch",
+			Protocol:           config.ProtocolOpenAIResponses,
+			NPM:                "@ai-sdk/openai",
+			ModelAliases:       []string{"legacy"},
+			ContractConfigured: true,
+		}},
+	}
+	runtimeSnapshot := opencode.RuntimeConfigSnapshot{
+		BaseURL:      "http://runtime",
+		Directory:    "/workspace/demo",
+		Reachable:    true,
+		ConfigLoaded: true,
+		ProvidersLoaded: true,
+		DefaultModel: "ocswitch/missing",
+		SmallModel:   "bad-small-model",
+		Providers: []opencode.RuntimeProviderSnapshot{{
+			ID:       "ocswitch",
+			NPM:      "@custom/runtime",
+			ModelIDs: []string{"legacy-runtime"},
+		}},
+	}
+
+	issues := reconcileRuntimeSnapshot(cfg, fileSnapshot, runtimeSnapshot)
+	assertDoctorIssueCodes(t, issues, "runtime_provider_protocol_mismatch", "catalog_drift", "default_model_invalid", "small_model_invalid")
+}
+
+func TestPreviewOpenCodeSyncIncludesRuntimeUnreachableAndSummary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Server.Port = 9982
+	cfg.Server.APIKey = config.DefaultLocalAPIKey
+	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://example.com/v1"})
+	cfg.UpsertAlias(config.Alias{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	target := filepath.Join(t.TempDir(), "opencode.jsonc")
+	svc := NewService(path)
+	preview, err := svc.PreviewOpenCodeSync(context.Background(), SyncInput{
+		Target:           target,
+		RuntimeBaseURL:   "http://127.0.0.1:1",
+		RuntimeDirectory: "/workspace/demo",
+		SetModel:         "ocswitch/gpt-5.4",
+	})
+	if err != nil {
+		t.Fatalf("PreviewOpenCodeSync() error = %v", err)
+	}
+	if !preview.WouldChange {
+		t.Fatalf("preview = %#v, want WouldChange=true", preview)
+	}
+	assertDoctorIssueCodes(t, preview.DoctorIssues, "runtime_unreachable")
+	if preview.RuntimeBaseURL != "http://127.0.0.1:1" {
+		t.Fatalf("preview.RuntimeBaseURL = %q", preview.RuntimeBaseURL)
+	}
+	if preview.RuntimeDirectory != "/workspace/demo" {
+		t.Fatalf("preview.RuntimeDirectory = %q", preview.RuntimeDirectory)
+	}
+	if preview.Summary.RuntimeReachable {
+		t.Fatalf("summary = %#v, want runtime unreachable", preview.Summary)
+	}
+	if !preview.Summary.FileSnapshotAvailable {
+		t.Fatalf("summary = %#v, want file snapshot available", preview.Summary)
+	}
+}
+
 func containsWarning(warnings []string, want string) bool {
 	for _, warning := range warnings {
 		if strings.Contains(warning, want) {
@@ -583,6 +668,28 @@ func containsWarning(warnings []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func assertDoctorIssueCodes(t *testing.T, issues []DoctorIssue, wantCodes ...string) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, issue := range issues {
+		seen[issue.Code] = true
+	}
+	for _, code := range wantCodes {
+		if !seen[code] {
+			t.Fatalf("issue codes = %#v, want %q", seen, code)
+		}
+	}
 }
 
 func assertEventually(t *testing.T, fn func() bool) {

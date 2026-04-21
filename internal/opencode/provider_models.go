@@ -3,12 +3,8 @@ package opencode
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
 type ModelListResponse struct {
@@ -18,39 +14,18 @@ type ModelListResponse struct {
 }
 
 func FetchProviderModels(protocol, baseURL, apiKey string, headers map[string]string) ([]string, error) {
-	protocol = config.NormalizeProviderProtocol(strings.TrimSpace(protocol))
-	url := strings.TrimRight(strings.TrimSpace(baseURL), "/") + config.ProtocolUpstreamModelsPath(protocol)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := newProviderModelsRequest(protocol, baseURL, apiKey, headers)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, err
 	}
-	config.ApplyProtocolAuthHeaders(req.Header, protocol, apiKey)
-	config.ApplyProtocolDefaultHeaders(req.Header, protocol)
-	for key, value := range headers {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		req.Header.Set(key, value)
-	}
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
+	resp, body, err := DoJSON(req.Context(), req, TransportOptions{MaxRetries: 0})
 	if err != nil {
-		return nil, fmt.Errorf("request %s: %w", url, err)
+		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var body struct {
-			Error any `json:"error"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && body.Error != nil {
-			return nil, fmt.Errorf("request %s: unexpected status %s: %v", url, resp.Status, body.Error)
-		}
-		return nil, fmt.Errorf("request %s: unexpected status %s", url, resp.Status)
-	}
 	var payload ModelListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", url, err)
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", req.URL.String(), err)
 	}
 	models := make([]string, 0, len(payload.Data))
 	seen := map[string]bool{}

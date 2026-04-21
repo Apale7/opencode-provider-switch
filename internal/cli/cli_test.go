@@ -839,6 +839,16 @@ func TestOpencodeSyncRejectsNonPrefixedSelectedModel(t *testing.T) {
 	}
 }
 
+func TestOpencodeSyncExposesRuntimeFlags(t *testing.T) {
+	cmd := newOpencodeSyncCmd()
+	if flag := cmd.Flags().Lookup("runtime-base-url"); flag == nil {
+		t.Fatal("runtime-base-url flag missing")
+	}
+	if flag := cmd.Flags().Lookup("runtime-directory"); flag == nil {
+		t.Fatal("runtime-directory flag missing")
+	}
+}
+
 func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 	tests := []struct {
 		name        string

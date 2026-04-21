@@ -210,19 +210,129 @@ type AliasView struct {
 }
 
 type DoctorIssue struct {
-	Message string `json:"message"`
+	Code             string   `json:"code"`
+	Severity         string   `json:"severity"`
+	Message          string   `json:"message"`
+	Protocol         string   `json:"protocol,omitempty"`
+	ProviderKey      string   `json:"providerKey,omitempty"`
+	Alias            string   `json:"alias,omitempty"`
+	Path             string   `json:"path,omitempty"`
+	Directory        string   `json:"directory,omitempty"`
+	Expected         string   `json:"expected,omitempty"`
+	Actual           string   `json:"actual,omitempty"`
+	ActionHint       string   `json:"actionHint,omitempty"`
+	AutoFixAvailable bool     `json:"autoFixAvailable,omitempty"`
+	Details          []string `json:"details,omitempty"`
+	RelatedFields    []string `json:"relatedFields,omitempty"`
+}
+
+type OpenCodeProviderSnapshot struct {
+	Key                string   `json:"key"`
+	Name               string   `json:"name,omitempty"`
+	NPM                string   `json:"npm,omitempty"`
+	Protocol           string   `json:"protocol,omitempty"`
+	BaseURL            string   `json:"baseUrl,omitempty"`
+	ModelAliases       []string `json:"modelAliases,omitempty"`
+	MissingFields      []string `json:"missingFields,omitempty"`
+	UnknownFieldKeys   []string `json:"unknownFieldKeys,omitempty"`
+	RawJSONFragment    string   `json:"rawJsonFragment,omitempty"`
+	ContractConfigured bool     `json:"contractConfigured"`
+}
+
+type OpenCodeFileSnapshot struct {
+	TargetPath           string                     `json:"targetPath"`
+	Exists               bool                       `json:"exists"`
+	Schema               string                     `json:"schema,omitempty"`
+	DefaultModel         string                     `json:"defaultModel,omitempty"`
+	SmallModel           string                     `json:"smallModel,omitempty"`
+	ProviderKeys         []string                   `json:"providerKeys,omitempty"`
+	ExpectedProtocols    []string                   `json:"expectedProtocols,omitempty"`
+	SyncedProviders      []OpenCodeProviderSnapshot `json:"syncedProviders,omitempty"`
+	UnknownTopLevelKeys  []string                   `json:"unknownTopLevelKeys,omitempty"`
+	ParseError           string                     `json:"parseError,omitempty"`
+	DefaultModelRoutable bool                       `json:"defaultModelRoutable"`
+	SmallModelRoutable   bool                       `json:"smallModelRoutable"`
+}
+
+type OpenCodeRuntimeModelSnapshot struct {
+	ID               string   `json:"id"`
+	Name             string   `json:"name,omitempty"`
+	ProviderID       string   `json:"providerId,omitempty"`
+	ProviderNPM      string   `json:"providerNpm,omitempty"`
+	RawJSON          string   `json:"rawJson,omitempty"`
+	ExtraFieldKeys   []string `json:"extraFieldKeys,omitempty"`
+	OptionKeys       []string `json:"optionKeys,omitempty"`
+	Experimental     bool     `json:"experimental,omitempty"`
+	Reasoning        bool     `json:"reasoning,omitempty"`
+	ToolCall         bool     `json:"toolCall,omitempty"`
+	Temperature      bool     `json:"temperature,omitempty"`
+	Attachment       bool     `json:"attachment,omitempty"`
+	ContextLimit     int64    `json:"contextLimit,omitempty"`
+	OutputLimit      int64    `json:"outputLimit,omitempty"`
+	ReleaseDate      string   `json:"releaseDate,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	InputModalities  []string `json:"inputModalities,omitempty"`
+	OutputModalities []string `json:"outputModalities,omitempty"`
+}
+
+type OpenCodeRuntimeProviderSnapshot struct {
+	ID             string                           `json:"id"`
+	Name           string                           `json:"name,omitempty"`
+	API            string                           `json:"api,omitempty"`
+	NPM            string                           `json:"npm,omitempty"`
+	Env            []string                         `json:"env,omitempty"`
+	ModelIDs       []string                         `json:"modelIds,omitempty"`
+	Models         []OpenCodeRuntimeModelSnapshot   `json:"models,omitempty"`
+	ExtraFieldKeys []string                         `json:"extraFieldKeys,omitempty"`
+	RawJSON        string                           `json:"rawJson,omitempty"`
+}
+
+type OpenCodeRuntimeSnapshot struct {
+	BaseURL               string                            `json:"baseUrl"`
+	Directory             string                            `json:"directory,omitempty"`
+	Reachable             bool                              `json:"reachable"`
+	ConfigLoaded          bool                              `json:"configLoaded"`
+	ProvidersLoaded       bool                              `json:"providersLoaded"`
+	DefaultModel          string                            `json:"defaultModel,omitempty"`
+	SmallModel            string                            `json:"smallModel,omitempty"`
+	ProviderKeys          []string                          `json:"providerKeys,omitempty"`
+	DefaultProviderModels map[string]string                 `json:"defaultProviderModels,omitempty"`
+	Providers             []OpenCodeRuntimeProviderSnapshot `json:"providers,omitempty"`
+	ErrorCode             string                            `json:"errorCode,omitempty"`
+	ErrorMessage          string                            `json:"errorMessage,omitempty"`
+	HTTPStatus            int                               `json:"httpStatus,omitempty"`
+	RawConfigJSON         string                            `json:"rawConfigJson,omitempty"`
+	RawProvidersJSON      string                            `json:"rawProvidersJson,omitempty"`
+	ConfigExtraFieldKeys  []string                          `json:"configExtraFieldKeys,omitempty"`
+	ProviderExtraFieldMap map[string][]string               `json:"providerExtraFieldMap,omitempty"`
+}
+
+type OpenCodeReconciliationSummary struct {
+	AvailableAliases      []string `json:"availableAliases,omitempty"`
+	MissingProviders      []string `json:"missingProviders,omitempty"`
+	InvalidDefaultModels  []string `json:"invalidDefaultModels,omitempty"`
+	CatalogMismatches     []string `json:"catalogMismatches,omitempty"`
+	FileOnlyProviders     []string `json:"fileOnlyProviders,omitempty"`
+	RuntimeOnlyProviders  []string `json:"runtimeOnlyProviders,omitempty"`
+	RuntimeReachable      bool     `json:"runtimeReachable"`
+	FileSnapshotAvailable bool     `json:"fileSnapshotAvailable"`
 }
 
 type DoctorReport struct {
-	OK                  bool          `json:"ok"`
-	Issues              []DoctorIssue `json:"issues"`
-	SyncProtocols       []string      `json:"syncProtocols"`
-	ConfigPath          string        `json:"configPath"`
-	ProviderCount       int           `json:"providerCount"`
-	AliasCount          int           `json:"aliasCount"`
-	ProxyBindAddress    string        `json:"proxyBindAddress"`
-	OpenCodeTargetPath  string        `json:"openCodeTargetPath"`
-	OpenCodeTargetFound bool          `json:"openCodeTargetFound"`
+	OK                  bool                           `json:"ok"`
+	Issues              []DoctorIssue                  `json:"issues"`
+	SyncProtocols       []string                       `json:"syncProtocols"`
+	ConfigPath          string                         `json:"configPath"`
+	ProviderCount       int                            `json:"providerCount"`
+	AliasCount          int                            `json:"aliasCount"`
+	ProxyBindAddress    string                         `json:"proxyBindAddress"`
+	OpenCodeTargetPath  string                         `json:"openCodeTargetPath"`
+	OpenCodeTargetFound bool                           `json:"openCodeTargetFound"`
+	RuntimeBaseURL      string                         `json:"runtimeBaseUrl,omitempty"`
+	RuntimeDirectory    string                         `json:"runtimeDirectory,omitempty"`
+	FileSnapshot        OpenCodeFileSnapshot           `json:"fileSnapshot"`
+	RuntimeSnapshot     OpenCodeRuntimeSnapshot        `json:"runtimeSnapshot"`
+	Summary             OpenCodeReconciliationSummary  `json:"summary"`
 }
 
 type DoctorRunResult struct {
@@ -231,27 +341,41 @@ type DoctorRunResult struct {
 }
 
 type SyncInput struct {
-	Target        string `json:"target,omitempty"`
-	SetModel      string `json:"setModel,omitempty"`
-	SetSmallModel string `json:"setSmallModel,omitempty"`
-	DryRun        bool   `json:"dryRun"`
+	Target           string `json:"target,omitempty"`
+	SetModel         string `json:"setModel,omitempty"`
+	SetSmallModel    string `json:"setSmallModel,omitempty"`
+	DryRun           bool   `json:"dryRun"`
+	RuntimeBaseURL   string `json:"runtimeBaseUrl,omitempty"`
+	RuntimeDirectory string `json:"runtimeDirectory,omitempty"`
 }
 
 type SyncPreview struct {
-	TargetPath    string               `json:"targetPath"`
-	Protocols     []SyncedProviderView `json:"protocols"`
-	SetModel      string               `json:"setModel,omitempty"`
-	SetSmallModel string               `json:"setSmallModel,omitempty"`
-	WouldChange   bool                 `json:"wouldChange"`
+	TargetPath        string                        `json:"targetPath"`
+	Protocols         []SyncedProviderView          `json:"protocols"`
+	SetModel          string                        `json:"setModel,omitempty"`
+	SetSmallModel     string                        `json:"setSmallModel,omitempty"`
+	WouldChange       bool                          `json:"wouldChange"`
+	RuntimeBaseURL    string                        `json:"runtimeBaseUrl,omitempty"`
+	RuntimeDirectory  string                        `json:"runtimeDirectory,omitempty"`
+	FileSnapshot      OpenCodeFileSnapshot          `json:"fileSnapshot"`
+	RuntimeSnapshot   OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
+	DoctorIssues      []DoctorIssue                 `json:"doctorIssues,omitempty"`
+	Summary           OpenCodeReconciliationSummary `json:"summary"`
 }
 
 type SyncResult struct {
-	TargetPath    string               `json:"targetPath"`
-	Protocols     []SyncedProviderView `json:"protocols"`
-	Changed       bool                 `json:"changed"`
-	DryRun        bool                 `json:"dryRun"`
-	SetModel      string               `json:"setModel,omitempty"`
-	SetSmallModel string               `json:"setSmallModel,omitempty"`
+	TargetPath        string                        `json:"targetPath"`
+	Protocols         []SyncedProviderView          `json:"protocols"`
+	Changed           bool                          `json:"changed"`
+	DryRun            bool                          `json:"dryRun"`
+	SetModel          string                        `json:"setModel,omitempty"`
+	SetSmallModel     string                        `json:"setSmallModel,omitempty"`
+	RuntimeBaseURL    string                        `json:"runtimeBaseUrl,omitempty"`
+	RuntimeDirectory  string                        `json:"runtimeDirectory,omitempty"`
+	FileSnapshot      OpenCodeFileSnapshot          `json:"fileSnapshot"`
+	RuntimeSnapshot   OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
+	DoctorIssues      []DoctorIssue                 `json:"doctorIssues,omitempty"`
+	Summary           OpenCodeReconciliationSummary `json:"summary"`
 }
 
 type SyncedProviderView struct {
