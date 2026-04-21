@@ -1,0 +1,77 @@
+{
+  "id": "opencode-config-management-optimizations",
+  "name": "opencode-config-management-optimizations",
+  "title": "Plan OpenCode config management optimizations",
+  "description": "整理 ocswitch 在读取、同步、诊断与管理 OpenCode 配置时的优化方向，形成分阶段 PRD，聚焦读侧接入、文件/运行时对账、transport 抽象与元数据保真。",
+  "status": "planning",
+  "dev_type": "docs",
+  "scope": "cross-layer",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-21",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 2,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-21-opencode-config-management-optimizations/prd.md",
+    "docs/opencode-sdk-go-research.md",
+    "internal/opencode/opencode.go",
+    "internal/opencode/provider_models.go",
+    "internal/app/service.go",
+    "internal/app/types.go",
+    "internal/proxy/traces.go",
+    "frontend/src/App.tsx"
+  ],
+  "notes": "保持当前 OpenCode 文件写侧 patch 与 proxy 数据面不变，优先增强读侧接入、runtime/file 对账、doctor 诊断、transport 统一抽象与 trace/model metadata 保真。",
+  "meta": {
+    "referenceRepo": "../opencode-sdk-go",
+    "sourceResearch": "docs/opencode-sdk-go-research.md",
+    "recommendedPoc": "doctor-opencode-runtime-reconciliation",
+    "priorityTracks": [
+      "read-side-sdk-adapter",
+      "runtime-file-reconciliation",
+      "provider-model-transport-optionization",
+      "metadata-and-trace-fidelity"
+    ],
+    "outOfScope": [
+      "replace-proxy-data-plane-with-sdk",
+      "replace-opencode-write-path-with-sdk",
+      "platformization-into-generic-ai-gateway"
+    ]
+  }
+}
