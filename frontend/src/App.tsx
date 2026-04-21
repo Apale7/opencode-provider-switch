@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   applySync,
@@ -544,11 +544,37 @@ function formatDateTime(value?: string): string {
   return date.toLocaleString()
 }
 
+function formatCompactDateTime(value?: string): string {
+	if (!value) {
+		return '-'
+	}
+	const date = new Date(value)
+	if (Number.isNaN(date.getTime())) {
+		return value
+	}
+	const month = String(date.getMonth() + 1).padStart(2, '0')
+	const day = String(date.getDate()).padStart(2, '0')
+	const hours = String(date.getHours()).padStart(2, '0')
+	const minutes = String(date.getMinutes()).padStart(2, '0')
+	const seconds = String(date.getSeconds()).padStart(2, '0')
+	return `${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
 function formatDuration(value?: number): string {
   if (value == null) {
     return '-'
   }
   return `${value} ms`
+}
+
+function formatCompactDuration(value?: number): string {
+	if (value == null) {
+		return '-'
+	}
+	if (value >= 1000) {
+		return `${(value / 1000).toFixed(2)} s`
+	}
+	return `${Math.round(value)} ms`
 }
 
 function formatTokenCount(value?: number): string {
@@ -628,6 +654,47 @@ function formatTokenRate(trace: RequestTrace): string {
     return '-'
   }
   return `${((trace.outputTokens * 1000) / trace.durationMs).toFixed(1)} token/s`
+}
+
+function formatCompactTokenRate(trace: RequestTrace): string {
+	if (!trace.outputTokens || trace.outputTokens <= 0 || !trace.durationMs || trace.durationMs <= 0) {
+		return '-'
+	}
+	return `${((trace.outputTokens * 1000) / trace.durationMs).toFixed(2)} tok/s`
+}
+
+function traceTotalTokens(trace: RequestTrace): number | null {
+	if (typeof trace.usage?.rawTotalTokens === 'number') {
+		return trace.usage.rawTotalTokens
+	}
+	const inputTokens = trace.inputTokens ?? trace.usage?.inputTokens ?? trace.usage?.rawInputTokens
+	const outputTokens = trace.outputTokens ?? trace.usage?.outputTokens ?? trace.usage?.rawOutputTokens
+	if (typeof inputTokens === 'number' || typeof outputTokens === 'number') {
+		return (inputTokens || 0) + (outputTokens || 0)
+	}
+	return null
+}
+
+function traceDisplayModel(trace: RequestTrace): string {
+	return trace.finalModel || trace.alias || trace.rawModel || `#${trace.id}`
+}
+
+function TraceInfoPopover({ label, children }: { label: string; children: ReactNode }) {
+	return (
+		<span
+			className="trace-info-popover"
+			onClick={(event) => event.stopPropagation()}
+			onMouseDown={(event) => event.stopPropagation()}
+			onKeyDown={(event) => event.stopPropagation()}
+		>
+			<button type="button" className="trace-info-trigger" aria-label={label}>
+				<span aria-hidden="true">i</span>
+			</button>
+			<span className="trace-info-card" role="tooltip">
+				{children}
+			</span>
+		</span>
+	)
 }
 
 function tracePrimaryText(trace: RequestTrace): string {
@@ -2177,71 +2244,119 @@ export default function App() {
 	                  </div>
 	                </div>
 	              </div>
-              <div className="scroll-list compact-list trace-scroll-list">
+	              <div className="scroll-list compact-list trace-scroll-list">
 	                {logTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('log.empty')}</h4>
                     <p className="subtle">{t('log.emptyHint')}</p>
                   </article>
                 ) : null}
-	                {logTraces.map((trace) => (
-                  <article
-                    key={trace.id}
-                    className={`resource-card ${logDetailOpen && selectedLogTrace?.id === trace.id ? 'active' : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedLogTraceId(trace.id)}
-                    onKeyDown={(event) => onResourceCardKeyDown(event, () => setSelectedLogTraceId(trace.id))}
-                  >
-                    <div className="resource-card-top">
-                      <div className="resource-card-heading">
-                        <div className="resource-card-titlewrap">
-                          <strong className="resource-card-title">{trace.alias || trace.rawModel || `#${trace.id}`}</strong>
-                          <code className="resource-card-code">#{trace.id}</code>
-                        </div>
-                        <p className="resource-card-subtitle trace-card-subtitle">
-                          <span>{tracePrimaryText(trace)}</span>
-                          <span>{formatDuration(trace.durationMs)}</span>
-                        </p>
-                      </div>
-                      <div className="resource-card-side">
-                        <span className={`badge status-badge ${trace.success ? 'live' : 'idle'}`}>
-                          {trace.success ? t('log.success') : t('log.failed')}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="resource-card-meta">
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('common.protocol')}</span>
-                        <span className={protocolBadgeClass(trace.protocol)}>{protocolLabel(trace.protocol)}</span>
-                      </div>
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('log.startedAt')}</span>
-                        <span className="resource-meta-value">{formatDateTime(trace.startedAt)}</span>
-                      </div>
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('log.firstByte')}</span>
-                        <span className="resource-meta-value">{formatDuration(trace.firstByteMs)}</span>
-                      </div>
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('log.chainTitle')}</span>
-                        <span className="resource-meta-value">
-                          {trace.failover
-                            ? `${trace.attemptCount} · ${t('log.failover')}`
-                            : `${trace.attemptCount}`}
-                        </span>
-                      </div>
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('log.outputTokens')}</span>
-                        <span className="resource-meta-value">{formatTokenCount(trace.outputTokens)}</span>
-                      </div>
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('log.outputRate')}</span>
-                        <span className="resource-meta-value">{formatTokenRate(trace)}</span>
-                      </div>
-                    </div>
-                  </article>
-                ))}
+	                {logTraces.length > 0 ? (
+					<div className="trace-table trace-table-log" role="table" aria-label={t('log.title')}>
+						<div className="trace-table-header" role="row">
+							<span className="trace-table-head" role="columnheader">{t('log.tableTime')}</span>
+							<span className="trace-table-head" role="columnheader">{t('log.tableModel')}</span>
+							<span className="trace-table-head" role="columnheader">{t('log.tablePerformance')}</span>
+							<span className="trace-table-head" role="columnheader">{t('log.tableTokens')}</span>
+							<span className="trace-table-head trace-table-head-end" role="columnheader">{t('log.tableCostStatus')}</span>
+						</div>
+						<div className="trace-table-body">
+							{logTraces.map((trace) => (
+								<article
+									key={trace.id}
+									className={`trace-table-row ${logDetailOpen && selectedLogTrace?.id === trace.id ? 'active' : ''}`}
+									role="button"
+									tabIndex={0}
+									onClick={() => setSelectedLogTraceId(trace.id)}
+									onKeyDown={(event) => onResourceCardKeyDown(event, () => setSelectedLogTraceId(trace.id))}
+								>
+									<div className="trace-table-cell" role="cell" data-label={t('log.tableTime')}>
+										<span className="trace-mono">{formatCompactDateTime(trace.startedAt)}</span>
+									</div>
+									<div className="trace-table-cell" role="cell" data-label={t('log.tableModel')}>
+										<div className="trace-model-cell">
+											<div className="trace-model-line">
+												<strong className="trace-model-name">{traceDisplayModel(trace)}</strong>
+												<span className={protocolBadgeClass(trace.protocol)}>{protocolLabel(trace.protocol)}</span>
+												{trace.stream ? <span className="trace-mini-tag">{t('log.stream')}</span> : null}
+												{trace.failover ? <span className="trace-mini-tag">{t('log.failover')}</span> : null}
+											</div>
+											<span className="trace-table-muted">{trace.finalProvider || tracePrimaryText(trace)}</span>
+										</div>
+									</div>
+									<div className="trace-table-cell" role="cell" data-label={t('log.tablePerformance')}>
+										<div className="trace-table-metric">
+											<span className="trace-mono">
+												{`${formatCompactDuration(trace.firstByteMs)} / ${formatCompactDuration(trace.durationMs)} / ${formatCompactTokenRate(trace)}`}
+											</span>
+											<TraceInfoPopover label={t('log.performanceInfo')}>
+												<dl className="trace-popover-list">
+													<div>
+														<dt>{t('log.firstByte')}</dt>
+														<dd className="trace-mono">{formatCompactDuration(trace.firstByteMs)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.totalTime')}</dt>
+														<dd className="trace-mono">{formatCompactDuration(trace.durationMs)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.outputRate')}</dt>
+														<dd className="trace-mono">{formatCompactTokenRate(trace)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.chainTitle')}</dt>
+														<dd className="trace-mono">{trace.failover ? `${trace.attemptCount} · ${t('log.failover')}` : trace.attemptCount}</dd>
+													</div>
+												</dl>
+											</TraceInfoPopover>
+										</div>
+									</div>
+									<div className="trace-table-cell" role="cell" data-label={t('log.tableTokens')}>
+										<div className="trace-table-metric">
+											<span className="trace-mono">{formatTokenCount(traceTotalTokens(trace) ?? undefined)}</span>
+											<TraceInfoPopover label={t('log.tokensInfo')}>
+												<dl className="trace-popover-list">
+													<div>
+														<dt>{t('log.totalTokens')}</dt>
+														<dd className="trace-mono">{formatTokenCount(traceTotalTokens(trace) ?? undefined)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.inputTokens')}</dt>
+														<dd className="trace-mono">{formatTokenCount(trace.inputTokens)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.outputTokens')}</dt>
+														<dd className="trace-mono">{formatTokenCount(trace.outputTokens)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.cacheReadTokens')}</dt>
+														<dd className="trace-mono">{formatUsageText(trace.usage?.cacheReadTokens)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.cacheWriteTokens')}</dt>
+														<dd className="trace-mono">{formatUsageText(trace.usage?.cacheWriteTokens)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.reasoningTokens')}</dt>
+														<dd className="trace-mono">{formatUsageText(trace.usage?.reasoningTokens)}</dd>
+													</div>
+												</dl>
+											</TraceInfoPopover>
+										</div>
+									</div>
+									<div className="trace-table-cell trace-status-cell" role="cell" data-label={t('log.tableCostStatus')}>
+										<div className="trace-status-stack">
+											<span className="trace-mono trace-status-value">{formatEstimatedCost(trace.usage?.estimatedCost)}</span>
+											<span className={`badge status-badge ${trace.success ? 'live' : 'idle'}`}>
+												{trace.success ? t('log.success') : trace.statusCode || t('log.failed')}
+											</span>
+										</div>
+									</div>
+								</article>
+							))}
+						</div>
+					</div>
+	                ) : null}
               </div>
 	              <div className="list-pagination">
 	                <button type="button" disabled={logTraceQuery.page <= 1} onClick={() => updateLogTraceQuery((current) => ({ ...current, page: current.page - 1 }))}>
@@ -2285,57 +2400,84 @@ export default function App() {
 	                  </div>
 	                </div>
 	              </div>
-              <div className="scroll-list compact-list trace-scroll-list">
+	              <div className="scroll-list compact-list trace-scroll-list">
 	                {networkTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('log.empty')}</h4>
                     <p className="subtle">{t('log.emptyHint')}</p>
                   </article>
                 ) : null}
-	                {networkTraces.map((trace) => (
-                  <article
-                    key={trace.id}
-                    className={`resource-card ${networkDetailOpen && selectedNetworkTrace?.id === trace.id ? 'active' : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedNetworkTraceId(trace.id)}
-                    onKeyDown={(event) => onResourceCardKeyDown(event, () => setSelectedNetworkTraceId(trace.id))}
-                  >
-                    <div className="resource-card-top">
-                      <div className="resource-card-heading">
-                        <div className="resource-card-titlewrap">
-                          <strong className="resource-card-title">#{trace.id}</strong>
-                          <code className="resource-card-code">{trace.finalProvider || trace.alias || trace.rawModel || '-'}</code>
-                        </div>
-                        <p className="resource-card-subtitle trace-card-subtitle">
-                          <span>{trace.finalUrl || tracePrimaryText(trace)}</span>
-                          <span>{formatDuration(trace.firstByteMs)}</span>
-                        </p>
-                      </div>
-                      <div className="resource-card-side">
-                        <span className={`badge status-badge ${trace.success ? 'live' : 'idle'}`}>{trace.statusCode || '-'}</span>
-                      </div>
-                    </div>
-                    <div className="resource-card-meta">
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('common.protocol')}</span>
-                        <span className={protocolBadgeClass(trace.protocol)}>{protocolLabel(trace.protocol)}</span>
-                      </div>
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('log.startedAt')}</span>
-                        <span className="resource-meta-value">{formatDateTime(trace.startedAt)}</span>
-                      </div>
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('network.totalTime')}</span>
-                        <span className="resource-meta-value">{formatDuration(trace.durationMs)}</span>
-                      </div>
-                      <div className="resource-meta-item">
-                        <span className="resource-meta-label">{t('log.chainTitle')}</span>
-                        <span className="resource-meta-value">{trace.attemptCount}</span>
-                      </div>
-                    </div>
-                  </article>
-                ))}
+	                {networkTraces.length > 0 ? (
+					<div className="trace-table trace-table-network" role="table" aria-label={t('network.title')}>
+						<div className="trace-table-header" role="row">
+							<span className="trace-table-head" role="columnheader">{t('network.tableTime')}</span>
+							<span className="trace-table-head" role="columnheader">{t('network.tableTarget')}</span>
+							<span className="trace-table-head" role="columnheader">{t('network.tableRequest')}</span>
+							<span className="trace-table-head" role="columnheader">{t('network.tablePerformance')}</span>
+							<span className="trace-table-head trace-table-head-end" role="columnheader">{t('network.tableStatus')}</span>
+						</div>
+						<div className="trace-table-body">
+							{networkTraces.map((trace) => (
+								<article
+									key={trace.id}
+									className={`trace-table-row ${networkDetailOpen && selectedNetworkTrace?.id === trace.id ? 'active' : ''}`}
+									role="button"
+									tabIndex={0}
+									onClick={() => setSelectedNetworkTraceId(trace.id)}
+									onKeyDown={(event) => onResourceCardKeyDown(event, () => setSelectedNetworkTraceId(trace.id))}
+								>
+									<div className="trace-table-cell" role="cell" data-label={t('network.tableTime')}>
+										<span className="trace-mono">{formatCompactDateTime(trace.startedAt)}</span>
+									</div>
+									<div className="trace-table-cell" role="cell" data-label={t('network.tableTarget')}>
+										<div className="trace-model-cell">
+											<div className="trace-model-line">
+												<strong className="trace-model-name">{trace.finalProvider || trace.alias || `#${trace.id}`}</strong>
+												<span className={protocolBadgeClass(trace.protocol)}>{protocolLabel(trace.protocol)}</span>
+												{trace.finalModel ? <span className="trace-mini-tag">{trace.finalModel}</span> : null}
+											</div>
+											<span className="trace-table-muted">{trace.rawModel || '-'}</span>
+										</div>
+									</div>
+									<div className="trace-table-cell" role="cell" data-label={t('network.tableRequest')}>
+										<span className="trace-table-ellipsis">{trace.finalUrl || tracePrimaryText(trace)}</span>
+									</div>
+									<div className="trace-table-cell" role="cell" data-label={t('network.tablePerformance')}>
+										<div className="trace-table-metric">
+											<span className="trace-mono">{`${formatCompactDuration(trace.firstByteMs)} / ${formatCompactDuration(trace.durationMs)}`}</span>
+											<TraceInfoPopover label={t('network.performanceInfo')}>
+												<dl className="trace-popover-list">
+													<div>
+														<dt>{t('network.firstByte')}</dt>
+														<dd className="trace-mono">{formatCompactDuration(trace.firstByteMs)}</dd>
+													</div>
+													<div>
+														<dt>{t('network.totalTime')}</dt>
+														<dd className="trace-mono">{formatCompactDuration(trace.durationMs)}</dd>
+													</div>
+													<div>
+														<dt>{t('log.chainTitle')}</dt>
+														<dd className="trace-mono">{trace.attemptCount}</dd>
+													</div>
+													<div>
+														<dt>{t('network.statusCode')}</dt>
+														<dd className="trace-mono">{trace.statusCode || '-'}</dd>
+													</div>
+												</dl>
+											</TraceInfoPopover>
+										</div>
+									</div>
+									<div className="trace-table-cell trace-status-cell" role="cell" data-label={t('network.tableStatus')}>
+										<div className="trace-status-stack">
+											<span className={`badge status-badge ${trace.success ? 'live' : 'idle'}`}>{trace.statusCode || '-'}</span>
+											<span className="trace-table-muted trace-mono">#{trace.id}</span>
+										</div>
+									</div>
+								</article>
+							))}
+						</div>
+					</div>
+	                ) : null}
               </div>
 	              <div className="list-pagination">
 	                <button type="button" disabled={networkTraceQuery.page <= 1} onClick={() => updateNetworkTraceQuery((current) => ({ ...current, page: current.page - 1 }))}>
