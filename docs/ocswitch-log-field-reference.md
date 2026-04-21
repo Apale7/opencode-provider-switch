@@ -89,6 +89,8 @@
   - 当前价格来源仅使用：
     - `provider.ocswitch.models[alias].cost`
     - `provider.ocswitch-anthropic.models[alias].cost`
+  - 当前不会直接回退到 OpenCode 默认 `models.dev` 价格源
+  - 当前也不会根据 `serviceTier` / `Priority` / `Batch` / `Flex` / `short|long context` 做额外价格切换
 - `Reasoning tokens`
   - 推理 token 数
   - 对支持该字段的协议有意义

@@ -269,6 +269,72 @@ OpenCode 会把 `models.dev` 里的：
 
 映射成内部 `model.cost`。
 
+补充说明：
+
+- 默认来源是 `models.dev`，具体实现见 `../opencode/packages/opencode/src/provider/models.ts`
+- 默认 URL 是 `https://models.dev`，拉取的是 `${url()}/api.json`
+- 该来源可被 `Flag.OPENCODE_MODELS_URL` 覆盖，因此更准确的说法是“默认来源是 `models.dev`，但实现允许替换”
+- 当前找到的 OpenCode 代码里，没有看到按 `serviceTier` / `fast` / `priority` 切换另一套 `model.cost` 的逻辑
+- `serviceTier` 更像模型 metadata / request option，不会自动改写这里的静态单价表
+
+对应证据：
+
+- `../opencode/packages/opencode/src/provider/models.ts:110-149`
+- `../opencode/packages/opencode/src/provider/provider.ts:949-969`
+- `../opencode/packages/opencode/src/session/session.ts:307-323`
+
+这意味着：
+
+- 当用户没有在 `opencode.jsonc` 手动写 `cost` 时，OpenCode 仍可依赖默认模型目录价格完成本地估算
+- 但这个估算依旧是“本地价格表估算”，不是 provider 返回的 billed amount
+- 如果 provider 存在 tier 化、区域化、模式化加价，而默认模型目录没有完整表达，估算就会偏离实际账单
+
+### 4.2.1 OpenAI 官方 pricing tiers 与 GPT-5.4
+
+OpenAI 官方开发者价格页：
+
+- `https://developers.openai.com/api/docs/pricing?latest-pricing=standard`
+
+截至本次调研，`gpt-5.4` 明确存在 4 种 pricing tier：
+
+- `Standard`
+- `Batch`
+- `Flex`
+- `Priority`
+
+其中 `gpt-5.4` 官方单价如下（单位：`USD / 1M tokens`）。
+
+`Standard`
+
+- short context：`input 2.50` / `cached input 0.25` / `output 15.00`
+- long context：`input 5.00` / `cached input 0.50` / `output 22.50`
+
+`Batch`
+
+- short context：`input 1.25` / `cached input 0.13` / `output 7.50`
+- long context：`input 2.50` / `cached input 0.25` / `output 11.25`
+
+`Flex`
+
+- short context：`input 1.25` / `cached input 0.13` / `output 7.50`
+- long context：`input 2.50` / `cached input 0.25` / `output 11.25`
+
+`Priority`
+
+- `input 5.00` / `cached input 0.50` / `output 30.00`
+
+可见：
+
+- `Priority` 对 `gpt-5.4` 不是“仅 output 1.5x”，而是相对 `Standard short context` 的 `input / cached input / output` 全部 `2x`
+- `gpt-5.4` 官方价格还带有 `short context / long context` 两档，不是单一 input/output 单价
+- `Regional processing (data residency)` 对 `gpt-5.4`、`gpt-5.4-mini`、`gpt-5.4-nano`、`gpt-5.4-pro` 还有额外 `10% uplift`
+
+这对代理层估算的直接含义是：
+
+- 不能再把某些模型简单视为“一个固定 input/output 价”
+- 至少要考虑 `tier` 和 `context band` 这两个维度
+- 若未来实现 GPT-5.4 的特殊计费逻辑，建议抽象成可扩展 pricing modifier，而不是写死一个“fast = x2”分支
+
 如果模型带 `experimentalOver200K`，且：
 
 - `tokens.input + tokens.cache.read > 200_000`
@@ -537,10 +603,19 @@ ACP agent 侧也一样：
 
 - 每个 step 的 cost 由 OpenCode 本地按价格表计算：input/output/cache/read/write/reasoning 分别乘单价后求和。
 - 单价主要来自 `models.dev`，不是 provider 返回的账单金额。
+- 当前找到的默认实现没有按 `serviceTier` / `Priority` / `fast` 自动切换另一套价格表。
 - reasoning 目前临时按 output 单价计费。
 - assistant message 的 cost 是多 step 累加。
 - 当前会话 cost 是所有 assistant message 的 cost 求和。
 - 因此它是估算值，不是 provider 账单权威值。
+
+### 7.4 问题 4：OpenCode / OpenAI 的模型单价来源、tier 与当前 `ocswitch` 的差异是什么？
+
+- OpenCode 默认单价来源主要是 `models.dev`，允许通过配置覆盖来源，但不是直接读取 provider 账单。
+- OpenAI 官方对 `gpt-5.4` 已明确区分 `Standard / Batch / Flex / Priority`，且还存在 `short context / long context` 两档。
+- 对 `gpt-5.4` 来说，官方 `Priority` 是相对 `Standard short context` 的全项 `2x`：`input 5.00`、`cached input 0.50`、`output 30.00`。
+- 因此，如果某个供应商账单表现为“input / cache 约 2x，但 output 不是 2x”，不能直接视为 OpenAI 官方 `Priority` 原样透传，更可能是供应商二次定价、context 档位差异或多维规则叠加。
+- 当前 `ocswitch` 的 estimated cost 只读取 OpenCode 配置中的静态 `cost` 字段，本身还没有 `tier` / `context band` / `regional uplift` 感知，因此和真实账单不一致是预期内现象。
 
 ### 7.3 问题 3：对 `ocswitch` 日志页的优化建议
 
