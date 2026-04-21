@@ -181,6 +181,10 @@ func (a *App) SaveProvider(in app.ProviderUpsertInput) (app.ProviderSaveResult, 
 	return a.bindings.UpsertProvider(a.callContext(), in)
 }
 
+func (a *App) RefreshProviderModels(in app.ProviderRefreshModelsInput) (app.ProviderSaveResult, error) {
+	return a.bindings.RefreshProviderModels(a.callContext(), in)
+}
+
 func (a *App) SetProviderState(in app.ProviderStateInput) (app.ProviderView, error) {
 	return a.bindings.SetProviderDisabled(a.callContext(), in)
 }
@@ -224,6 +228,10 @@ func (a *App) ProxyStatus() (app.ProxyStatusView, error) {
 
 func (a *App) RequestTraces(limit int) ([]app.RequestTrace, error) {
 	return a.bindings.ListRequestTraces(a.callContext(), limit)
+}
+
+func (a *App) TraceList(in app.RequestTraceListInput) (app.RequestTraceListResult, error) {
+	return a.bindings.QueryRequestTraces(a.callContext(), in)
 }
 
 func (a *App) ProxySettings() (app.ProxySettingsView, error) {

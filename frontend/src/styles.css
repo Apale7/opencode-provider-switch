@@ -1533,6 +1533,38 @@ input[type='file']::file-selector-button {
   margin: 0.35rem 0 0.55rem;
 }
 
+.trace-toolbar {
+	align-items: start;
+}
+
+.filter-chip-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem;
+}
+
+.filter-chip {
+	min-height: 36px;
+	padding: 0.45rem 0.8rem;
+	border-radius: 999px;
+	background: var(--panel-muted);
+	box-shadow: none;
+}
+
+.filter-chip.active {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--accent-strong);
+}
+
+.list-pagination {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding-top: 0.75rem;
+}
+
 .issue-card {
   padding: 0.9rem 1rem;
 }

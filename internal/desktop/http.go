@@ -175,6 +175,19 @@ func newHandler(instance *App, version string, baseURL string) (http.Handler, er
 		writeResult(w, data, err)
 	})
 
+	api.HandleFunc("/api/providers/refresh-models", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.ProviderRefreshModelsInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.RefreshProviderModels(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
 	api.HandleFunc("/api/providers/state", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, http.MethodPost)
@@ -324,6 +337,19 @@ func newHandler(instance *App, version string, baseURL string) (http.Handler, er
 		writeResult(w, data, err)
 	})
 
+	api.HandleFunc("/api/proxy/traces/query", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.RequestTraceListInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.QueryRequestTraces(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
 	api.HandleFunc("/api/proxy/start", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, http.MethodPost)
@@ -465,7 +491,7 @@ func openBrowser(url string) error {
 	if len(errs) == 0 {
 		return fmt.Errorf("no browser launcher found")
 	}
-	return fmt.Errorf(strings.Join(errs, "; "))
+	return errors.New(strings.Join(errs, "; "))
 }
 
 func browserCommands(url string) [][]string {

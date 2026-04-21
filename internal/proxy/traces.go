@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,37 @@ import (
 )
 
 const defaultTraceLimit = 200
+
+const (
+	defaultTracePage     = 1
+	defaultTracePageSize = 25
+	maxTracePageSize     = 100
+)
+
+type RequestTraceStore interface {
+	Add(ctx context.Context, trace RequestTrace) error
+	List(ctx context.Context, limit int) ([]RequestTrace, error)
+	Query(ctx context.Context, query TraceQuery) (TraceQueryResult, error)
+	Close() error
+}
+
+type TraceQuery struct {
+	Page           int
+	PageSize       int
+	Aliases        []string
+	FailoverCounts []int
+	StatusCodes    []int
+}
+
+type TraceQueryResult struct {
+	Items                  []RequestTrace
+	Total                  int
+	Page                   int
+	PageSize               int
+	AvailableAliases       []string
+	AvailableFailoverCounts []int
+	AvailableStatusCodes   []int
+}
 
 type TraceStore struct {
 	mu     sync.Mutex
@@ -70,9 +102,10 @@ func NewTraceStore(limit int) *TraceStore {
 	return &TraceStore{limit: limit}
 }
 
-func (s *TraceStore) Add(trace RequestTrace) {
+func (s *TraceStore) Add(ctx context.Context, trace RequestTrace) error {
+	_ = ctx
 	if s == nil {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -81,11 +114,13 @@ func (s *TraceStore) Add(trace RequestTrace) {
 	if len(s.traces) > s.limit {
 		s.traces = s.traces[:s.limit]
 	}
+	return nil
 }
 
-func (s *TraceStore) List(limit int) []RequestTrace {
+func (s *TraceStore) List(ctx context.Context, limit int) ([]RequestTrace, error) {
+	_ = ctx
 	if s == nil {
-		return nil
+		return nil, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -96,7 +131,45 @@ func (s *TraceStore) List(limit int) []RequestTrace {
 	for _, trace := range s.traces[:limit] {
 		out = append(out, cloneTrace(trace))
 	}
-	return out
+	return out, nil
+}
+
+func (s *TraceStore) Query(ctx context.Context, query TraceQuery) (TraceQueryResult, error) {
+	_ = ctx
+	query = normalizeTraceQuery(query)
+	if s == nil {
+		return TraceQueryResult{Page: query.Page, PageSize: query.PageSize}, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	filtered := make([]RequestTrace, 0, len(s.traces))
+	for _, trace := range s.traces {
+		if traceMatchesQuery(trace, query) {
+			filtered = append(filtered, cloneTrace(trace))
+		}
+	}
+	total := len(filtered)
+	start := (query.Page - 1) * query.PageSize
+	if start > total {
+		start = total
+	}
+	end := start + query.PageSize
+	if end > total {
+		end = total
+	}
+	return TraceQueryResult{
+		Items:                   filtered[start:end],
+		Total:                   total,
+		Page:                    query.Page,
+		PageSize:                query.PageSize,
+		AvailableAliases:        collectAvailableAliases(s.traces),
+		AvailableFailoverCounts: collectAvailableFailoverCounts(s.traces),
+		AvailableStatusCodes:    collectAvailableStatusCodes(s.traces),
+	}, nil
+}
+
+func (s *TraceStore) Close() error {
+	return nil
 }
 
 func cloneTrace(trace RequestTrace) RequestTrace {
@@ -260,4 +333,170 @@ func maskSensitiveValue(value string) string {
 		return "***"
 	}
 	return trimmed[:4] + "..." + trimmed[len(trimmed)-4:]
+}
+
+func normalizeTraceQuery(query TraceQuery) TraceQuery {
+	if query.Page <= 0 {
+		query.Page = defaultTracePage
+	}
+	if query.PageSize <= 0 {
+		query.PageSize = defaultTracePageSize
+	}
+	if query.PageSize > maxTracePageSize {
+		query.PageSize = maxTracePageSize
+	}
+	query.Aliases = normalizeTraceAliases(query.Aliases)
+	query.FailoverCounts = normalizeTraceInts(query.FailoverCounts, true)
+	query.StatusCodes = normalizeTraceInts(query.StatusCodes, false)
+	return query
+}
+
+func normalizeTraceAliases(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeTraceInts(in []int, allowZero bool) []int {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[int]struct{}, len(in))
+	out := make([]int, 0, len(in))
+	for _, item := range in {
+		if item < 0 || (!allowZero && item == 0) {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	sort.Ints(out)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func traceMatchesQuery(trace RequestTrace, query TraceQuery) bool {
+	if len(query.Aliases) > 0 && !containsTraceAlias(query.Aliases, trace.Alias) {
+		return false
+	}
+	if len(query.FailoverCounts) > 0 && !containsTraceInt(query.FailoverCounts, traceFailoverCount(trace)) {
+		return false
+	}
+	if len(query.StatusCodes) > 0 && !containsTraceInt(query.StatusCodes, trace.StatusCode) {
+		return false
+	}
+	return true
+}
+
+func containsTraceAlias(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsTraceInt(values []int, target int) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func traceFailoverCount(trace RequestTrace) int {
+	if trace.AttemptCount > 0 {
+		if trace.AttemptCount <= 1 {
+			return 0
+		}
+		return trace.AttemptCount - 1
+	}
+	if len(trace.Attempts) <= 1 {
+		return 0
+	}
+	return len(trace.Attempts) - 1
+}
+
+func collectAvailableAliases(traces []RequestTrace) []string {
+	if len(traces) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(traces))
+	for _, trace := range traces {
+		alias := strings.TrimSpace(trace.Alias)
+		if alias == "" {
+			continue
+		}
+		if _, ok := seen[alias]; ok {
+			continue
+		}
+		seen[alias] = struct{}{}
+		out = append(out, alias)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func collectAvailableFailoverCounts(traces []RequestTrace) []int {
+	if len(traces) == 0 {
+		return nil
+	}
+	seen := map[int]struct{}{}
+	out := make([]int, 0, len(traces))
+	for _, trace := range traces {
+		count := traceFailoverCount(trace)
+		if _, ok := seen[count]; ok {
+			continue
+		}
+		seen[count] = struct{}{}
+		out = append(out, count)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func collectAvailableStatusCodes(traces []RequestTrace) []int {
+	if len(traces) == 0 {
+		return nil
+	}
+	seen := map[int]struct{}{}
+	out := make([]int, 0, len(traces))
+	for _, trace := range traces {
+		if trace.StatusCode <= 0 {
+			continue
+		}
+		if _, ok := seen[trace.StatusCode]; ok {
+			continue
+		}
+		seen[trace.StatusCode] = struct{}{}
+		out = append(out, trace.StatusCode)
+	}
+	sort.Ints(out)
+	return out
 }

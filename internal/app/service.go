@@ -15,7 +15,7 @@ import (
 
 type Service struct {
 	configPath string
-	traces     *proxy.TraceStore
+	traces     proxy.RequestTraceStore
 
 	mu          sync.Mutex
 	proxyCancel context.CancelFunc
@@ -26,7 +26,18 @@ type Service struct {
 }
 
 func NewService(configPath string) *Service {
-	return &Service{configPath: strings.TrimSpace(configPath), traces: proxy.NewTraceStore(200)}
+	resolvedPath := strings.TrimSpace(configPath)
+	store, err := proxy.NewSQLiteTraceStore(resolveConfigPath(resolvedPath))
+	if err != nil {
+		store = nil
+	}
+	var traces proxy.RequestTraceStore
+	if store != nil {
+		traces = store
+	} else {
+		traces = proxy.NewTraceStore(200)
+	}
+	return &Service{configPath: resolvedPath, traces: traces}
 }
 
 func (s *Service) ConfigPath() string {
@@ -280,13 +291,29 @@ func (s *Service) SaveProxySettings(ctx context.Context, in ProxySettingsInput) 
 }
 
 func (s *Service) ListRequestTraces(ctx context.Context, limit int) ([]RequestTrace, error) {
-	_ = ctx
-	raw := s.traces.List(limit)
+	raw, err := s.traces.List(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]RequestTrace, 0, len(raw))
 	for _, trace := range raw {
 		out = append(out, requestTraceView(trace))
 	}
 	return out, nil
+}
+
+func (s *Service) QueryRequestTraces(ctx context.Context, in RequestTraceListInput) (RequestTraceListResult, error) {
+	result, err := s.traces.Query(ctx, proxy.TraceQuery{
+		Page:           in.Page,
+		PageSize:       in.PageSize,
+		Aliases:        in.Aliases,
+		FailoverCounts: in.FailoverCounts,
+		StatusCodes:    in.StatusCodes,
+	})
+	if err != nil {
+		return RequestTraceListResult{}, err
+	}
+	return requestTraceListResultView(result), nil
 }
 
 func (s *Service) GetDesktopPrefs(ctx context.Context) (DesktopPrefsView, error) {
@@ -417,6 +444,13 @@ func (s *Service) runProxy(runCtx context.Context, cancel context.CancelFunc, do
 	}
 	s.proxyStatus = status
 	close(done)
+}
+
+func resolveConfigPath(path string) string {
+	if path != "" {
+		return path
+	}
+	return config.DefaultPath()
 }
 
 func providerView(provider config.Provider) ProviderView {

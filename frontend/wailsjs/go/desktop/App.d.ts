@@ -42,6 +42,8 @@ export function ProxySettings():Promise<app.ProxySettingsView>;
 
 export function ProxyStatus():Promise<app.ProxyStatusView>;
 
+export function RefreshProviderModels(arg1:app.ProviderRefreshModelsInput):Promise<app.ProviderSaveResult>;
+
 export function RequestTraces(arg1:number):Promise<Array<app.RequestTrace>>;
 
 export function SaveAlias(arg1:app.AliasUpsertInput):Promise<app.AliasView>;
@@ -71,5 +73,7 @@ export function Startup(arg1:context.Context):Promise<void>;
 export function StopProxy():Promise<app.ProxyStatusView>;
 
 export function SyncDesktopPreferences(arg1:context.Context):Promise<void>;
+
+export function TraceList(arg1:app.RequestTraceListInput):Promise<app.RequestTraceListResult>;
 
 export function UnbindTarget(arg1:app.AliasTargetInput):Promise<app.AliasView>;

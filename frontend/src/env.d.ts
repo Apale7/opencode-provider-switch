@@ -23,6 +23,7 @@ declare global {
           Providers: () => Promise<import('./types').ProviderView[]>
           Aliases: () => Promise<import('./types').AliasView[]>
           SaveProvider: (input: import('./types').ProviderUpsertInput) => Promise<import('./types').ProviderSaveResult>
+          RefreshProviderModels: (input: import('./types').ProviderRefreshModelsInput) => Promise<import('./types').ProviderSaveResult>
           SetProviderState: (input: import('./types').ProviderStateInput) => Promise<import('./types').ProviderView>
           DeleteProvider: (id: string) => Promise<void>
           ImportProviders: (input: import('./types').ProviderImportInput) => Promise<import('./types').ProviderImportResult>
@@ -35,6 +36,7 @@ declare global {
           ProxyStatus: () => Promise<import('./types').ProxyStatusView>
           ProxySettings: () => Promise<import('./types').ProxySettingsView>
           RequestTraces: (limit: number) => Promise<import('./types').RequestTrace[]>
+          TraceList: (input: import('./types').RequestTraceListInput) => Promise<import('./types').RequestTraceListResult>
           StartProxy: () => Promise<import('./types').ProxyStatusView>
           SaveProxySettings: (input: import('./types').ProxySettingsView) => Promise<import('./types').ProxySettingsSaveResult>
           StopProxy: () => Promise<import('./types').ProxyStatusView>

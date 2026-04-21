@@ -64,6 +64,24 @@ type RequestTrace struct {
 	Attempts       []TraceAttempt    `json:"attempts"`
 }
 
+type RequestTraceListInput struct {
+	Page           int      `json:"page"`
+	PageSize       int      `json:"pageSize"`
+	Aliases        []string `json:"aliases,omitempty"`
+	FailoverCounts []int    `json:"failoverCounts,omitempty"`
+	StatusCodes    []int    `json:"statusCodes,omitempty"`
+}
+
+type RequestTraceListResult struct {
+	Items                   []RequestTrace `json:"items"`
+	Total                   int            `json:"total"`
+	Page                    int            `json:"page"`
+	PageSize                int            `json:"pageSize"`
+	AvailableAliases        []string       `json:"availableAliases,omitempty"`
+	AvailableFailoverCounts []int          `json:"availableFailoverCounts,omitempty"`
+	AvailableStatusCodes    []int          `json:"availableStatusCodes,omitempty"`
+}
+
 type TraceAttempt struct {
 	Attempt         int               `json:"attempt"`
 	Provider        string            `json:"provider,omitempty"`
@@ -137,6 +155,22 @@ func traceAttemptView(attempt proxy.TraceAttempt) TraceAttempt {
 	}
 }
 
+func requestTraceListResultView(result proxy.TraceQueryResult) RequestTraceListResult {
+	items := make([]RequestTrace, 0, len(result.Items))
+	for _, trace := range result.Items {
+		items = append(items, requestTraceView(trace))
+	}
+	return RequestTraceListResult{
+		Items:                   items,
+		Total:                   result.Total,
+		Page:                    result.Page,
+		PageSize:                result.PageSize,
+		AvailableAliases:        append([]string(nil), result.AvailableAliases...),
+		AvailableFailoverCounts: append([]int(nil), result.AvailableFailoverCounts...),
+		AvailableStatusCodes:    append([]int(nil), result.AvailableStatusCodes...),
+	}
+}
+
 type ProviderView struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name,omitempty"`
@@ -153,6 +187,10 @@ type ProviderView struct {
 type ProviderSaveResult struct {
 	Provider ProviderView `json:"provider"`
 	Warnings []string     `json:"warnings,omitempty"`
+}
+
+type ProviderRefreshModelsInput struct {
+	ID string `json:"id"`
 }
 
 type AliasTargetView struct {

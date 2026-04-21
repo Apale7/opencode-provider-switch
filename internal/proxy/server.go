@@ -64,12 +64,12 @@ type Server struct {
 	cfg    *config.Config
 	client *http.Client
 	logger *log.Logger
-	traces *TraceStore
+	traces RequestTraceStore
 }
 
 // New constructs a Server from cfg.
-func New(cfg *config.Config, stores ...*TraceStore) *Server {
-	var traces *TraceStore
+func New(cfg *config.Config, stores ...RequestTraceStore) *Server {
+	var traces RequestTraceStore
 	if len(stores) > 0 {
 		traces = stores[0]
 	}
@@ -250,7 +250,9 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 				}
 			}
 		}
-		s.traces.Add(trace)
+		if err := s.traces.Add(context.Background(), trace); err != nil {
+			s.logger.Printf("req=%d trace persist failed: %v", reqID, err)
+		}
 	}()
 	s.logger.Printf("req=%d incoming model=%q alias=%q stream=%v", reqID, rawModel, aliasName, payload["stream"])
 	alias := s.cfg.FindAlias(aliasName)

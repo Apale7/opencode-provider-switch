@@ -54,29 +54,35 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 		}
 	}
 	if !in.SkipModels {
-		models, err := opencode.FetchProviderModels(provider.Protocol, provider.BaseURL, provider.APIKey, provider.Headers)
-		if err != nil {
-			if existing != nil && !providerConnectionEqual(*existing, provider) {
-				provider.Models = append([]string(nil), existing.Models...)
-				provider.ModelsSource = ""
-				warnings = append(warnings, "provider connection changed and model discovery failed; keeping existing model catalog as untrusted")
-			}
-			warnings = append(warnings, fmt.Sprintf("could not discover provider models: %v", err))
-		} else if normalized := config.NormalizeProviderModels(models); len(normalized) > 0 {
-			provider.Models = normalized
-			provider.ModelsSource = "discovered"
-		} else if existing != nil && !providerConnectionEqual(*existing, provider) {
-			provider.Models = append([]string(nil), existing.Models...)
-			provider.ModelsSource = ""
-			warnings = append(warnings, "provider connection changed and model discovery returned no models; keeping existing model catalog as untrusted")
-		} else {
-			warnings = append(warnings, "provider model discovery returned no models; keeping existing model catalog")
-		}
+		warnings = append(warnings, discoverProviderModels(&provider, existing)...)
 	} else if existing != nil && !providerConnectionEqual(*existing, provider) {
 		provider.Models = append([]string(nil), existing.Models...)
 		provider.ModelsSource = ""
 		warnings = append(warnings, "provider connection changed with skip models enabled; keeping existing model catalog as untrusted")
 	}
+	cfg.UpsertProvider(provider)
+	if err := cfg.Save(); err != nil {
+		return ProviderSaveResult{}, err
+	}
+	return ProviderSaveResult{Provider: providerView(provider), Warnings: warnings}, nil
+}
+
+func (s *Service) RefreshProviderModels(ctx context.Context, in ProviderRefreshModelsInput) (ProviderSaveResult, error) {
+	_ = ctx
+	id := strings.TrimSpace(in.ID)
+	if id == "" {
+		return ProviderSaveResult{}, fmt.Errorf("provider id is required")
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return ProviderSaveResult{}, err
+	}
+	existing := cfg.FindProvider(id)
+	if existing == nil {
+		return ProviderSaveResult{}, fmt.Errorf("provider %q not found", id)
+	}
+	provider := *existing
+	warnings := discoverProviderModels(&provider, existing)
 	cfg.UpsertProvider(provider)
 	if err := cfg.Save(); err != nil {
 		return ProviderSaveResult{}, err
@@ -390,4 +396,32 @@ func validateProviderModelKnown(providerID string, known []string, source string
 	}
 	sort.Strings(choices)
 	return fmt.Errorf("model %q is not in provider %q discovered models; available: %s", model, providerID, strings.Join(choices, ", "))
+}
+
+func discoverProviderModels(provider *config.Provider, existing *config.Provider) []string {
+	if provider == nil {
+		return nil
+	}
+	models, err := opencode.FetchProviderModels(provider.Protocol, provider.BaseURL, provider.APIKey, provider.Headers)
+	if err != nil {
+		warnings := []string{}
+		if existing != nil && !providerConnectionEqual(*existing, *provider) {
+			provider.Models = append([]string(nil), existing.Models...)
+			provider.ModelsSource = ""
+			warnings = append(warnings, "provider connection changed and model discovery failed; keeping existing model catalog as untrusted")
+		}
+		warnings = append(warnings, fmt.Sprintf("could not discover provider models: %v", err))
+		return warnings
+	}
+	if normalized := config.NormalizeProviderModels(models); len(normalized) > 0 {
+		provider.Models = normalized
+		provider.ModelsSource = "discovered"
+		return nil
+	}
+	if existing != nil && !providerConnectionEqual(*existing, *provider) {
+		provider.Models = append([]string(nil), existing.Models...)
+		provider.ModelsSource = ""
+		return []string{"provider connection changed and model discovery returned no models; keeping existing model catalog as untrusted"}
+	}
+	return []string{"provider model discovery returned no models; keeping existing model catalog"}
 }

@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -598,7 +599,7 @@ func (f failingAutoStart) Attach(_ context.Context) {}
 func (f failingAutoStart) Detach() {}
 
 func (f failingAutoStart) Sync(_ context.Context, _ app.DesktopPrefsView) error {
-	return fmt.Errorf(f.message)
+	return errors.New(f.message)
 }
 
 type spyTray struct {

@@ -391,6 +391,18 @@ export namespace app {
 	        this.warnings = source["warnings"];
 	    }
 	}
+	export class ProviderRefreshModelsInput {
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderRefreshModelsInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	    }
+	}
 	export class ProviderView {
 	    id: string;
 	    name?: string;
@@ -666,6 +678,68 @@ export namespace app {
 	        this.requestHeaders = source["requestHeaders"];
 	        this.requestParams = source["requestParams"];
 	        this.attempts = this.convertValues(source["attempts"], TraceAttempt);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RequestTraceListInput {
+	    page: number;
+	    pageSize: number;
+	    aliases?: string[];
+	    failoverCounts?: number[];
+	    statusCodes?: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestTraceListInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.page = source["page"];
+	        this.pageSize = source["pageSize"];
+	        this.aliases = source["aliases"];
+	        this.failoverCounts = source["failoverCounts"];
+	        this.statusCodes = source["statusCodes"];
+	    }
+	}
+	export class RequestTraceListResult {
+	    items: RequestTrace[];
+	    total: number;
+	    page: number;
+	    pageSize: number;
+	    availableAliases?: string[];
+	    availableFailoverCounts?: number[];
+	    availableStatusCodes?: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestTraceListResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], RequestTrace);
+	        this.total = source["total"];
+	        this.page = source["page"];
+	        this.pageSize = source["pageSize"];
+	        this.availableAliases = source["availableAliases"];
+	        this.availableFailoverCounts = source["availableFailoverCounts"];
+	        this.availableStatusCodes = source["availableStatusCodes"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

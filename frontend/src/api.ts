@@ -12,6 +12,7 @@ import type {
   Overview,
   ProviderImportInput,
   ProviderImportResult,
+  ProviderRefreshModelsInput,
   ProviderSaveResult,
   ProviderStateInput,
   ProviderUpsertInput,
@@ -20,6 +21,8 @@ import type {
   ProxySettingsView,
   ProxyStatusView,
   RequestTrace,
+  RequestTraceListInput,
+  RequestTraceListResult,
   SyncInput,
   SyncPreview,
   SyncResult,
@@ -100,6 +103,12 @@ export function saveProvider(input: ProviderUpsertInput): Promise<ProviderSaveRe
   return isWails()
     ? bridge().SaveProvider(input)
     : http<ProviderSaveResult>('/api/providers', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function refreshProviderModels(input: ProviderRefreshModelsInput): Promise<ProviderSaveResult> {
+	return isWails()
+		? bridge().RefreshProviderModels(input)
+		: http<ProviderSaveResult>('/api/providers/refresh-models', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function setProviderState(input: ProviderStateInput): Promise<ProviderView> {
@@ -184,6 +193,12 @@ export function saveProxySettings(input: ProxySettingsView): Promise<ProxySettin
 
 export function listRequestTraces(): Promise<RequestTrace[]> {
   return isWails() ? bridge().RequestTraces(100) : http<RequestTrace[]>('/api/proxy/traces')
+}
+
+export function queryRequestTraces(input: RequestTraceListInput): Promise<RequestTraceListResult> {
+	return isWails()
+		? bridge().TraceList(input)
+		: http<RequestTraceListResult>('/api/proxy/traces/query', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function startProxy(): Promise<ProxyStatusView> {

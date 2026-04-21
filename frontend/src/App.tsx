@@ -14,6 +14,8 @@ import {
   listRequestTraces,
   listAliases,
   listProviders,
+  queryRequestTraces,
+  refreshProviderModels,
   previewSync,
   runDoctor,
   saveAlias,
@@ -40,6 +42,7 @@ import type {
   Overview,
   ProviderImportInput,
   ProviderImportResult,
+  ProviderRefreshModelsInput,
   ProviderSaveResult,
   ProviderProtocol,
   ProviderUpsertInput,
@@ -47,6 +50,8 @@ import type {
   ProxySettingsSaveResult,
   ProxySettingsView,
   RequestTrace,
+  RequestTraceListInput,
+  RequestTraceListResult,
   SyncInput,
   SyncPreview,
   SyncResult,
@@ -84,6 +89,7 @@ type ResolvedTheme = 'light' | 'dark'
 type ModalKey = 'provider-import' | 'alias-target' | null
 type DetailMode = 'empty' | 'create' | 'edit'
 type ConfigImportMode = 'text' | 'file'
+type TraceFilterKey = 'all' | 'none'
 type ConfirmIntent =
   | { kind: 'delete-provider'; id: string }
   | { kind: 'delete-alias'; alias: string }
@@ -161,6 +167,80 @@ const emptyTargetForm: AliasTargetInput = {
   provider: '',
   model: '',
   disabled: false,
+}
+
+const tracePageSize = 25
+
+type TraceQueryState = {
+	page: number
+	aliases: string[]
+	failoverCounts: number[]
+	statusCodes: number[]
+}
+
+type TraceCatalogState = {
+	aliases: string[]
+	failoverCounts: number[]
+	statusCodes: number[]
+}
+
+const emptyTraceQuery: TraceQueryState = {
+	page: 1,
+	aliases: [],
+	failoverCounts: [],
+	statusCodes: [],
+}
+
+const emptyTraceCatalog: TraceCatalogState = {
+	aliases: [],
+	failoverCounts: [],
+	statusCodes: [],
+}
+
+function sameTextSlice(left: string[], right: string[]): boolean {
+	if (left.length !== right.length) {
+		return false
+	}
+	return left.every((value, index) => value === right[index])
+}
+
+function sameNumberSlice(left: number[], right: number[]): boolean {
+	if (left.length !== right.length) {
+		return false
+	}
+	return left.every((value, index) => value === right[index])
+}
+
+function resolveDraftAliasProtocol(
+	aliasName: string,
+	aliasForm: AliasFormState,
+	selectedAlias: AliasView | null,
+	aliases: AliasView[],
+	preferDraftProtocol: boolean,
+): ProviderProtocol {
+	const trimmedAlias = aliasName.trim()
+	const draftAlias = aliasForm.alias.trim()
+	const storedAlias = aliases.find((alias) => alias.alias === trimmedAlias) || null
+	if (preferDraftProtocol && (!trimmedAlias || trimmedAlias === draftAlias || !storedAlias)) {
+		return aliasForm.protocol
+	}
+	return resolveAliasProtocol(storedAlias || selectedAlias)
+}
+
+function selectedTraceModel(providerId: string, providers: ProviderView[]): string[] {
+	return providers.find((provider) => provider.id === providerId)?.models || []
+}
+
+function tracePageCount(total: number, pageSize: number): number {
+	return Math.max(1, Math.ceil(total / pageSize))
+}
+
+function toggleTextFilter(values: string[], value: string): string[] {
+	return values.includes(value) ? values.filter((item) => item !== value) : [...values, value].sort((a, b) => a.localeCompare(b))
+}
+
+function toggleNumberFilter(values: number[], value: number): number[] {
+	return values.includes(value) ? values.filter((item) => item !== value) : [...values, value].sort((a, b) => a - b)
 }
 
 function pretty(value: unknown): string {
@@ -419,7 +499,14 @@ export default function App() {
   const [aliasStatus, setAliasStatus] = useState('')
   const [aliasForm, setAliasForm] = useState<AliasFormState>(emptyAliasForm)
   const [targetForm, setTargetForm] = useState<AliasTargetInput>(emptyTargetForm)
-  const [requestTraces, setRequestTraces] = useState<RequestTrace[]>([])
+  const [logTraces, setLogTraces] = useState<RequestTrace[]>([])
+  const [networkTraces, setNetworkTraces] = useState<RequestTrace[]>([])
+  const [logTraceQuery, setLogTraceQuery] = useState<TraceQueryState>(emptyTraceQuery)
+  const [networkTraceQuery, setNetworkTraceQuery] = useState<TraceQueryState>(emptyTraceQuery)
+  const [logTraceTotal, setLogTraceTotal] = useState(0)
+  const [networkTraceTotal, setNetworkTraceTotal] = useState(0)
+  const [logTraceCatalog, setLogTraceCatalog] = useState<TraceCatalogState>(emptyTraceCatalog)
+  const [networkTraceCatalog, setNetworkTraceCatalog] = useState<TraceCatalogState>(emptyTraceCatalog)
   const [traceStatus, setTraceStatus] = useState('')
   const [selectedLogTraceId, setSelectedLogTraceId] = useState<number | null>(null)
   const [selectedNetworkTraceId, setSelectedNetworkTraceId] = useState<number | null>(null)
@@ -447,17 +534,29 @@ export default function App() {
   const logDetailRef = useRef<HTMLDivElement | null>(null)
   const networkDetailRef = useRef<HTMLDivElement | null>(null)
 
+  const fetchTracePage = useCallback(async (query: TraceQueryState): Promise<RequestTraceListResult> => {
+	return queryRequestTraces({
+		page: query.page,
+		pageSize: tracePageSize,
+		aliases: query.aliases,
+		failoverCounts: query.failoverCounts,
+		statusCodes: query.statusCodes,
+	})
+  }, [])
+
   const refreshAll = useCallback(async (options?: { syncDesktopPrefs?: boolean }) => {
     const syncDesktopPrefs = options?.syncDesktopPrefs ?? false
     setLoading(true)
     setPrefsStatus(i18n.t('messages.refreshing'))
     try {
-      const [metaData, overviewData, providerData, aliasData, proxySettingsData] = await Promise.all([
+      const [metaData, overviewData, providerData, aliasData, proxySettingsData, logResult, networkResult] = await Promise.all([
         getMeta(),
         getOverview(),
         listProviders(),
         listAliases(),
         getProxySettings(),
+        fetchTracePage(logTraceQuery),
+        fetchTracePage(networkTraceQuery),
       ])
       setMeta(metaData)
       setOverview(overviewData)
@@ -467,10 +566,22 @@ export default function App() {
         setPrefs(overviewData.desktop)
       }
       setProxySettings(proxySettingsData)
-      const traces = await listRequestTraces()
-      setRequestTraces(traces)
-      setSelectedLogTraceId((current) => resolveSelectedTraceId(current, traces))
-      setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, traces))
+      setLogTraces(logResult.items)
+      setNetworkTraces(networkResult.items)
+      setLogTraceTotal(logResult.total)
+      setNetworkTraceTotal(networkResult.total)
+      setLogTraceCatalog({
+		aliases: logResult.availableAliases || [],
+		failoverCounts: logResult.availableFailoverCounts || [],
+		statusCodes: logResult.availableStatusCodes || [],
+	  })
+      setNetworkTraceCatalog({
+		aliases: networkResult.availableAliases || [],
+		failoverCounts: networkResult.availableFailoverCounts || [],
+		statusCodes: networkResult.availableStatusCodes || [],
+	  })
+      setSelectedLogTraceId((current) => resolveSelectedTraceId(current, logResult.items))
+      setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, networkResult.items))
       setPrefsStatus(i18n.t('messages.fresh'))
       setProxySettingsStatus(i18n.t('messages.fresh'))
       setTraceStatus(i18n.t('messages.fresh'))
@@ -481,7 +592,7 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fetchTracePage, logTraceQuery, networkTraceQuery])
 
   useEffect(() => {
     void refreshAll({ syncDesktopPrefs: true })
@@ -527,18 +638,21 @@ export default function App() {
   const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch))
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null
   const selectedAlias = aliases.find((alias) => alias.alias === selectedAliasId) || null
-  const targetAlias = aliases.find((alias) => alias.alias === targetForm.alias.trim()) || null
-  const targetProtocol = resolveAliasProtocol(targetAlias || selectedAlias)
-  const bindableProviders = providers
-    .filter((provider) => provider.protocol === targetProtocol)
-    .sort((left, right) => left.id.localeCompare(right.id))
-  const providerDetailOpen = providerDetailMode !== 'empty'
-  const aliasDetailOpen = aliasDetailMode !== 'empty'
-  const selectedLogTrace = requestTraces.find((trace) => trace.id === selectedLogTraceId) || null
-  const selectedNetworkTrace = requestTraces.find((trace) => trace.id === selectedNetworkTraceId) || null
+	const targetAlias = aliases.find((alias) => alias.alias === targetForm.alias.trim()) || null
+	const providerDetailOpen = providerDetailMode !== 'empty'
+	const aliasDetailOpen = aliasDetailMode !== 'empty'
+	const targetProtocol = resolveDraftAliasProtocol(targetForm.alias, aliasForm, selectedAlias, aliases, aliasDetailOpen)
+	const bindableProviders = providers
+		.filter((provider) => provider.protocol === targetProtocol)
+		.sort((left, right) => left.id.localeCompare(right.id))
+	const bindableModels = selectedTraceModel(targetForm.provider, providers)
+	const selectedLogTrace = logTraces.find((trace) => trace.id === selectedLogTraceId) || null
+  const selectedNetworkTrace = networkTraces.find((trace) => trace.id === selectedNetworkTraceId) || null
   const logDetailOpen = selectedLogTraceId !== null && selectedLogTrace !== null
   const networkDetailOpen = selectedNetworkTraceId !== null && selectedNetworkTrace !== null
   const proxyRunning = overview?.proxy.running ?? false
+  const logPageCount = tracePageCount(logTraceTotal, tracePageSize)
+  const networkPageCount = tracePageCount(networkTraceTotal, tracePageSize)
   const stats = overview
     ? [
         ['overview.providers', String(overview.providerCount)],
@@ -576,13 +690,30 @@ export default function App() {
     let cancelled = false
     const tick = async () => {
       try {
-        const traces = await listRequestTraces()
+	        const query = activeTab === 'log' ? logTraceQuery : networkTraceQuery
+	        const result = await fetchTracePage(query)
         if (cancelled) {
           return
         }
-        setRequestTraces(traces)
-        setSelectedLogTraceId((current) => resolveSelectedTraceId(current, traces))
-        setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, traces))
+	        if (activeTab === 'log') {
+			setLogTraces(result.items)
+			setLogTraceTotal(result.total)
+			setLogTraceCatalog({
+				aliases: result.availableAliases || [],
+				failoverCounts: result.availableFailoverCounts || [],
+				statusCodes: result.availableStatusCodes || [],
+			})
+			setSelectedLogTraceId((current) => resolveSelectedTraceId(current, result.items))
+		} else {
+			setNetworkTraces(result.items)
+			setNetworkTraceTotal(result.total)
+			setNetworkTraceCatalog({
+				aliases: result.availableAliases || [],
+				failoverCounts: result.availableFailoverCounts || [],
+				statusCodes: result.availableStatusCodes || [],
+			})
+			setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, result.items))
+		}
         setTraceStatus(i18n.t('messages.fresh'))
       } catch (error) {
         if (!cancelled) {
@@ -598,7 +729,7 @@ export default function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeTab])
+  }, [activeTab, fetchTracePage, logTraceQuery, networkTraceQuery])
 
   useEffect(() => {
     if (activeTab === 'providers' && providerDetailOpen) {
@@ -744,12 +875,12 @@ export default function App() {
     setAliasDetailMode('create')
   }
 
-  function openAliasTargetModal(alias?: string) {
-    const aliasName = alias || ''
-    const currentAlias = aliases.find((item) => item.alias === aliasName) || null
-    const nextProtocol = resolveAliasProtocol(currentAlias)
-    const nextProvider = providers.find((provider) => provider.protocol === nextProtocol)?.id || ''
-    setTargetForm({ ...emptyTargetForm, alias: aliasName, provider: nextProvider })
+	function openAliasTargetModal(alias?: string) {
+		const aliasName = alias || ''
+		const nextProtocol = resolveDraftAliasProtocol(aliasName, aliasForm, selectedAlias, aliases, aliasDetailOpen)
+		const nextProvider = providers.find((provider) => provider.protocol === nextProtocol)?.id || ''
+		const nextModel = selectedTraceModel(nextProvider, providers)[0] || ''
+		setTargetForm({ ...emptyTargetForm, alias: aliasName, provider: nextProvider, model: nextModel })
     setActiveModal('alias-target')
   }
 
@@ -940,6 +1071,21 @@ export default function App() {
     }
   }
 
+  async function onRefreshProviderModels(input: ProviderRefreshModelsInput) {
+	setProviderStatus(i18n.t('providers.statusRefreshingModels', { id: input.id }))
+	try {
+		const result = await refreshProviderModels(input)
+		setSelectedProviderId(result.provider.id)
+		setEditingProviderId(result.provider.id)
+		setProviderForm(providerFormFromView(result.provider))
+		setProviderDetailMode('edit')
+		setProviderStatus(withWarnings(i18n.t('providers.statusRefreshedModels', { id: result.provider.id }), result.warnings))
+		await refreshAll()
+	} catch (error) {
+		setProviderStatus(formatError(error))
+	}
+  }
+
   async function onImportProviders(event: FormEvent) {
     event.preventDefault()
     setProviderStatus(i18n.t('messages.importing'))
@@ -1056,16 +1202,36 @@ export default function App() {
     }
   }
 
-  function onTargetAliasChange(event: ChangeEvent<HTMLInputElement>) {
-    const alias = event.target.value
-    const currentAlias = aliases.find((item) => item.alias === alias.trim()) || null
-    const nextProtocol = resolveAliasProtocol(currentAlias || selectedAlias)
-    setTargetForm((current) => {
-      const nextProvider = current.provider && providers.some((provider) => provider.id === current.provider && provider.protocol === nextProtocol)
+	function onTargetAliasChange(event: ChangeEvent<HTMLInputElement>) {
+		const alias = event.target.value
+		const nextProtocol = resolveDraftAliasProtocol(alias, aliasForm, selectedAlias, aliases, aliasDetailOpen)
+		setTargetForm((current) => {
+			const nextProvider = current.provider && providers.some((provider) => provider.id === current.provider && provider.protocol === nextProtocol)
         ? current.provider
         : providers.find((provider) => provider.protocol === nextProtocol)?.id || ''
-      return { ...current, alias, provider: nextProvider }
+      const nextModels = selectedTraceModel(nextProvider, providers)
+      const nextModel = nextProvider === current.provider && nextModels.includes(current.model) ? current.model : nextModels[0] || ''
+      return { ...current, alias, provider: nextProvider, model: nextModel }
     })
+  }
+
+  function onTargetProviderChange(providerId: string) {
+	const models = selectedTraceModel(providerId, providers)
+	setTargetForm((current) => ({
+		...current,
+		provider: providerId,
+		model: models.includes(current.model) ? current.model : models[0] || '',
+	}))
+  }
+
+  function updateLogTraceQuery(update: (current: TraceQueryState) => TraceQueryState) {
+	setLogTraceQuery((current) => update(current))
+	setSelectedLogTraceId(null)
+  }
+
+  function updateNetworkTraceQuery(update: (current: TraceQueryState) => TraceQueryState) {
+	setNetworkTraceQuery((current) => update(current))
+	setSelectedNetworkTraceId(null)
   }
 
   async function onUnbindTarget(alias: string, provider: string, model: string) {
@@ -1720,17 +1886,49 @@ export default function App() {
                   <p className="subtle">{traceStatus || t('log.subtitle')}</p>
                 </div>
                 <div className="list-header-actions">
-                  <span className="subtle list-status-text">{t('log.count', { count: requestTraces.length })}</span>
+	                  <span className="subtle list-status-text">{t('log.count', { count: logTraceTotal })}</span>
                 </div>
               </div>
+	              <div className="list-toolbar trace-toolbar">
+	                <div className="filter-group">
+	                  <span className="filter-group-label">{t('log.aliasFilter')}</span>
+	                  <div className="filter-chip-grid">
+	                    {logTraceCatalog.aliases.map((alias) => (
+	                      <button
+	                        key={alias}
+	                        type="button"
+	                        className={logTraceQuery.aliases.includes(alias) ? 'filter-chip active' : 'filter-chip'}
+	                        onClick={() => updateLogTraceQuery((current) => ({ ...current, page: 1, aliases: toggleTextFilter(current.aliases, alias) }))}
+	                      >
+	                        {alias}
+	                      </button>
+	                    ))}
+	                  </div>
+	                </div>
+	                <div className="filter-group">
+	                  <span className="filter-group-label">{t('log.failoverFilter')}</span>
+	                  <div className="filter-chip-grid">
+	                    {logTraceCatalog.failoverCounts.map((count) => (
+	                      <button
+	                        key={count}
+	                        type="button"
+	                        className={logTraceQuery.failoverCounts.includes(count) ? 'filter-chip active' : 'filter-chip'}
+	                        onClick={() => updateLogTraceQuery((current) => ({ ...current, page: 1, failoverCounts: toggleNumberFilter(current.failoverCounts, count) }))}
+	                      >
+	                        {t('log.failoverCountValue', { count })}
+	                      </button>
+	                    ))}
+	                  </div>
+	                </div>
+	              </div>
               <div className="scroll-list compact-list trace-scroll-list">
-                {requestTraces.length === 0 ? (
+	                {logTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('log.empty')}</h4>
                     <p className="subtle">{t('log.emptyHint')}</p>
                   </article>
                 ) : null}
-                {requestTraces.map((trace) => (
+	                {logTraces.map((trace) => (
                   <article
                     key={trace.id}
                     className={`resource-card ${logDetailOpen && selectedLogTrace?.id === trace.id ? 'active' : ''}`}
@@ -1789,6 +1987,15 @@ export default function App() {
                   </article>
                 ))}
               </div>
+	              <div className="list-pagination">
+	                <button type="button" disabled={logTraceQuery.page <= 1} onClick={() => updateLogTraceQuery((current) => ({ ...current, page: current.page - 1 }))}>
+	                  {t('log.prevPage')}
+	                </button>
+	                <span className="subtle">{t('log.pageStatus', { page: logTraceQuery.page, total: logPageCount })}</span>
+	                <button type="button" disabled={logTraceQuery.page >= logPageCount} onClick={() => updateLogTraceQuery((current) => ({ ...current, page: current.page + 1 }))}>
+	                  {t('log.nextPage')}
+	                </button>
+	              </div>
             </article>
           </section>
         ) : null}
@@ -1802,17 +2009,34 @@ export default function App() {
                   <p className="subtle">{traceStatus || t('network.subtitle')}</p>
                 </div>
                 <div className="list-header-actions">
-                  <span className="subtle list-status-text">{t('network.count', { count: requestTraces.length })}</span>
+	                  <span className="subtle list-status-text">{t('network.count', { count: networkTraceTotal })}</span>
                 </div>
               </div>
+	              <div className="list-toolbar trace-toolbar">
+	                <div className="filter-group">
+	                  <span className="filter-group-label">{t('network.statusCodeFilter')}</span>
+	                  <div className="filter-chip-grid">
+	                    {networkTraceCatalog.statusCodes.map((code) => (
+	                      <button
+	                        key={code}
+	                        type="button"
+	                        className={networkTraceQuery.statusCodes.includes(code) ? 'filter-chip active' : 'filter-chip'}
+	                        onClick={() => updateNetworkTraceQuery((current) => ({ ...current, page: 1, statusCodes: toggleNumberFilter(current.statusCodes, code) }))}
+	                      >
+	                        {code}
+	                      </button>
+	                    ))}
+	                  </div>
+	                </div>
+	              </div>
               <div className="scroll-list compact-list trace-scroll-list">
-                {requestTraces.length === 0 ? (
+	                {networkTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('log.empty')}</h4>
                     <p className="subtle">{t('log.emptyHint')}</p>
                   </article>
                 ) : null}
-                {requestTraces.map((trace) => (
+	                {networkTraces.map((trace) => (
                   <article
                     key={trace.id}
                     className={`resource-card ${networkDetailOpen && selectedNetworkTrace?.id === trace.id ? 'active' : ''}`}
@@ -1857,6 +2081,15 @@ export default function App() {
                   </article>
                 ))}
               </div>
+	              <div className="list-pagination">
+	                <button type="button" disabled={networkTraceQuery.page <= 1} onClick={() => updateNetworkTraceQuery((current) => ({ ...current, page: current.page - 1 }))}>
+	                  {t('network.prevPage')}
+	                </button>
+	                <span className="subtle">{t('network.pageStatus', { page: networkTraceQuery.page, total: networkPageCount })}</span>
+	                <button type="button" disabled={networkTraceQuery.page >= networkPageCount} onClick={() => updateNetworkTraceQuery((current) => ({ ...current, page: current.page + 1 }))}>
+	                  {t('network.nextPage')}
+	                </button>
+	              </div>
             </article>
           </section>
         ) : null}
@@ -2220,6 +2453,11 @@ export default function App() {
                 </div>
                 <div className="toolbar">
                   {providerDetailMode === 'edit' && selectedProvider ? (
+	                    <button type="button" onClick={() => void onRefreshProviderModels({ id: selectedProvider.id })}>
+	                      {t('providers.refreshModels')}
+	                    </button>
+	                  ) : null}
+	                  {providerDetailMode === 'edit' && selectedProvider ? (
                     <button type="button" onClick={() => void onToggleProvider(selectedProvider)}>
                       {selectedProvider.disabled ? t('actions.enable') : t('actions.disable')}
                     </button>
@@ -2416,16 +2654,16 @@ export default function App() {
                     placeholder={t('aliases.placeholderAliasBinding')}
                   />
                 </label>
-                <label>
-                  <span>{t('aliases.providerId')}</span>
+                    <label>
+                      <span>{t('aliases.providerId')}</span>
                   <div className="inline-pills bind-modal-pills">
                     <span className={protocolBadgeClass(targetProtocol)}>{protocolLabel(targetProtocol)}</span>
                     <span className="pill">{t('aliases.bindableProviders', { count: bindableProviders.length })}</span>
                   </div>
-                  <select
-                    value={targetForm.provider}
-                    onChange={(event) => setTargetForm((current) => ({ ...current, provider: event.target.value }))}
-                  >
+                    <select
+                      value={targetForm.provider}
+	                    onChange={(event) => onTargetProviderChange(event.target.value)}
+                    >
                     <option value="">{t('aliases.placeholderProviderSelect')}</option>
                     {bindableProviders.map((provider) => (
                       <option key={provider.id} value={provider.id}>
@@ -2441,12 +2679,28 @@ export default function App() {
                 </label>
                 <label>
                   <span>{t('aliases.model')}</span>
-                  <input
-                    type="text"
-                    value={targetForm.model}
-                    onChange={(event) => setTargetForm((current) => ({ ...current, model: event.target.value }))}
-                    placeholder={t('aliases.placeholderModel')}
-                  />
+	                  {bindableModels.length > 0 ? (
+	                    <select value={targetForm.model} onChange={(event) => setTargetForm((current) => ({ ...current, model: event.target.value }))}>
+	                      <option value="">{t('aliases.placeholderModelSelect')}</option>
+	                      {bindableModels.map((model) => (
+	                        <option key={model} value={model}>
+	                          {model}
+	                        </option>
+	                      ))}
+	                    </select>
+	                  ) : (
+	                    <input
+	                      type="text"
+	                      value={targetForm.model}
+	                      onChange={(event) => setTargetForm((current) => ({ ...current, model: event.target.value }))}
+	                      placeholder={t('aliases.placeholderModel')}
+	                    />
+	                  )}
+	                  <span className="subtle">
+	                    {bindableModels.length > 0
+	                      ? t('aliases.providerModelsLoaded', { count: bindableModels.length })
+	                      : t('aliases.providerModelsEmpty')}
+	                  </span>
                 </label>
                 <label className="checkbox-row">
                   <input

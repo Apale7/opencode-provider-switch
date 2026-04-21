@@ -78,6 +78,10 @@ export function ProxyStatus() {
   return window['go']['desktop']['App']['ProxyStatus']();
 }
 
+export function RefreshProviderModels(arg1) {
+  return window['go']['desktop']['App']['RefreshProviderModels'](arg1);
+}
+
 export function RequestTraces(arg1) {
   return window['go']['desktop']['App']['RequestTraces'](arg1);
 }
@@ -136,6 +140,10 @@ export function StopProxy() {
 
 export function SyncDesktopPreferences(arg1) {
   return window['go']['desktop']['App']['SyncDesktopPreferences'](arg1);
+}
+
+export function TraceList(arg1) {
+  return window['go']['desktop']['App']['TraceList'](arg1);
 }
 
 export function UnbindTarget(arg1) {

@@ -103,6 +103,24 @@ export type RequestTrace = {
   attempts: TraceAttempt[]
 }
 
+export type RequestTraceListInput = {
+  page: number
+  pageSize: number
+  aliases?: string[]
+  failoverCounts?: number[]
+  statusCodes?: number[]
+}
+
+export type RequestTraceListResult = {
+  items: RequestTrace[]
+  total: number
+  page: number
+  pageSize: number
+  availableAliases?: string[]
+  availableFailoverCounts?: number[]
+  availableStatusCodes?: number[]
+}
+
 export type Overview = {
   configPath: string
   providerCount: number
@@ -128,6 +146,10 @@ export type ProviderView = {
 export type ProviderSaveResult = {
   provider: ProviderView
   warnings?: string[]
+}
+
+export type ProviderRefreshModelsInput = {
+  id: string
 }
 
 export type ProviderUpsertInput = {

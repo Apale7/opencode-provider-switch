@@ -41,6 +41,10 @@ func (b *Bindings) UpsertProvider(ctx context.Context, in app.ProviderUpsertInpu
 	return b.service.UpsertProvider(ctx, in)
 }
 
+func (b *Bindings) RefreshProviderModels(ctx context.Context, in app.ProviderRefreshModelsInput) (app.ProviderSaveResult, error) {
+	return b.service.RefreshProviderModels(ctx, in)
+}
+
 func (b *Bindings) SetProviderDisabled(ctx context.Context, in app.ProviderStateInput) (app.ProviderView, error) {
 	return b.service.SetProviderDisabled(ctx, in)
 }
@@ -93,6 +97,10 @@ func (b *Bindings) ListRequestTraces(ctx context.Context, limit int) ([]app.Requ
 	return b.service.ListRequestTraces(ctx, limit)
 }
 
+func (b *Bindings) QueryRequestTraces(ctx context.Context, in app.RequestTraceListInput) (app.RequestTraceListResult, error) {
+	return b.service.QueryRequestTraces(ctx, in)
+}
+
 func (b *Bindings) GetProxySettings(ctx context.Context) (app.ProxySettingsView, error) {
 	return b.service.GetProxySettings(ctx)
 }
@@ -139,6 +147,10 @@ func (b *Bindings) SaveProvider(in app.ProviderUpsertInput) (app.ProviderSaveRes
 	return b.UpsertProvider(context.Background(), in)
 }
 
+func (b *Bindings) RefreshProviderModelsNow(in app.ProviderRefreshModelsInput) (app.ProviderSaveResult, error) {
+	return b.RefreshProviderModels(context.Background(), in)
+}
+
 func (b *Bindings) SetProviderState(in app.ProviderStateInput) (app.ProviderView, error) {
 	return b.SetProviderDisabled(context.Background(), in)
 }
@@ -181,6 +193,10 @@ func (b *Bindings) ProxyStatus() (app.ProxyStatusView, error) {
 
 func (b *Bindings) RequestTraces(limit int) ([]app.RequestTrace, error) {
 	return b.ListRequestTraces(context.Background(), limit)
+}
+
+func (b *Bindings) TraceList(in app.RequestTraceListInput) (app.RequestTraceListResult, error) {
+	return b.QueryRequestTraces(context.Background(), in)
 }
 
 func (b *Bindings) ProxySettings() (app.ProxySettingsView, error) {

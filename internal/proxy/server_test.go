@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -112,7 +113,10 @@ func TestHandleMessagesProxiesAnthropicRequest(t *testing.T) {
 	if seenModel != "claude-3-7-sonnet" {
 		t.Fatalf("model = %q, want claude-3-7-sonnet", seenModel)
 	}
-	traces := srv.traces.List(10)
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
 	if len(traces) != 1 || traces[0].Protocol != config.ProtocolAnthropicMessages {
 		t.Fatalf("traces = %#v", traces)
 	}
@@ -245,7 +249,10 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p2" {
 		t.Fatalf("X-OCSWITCH-Provider = %q, want p2", got)
 	}
-	traces := srv.traces.List(10)
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
 	if len(traces) != 1 {
 		t.Fatalf("trace count = %d, want 1", len(traces))
 	}
@@ -387,7 +394,10 @@ func TestHandleResponsesMarksBrokenStreamAsFailure(t *testing.T) {
 
 	srv.handleResponses(rr, req)
 
-	traces := srv.traces.List(10)
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
 	if len(traces) != 1 {
 		t.Fatalf("trace count = %d, want 1", len(traces))
 	}
