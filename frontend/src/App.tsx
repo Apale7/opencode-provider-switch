@@ -49,6 +49,8 @@ import type {
   ProviderProtocol,
   ProviderUpsertInput,
   ProviderView,
+  RoutingStrategyDescriptor,
+  RoutingStrategyParamSpec,
   ProxySettingsSaveResult,
   ProxySettingsView,
   RequestTrace,
@@ -116,6 +118,20 @@ const emptyProxySettings: ProxySettingsView = {
   firstByteTimeoutMs: 15000,
   requestReadTimeoutMs: 30000,
   streamIdleTimeoutMs: 60000,
+  routing: {
+    strategy: 'circuit-breaker',
+    params: {
+      failureThreshold: 2,
+      baseCooldownMs: 30000,
+      maxCooldownMs: 300000,
+      backoffMultiplier: 2,
+      halfOpenMaxRequests: 1,
+      closeAfterSuccesses: 1,
+      countPostCommitErrors: true,
+      rateLimitCooldownMs: 15000,
+    },
+    descriptors: [],
+  },
 }
 
 const emptySync: SyncInput = {
@@ -408,6 +424,98 @@ function proxySettingsSaveStatus(result: ProxySettingsSaveResult): string {
   return withWarnings(i18n.t('messages.saved'), result.warnings)
 }
 
+function activeRoutingDescriptor(proxySettings: ProxySettingsView): RoutingStrategyDescriptor | null {
+	return proxySettings.routing.descriptors?.find((item) => item.name === proxySettings.routing.strategy) || null
+}
+
+function routingI18nBase(strategyName: string): string | null {
+	if (strategyName === 'circuit-breaker') {
+		return 'settings.routing.circuitBreaker'
+	}
+	return null
+}
+
+function routingStrategyLabel(descriptor: RoutingStrategyDescriptor): string {
+	const key = routingI18nBase(descriptor.name)
+	return key ? i18n.t(`${key}.displayName`, { defaultValue: descriptor.displayName }) : descriptor.displayName
+}
+
+function routingStrategyDescription(descriptor: RoutingStrategyDescriptor): string {
+	const key = routingI18nBase(descriptor.name)
+	return key ? i18n.t(`${key}.description`, { defaultValue: descriptor.description || '' }) : (descriptor.description || '')
+}
+
+function routingParameterLabel(strategyName: string, parameter: RoutingStrategyParamSpec): string {
+	const key = routingI18nBase(strategyName)
+	return key ? i18n.t(`${key}.params.${parameter.key}.label`, { defaultValue: parameter.description || parameter.key }) : (parameter.description || parameter.key)
+}
+
+function routingParameterDescription(strategyName: string, parameter: RoutingStrategyParamSpec): string {
+	const key = routingI18nBase(strategyName)
+	return key ? i18n.t(`${key}.params.${parameter.key}.description`, { defaultValue: parameter.description || '' }) : (parameter.description || '')
+}
+
+function updateRoutingParam(current: ProxySettingsView, key: string, value: unknown): ProxySettingsView {
+	return {
+		...current,
+		routing: {
+			...current.routing,
+			params: {
+				...(current.routing.params || {}),
+				[key]: value,
+			},
+		},
+	}
+}
+
+function routingParamInput(
+	proxySettings: ProxySettingsView,
+	strategyName: string,
+	parameter: RoutingStrategyParamSpec,
+	onChange: (next: ProxySettingsView) => void,
+) {
+	const value = proxySettings.routing.params?.[parameter.key] ?? parameter.defaultValue
+	if (parameter.type === 'bool') {
+		return (
+			<label className="checkbox-row" key={parameter.key}>
+				<input
+					type="checkbox"
+					checked={Boolean(value)}
+					onChange={(event) => onChange(updateRoutingParam(proxySettings, parameter.key, event.target.checked))}
+				/>
+				<span>{routingParameterLabel(strategyName, parameter)}</span>
+			</label>
+		)
+	}
+	if (parameter.enum && parameter.enum.length > 0) {
+		return (
+			<label key={parameter.key}>
+				<span>{routingParameterLabel(strategyName, parameter)}</span>
+				<select value={String(value ?? '')} onChange={(event) => onChange(updateRoutingParam(proxySettings, parameter.key, event.target.value))}>
+					{parameter.enum.map((option) => (
+						<option key={option} value={option}>{option}</option>
+					))}
+				</select>
+				{routingParameterDescription(strategyName, parameter) ? <p className="subtle">{routingParameterDescription(strategyName, parameter)}</p> : null}
+			</label>
+		)
+	}
+	return (
+		<label key={parameter.key}>
+			<span>{routingParameterLabel(strategyName, parameter)}</span>
+			<input
+				type="number"
+				min={parameter.min}
+				max={parameter.max}
+				step={parameter.type === 'float' ? '0.1' : 1}
+				value={typeof value === 'number' ? value : Number(value) || 0}
+				onChange={(event) => onChange(updateRoutingParam(proxySettings, parameter.key, parameter.type === 'float' ? Number(event.target.value) || 0 : Math.trunc(Number(event.target.value) || 0)))}
+			/>
+			{routingParameterDescription(strategyName, parameter) ? <p className="subtle">{routingParameterDescription(strategyName, parameter)}</p> : null}
+		</label>
+	)
+}
+
 function normalizeTab(hash: string): TabKey {
   const value = hash.replace(/^#/, '')
   return tabs.includes(value as TabKey) ? (value as TabKey) : 'overview'
@@ -650,6 +758,7 @@ export default function App() {
   const [configImportText, setConfigImportText] = useState('')
   const [configImportFileName, setConfigImportFileName] = useState('')
   const [confirmIntent, setConfirmIntent] = useState<ConfirmIntent | null>(null)
+  const activeRouting = activeRoutingDescriptor(proxySettings)
   const providerDetailRef = useRef<HTMLDivElement | null>(null)
   const aliasDetailRef = useRef<HTMLDivElement | null>(null)
   const logDetailRef = useRef<HTMLDivElement | null>(null)
@@ -2494,6 +2603,32 @@ export default function App() {
                       }
                     />
                   </label>
+                  <label>
+                    <span>{t('settings.routingStrategy')}</span>
+                    <select
+                      value={proxySettings.routing.strategy}
+                      onChange={(event) => {
+                        const nextStrategy = event.target.value
+                        const nextDescriptor = proxySettings.routing.descriptors?.find((item) => item.name === nextStrategy) || null
+                        setProxySettings((current) => ({
+                          ...current,
+                          routing: {
+                            ...current.routing,
+                            strategy: nextStrategy,
+                            params: nextDescriptor?.defaults || {},
+                          },
+                        }))
+                      }}
+					>
+						{(proxySettings.routing.descriptors || []).map((descriptor) => (
+							<option key={descriptor.name} value={descriptor.name}>{routingStrategyLabel(descriptor)}</option>
+						))}
+					</select>
+				</label>
+				{activeRouting?.description ? <p className="subtle">{routingStrategyDescription(activeRouting)}</p> : null}
+				{(activeRoutingDescriptor(proxySettings)?.parameters || []).map((parameter) =>
+					routingParamInput(proxySettings, proxySettings.routing.strategy, parameter, setProxySettings),
+				)}
                   <p className="subtle">
                     {proxyRunning ? t('settings.timeoutRunningHint') : t('settings.timeoutHint')}
                   </p>

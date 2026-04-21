@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/routing"
 )
 
 type openAIErrorEnvelope struct {
@@ -52,6 +53,8 @@ type Server struct {
 	client *http.Client
 	logger *log.Logger
 	traces RequestTraceStore
+	store  routing.StateStore
+	policy routing.Strategy
 }
 
 // New constructs a Server from cfg.
@@ -63,6 +66,8 @@ func New(cfg *config.Config, stores ...RequestTraceStore) *Server {
 	if traces == nil {
 		traces = NewTraceStore(defaultTraceLimit)
 	}
+	store := routing.NewMemoryStateStore()
+	policy := routing.MustBuild(cfg.Server.Routing, routing.Dependencies{Store: store})
 	firstByteTimeout := timeoutDuration(cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
 	responseHeaderTimeout := timeoutDuration(cfg.Server.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs)
 	transport := &http.Transport{
@@ -87,6 +92,8 @@ func New(cfg *config.Config, stores ...RequestTraceStore) *Server {
 		},
 		logger: log.New(log.Writer(), "[ocswitch] ", log.LstdFlags|log.Lmicroseconds),
 		traces: traces,
+		store:  store,
+		policy: policy,
 	}
 }
 
@@ -270,26 +277,58 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 
 	failoverCount := 0
 	var lastRetryable *upstreamFailure
-	for attempt, t := range targets {
+	candidates := make([]routing.Candidate, 0, len(targets))
+	for index, t := range targets {
+		provider := s.cfg.FindProvider(t.Provider)
+		baseURL := ""
+		if provider != nil {
+			baseURL = provider.BaseURL
+		}
+		candidates = append(candidates, routing.Candidate{Index: index, ProviderID: t.Provider, Provider: t.Provider, Protocol: protocol, Model: t.Model, BaseURL: baseURL})
+	}
+	session := s.policy.NewSession(routing.SessionInput{Now: startedAt, RequestID: reqID, Protocol: protocol, Alias: aliasName, Candidates: candidates})
+	attempt := 0
+	for {
+		decision, ok := session.Next()
+		if !ok {
+			break
+		}
+		attempt++
+		t := config.Target{Provider: decision.Candidate.ProviderID, Model: decision.Candidate.Model, Enabled: true}
 		attemptTrace := TraceAttempt{
-			Attempt:   attempt + 1,
+			Attempt:   attempt,
 			Provider:  t.Provider,
 			Model:     t.Model,
 			StartedAt: time.Now(),
 			Result:    "pending",
 		}
+		if decision.Skip {
+			attemptTrace.Skipped = true
+			attemptTrace.Result = "skipped"
+			attemptTrace.Error = decision.SkipReason
+			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+			trace.Attempts = append(trace.Attempts, attemptTrace)
+			session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: true, Outcome: routing.OutcomeSkipped, FailureReason: routing.FailureStrategySkipped})
+			failoverCount++
+			continue
+		}
 		p := s.cfg.FindProvider(t.Provider)
 		if p == nil || !p.IsEnabled() || !config.ProtocolsMatch(protocol, p.Protocol) {
-			s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt+1, t.Provider)
+			s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt, t.Provider)
 			attemptTrace.Skipped = true
 			attemptTrace.Result = "skipped"
 			attemptTrace.Error = fmt.Sprintf("provider %q unavailable", t.Provider)
 			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 			trace.Attempts = append(trace.Attempts, attemptTrace)
+			reason := routing.FailureProviderMissing
+			if p != nil && !p.IsEnabled() {
+				reason = routing.FailureProviderDisabled
+			}
+			session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: true, Outcome: routing.OutcomeSkipped, FailureReason: reason})
 			failoverCount++
 			continue
 		}
-		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt+1, p.ID, t.Model, failoverCount)
+		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt, p.ID, t.Model, failoverCount)
 		cloned := cloneMap(payload)
 		cloned["model"] = t.Model
 		upstreamURL := strings.TrimRight(p.BaseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
@@ -302,12 +341,13 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 			attemptTrace.Error = "marshal error"
 			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 			trace.Attempts = append(trace.Attempts, attemptTrace)
+			session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: false, Outcome: routing.OutcomeTerminalFail, FailureReason: routing.FailureUnknown})
 			trace.Error = "marshal error"
 			writeProtocolError(w, http.StatusInternalServerError, "server_error", "marshal error")
 			return
 		}
 
-		handled, success, retryable, upstreamErr, failure := s.tryOnce(r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt+1, failoverCount, &attemptTrace, &trace)
+		handled, success, retryable, upstreamErr, failure := s.tryOnce(r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
 		attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 		trace.Attempts = append(trace.Attempts, attemptTrace)
 		trace.FinalProvider = p.ID
@@ -317,6 +357,27 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		if trace.FirstByteMs == 0 {
 			trace.FirstByteMs = attemptTrace.FirstByteMs
 		}
+		feedback := routing.AttemptFeedback{
+			Candidate:       decision.Candidate,
+			StartedAt:       attemptTrace.StartedAt,
+			FinishedAt:      time.Now(),
+			Duration:        time.Since(attemptTrace.StartedAt),
+			FirstByte:       time.Duration(attemptTrace.FirstByteMs) * time.Millisecond,
+			Retryable:       retryable,
+			ResponseStarted: handled && attemptTrace.FirstByteMs > 0,
+			StatusCode:      attemptTrace.StatusCode,
+			FailureReason:   classifyFailureReason(attemptTrace, retryable),
+		}
+		if success {
+			feedback.Outcome = routing.OutcomeSuccess
+		} else if retryable {
+			feedback.Outcome = routing.OutcomeRetryableFail
+		} else if handled && attemptTrace.FirstByteMs > 0 {
+			feedback.Outcome = routing.OutcomePostCommitFail
+		} else {
+			feedback.Outcome = routing.OutcomeTerminalFail
+		}
+		session.Report(feedback)
 		if handled {
 			trace.Success = success
 			if !success {
@@ -325,14 +386,14 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 			return
 		}
 		if !retryable {
-			s.logger.Printf("req=%d alias=%s attempt=%d final failure: %v", reqID, aliasName, attempt+1, upstreamErr)
+			s.logger.Printf("req=%d alias=%s attempt=%d final failure: %v", reqID, aliasName, attempt, upstreamErr)
 			trace.Error = errorString(upstreamErr)
 			return
 		}
 		if failure != nil {
 			lastRetryable = failure
 		}
-		s.logger.Printf("req=%d alias=%s attempt=%d retryable: %v", reqID, aliasName, attempt+1, upstreamErr)
+		s.logger.Printf("req=%d alias=%s attempt=%d retryable: %v", reqID, aliasName, attempt, upstreamErr)
 		failoverCount++
 	}
 
@@ -852,4 +913,36 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+func classifyFailureReason(attempt TraceAttempt, retryable bool) routing.FailureReason {
+	if attempt.Skipped {
+		if strings.Contains(strings.ToLower(attempt.Error), "unavailable") {
+			return routing.FailureProviderDisabled
+		}
+		return routing.FailureUnknown
+	}
+	if retryable {
+		switch {
+		case attempt.StatusCode == http.StatusTooManyRequests:
+			return routing.FailureRateLimited
+		case attempt.StatusCode >= 500:
+			return routing.FailureUpstream5xx
+		case strings.Contains(attempt.Result, "timeout"):
+			return routing.FailureTimeout
+		case attempt.Result == "empty_response":
+			return routing.FailureEmptyResponse
+		case attempt.Result == "stream_error":
+			return routing.FailureStreamBroken
+		default:
+			return routing.FailureTransport
+		}
+	}
+	if attempt.StatusCode >= 400 && attempt.StatusCode < 500 {
+		return routing.FailureUpstream4xx
+	}
+	if attempt.Result == "stream_error" || attempt.Result == "downstream_write_error" {
+		return routing.FailureStreamBroken
+	}
+	return routing.FailureUnknown
 }

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/routing"
 )
 
 func TestHandleResponsesWritesOpenAIErrorForMissingAlias(t *testing.T) {
@@ -270,6 +271,104 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	}
 	if got := traces[0].RequestHeaders["Authorization"]; got == "Bearer "+config.DefaultLocalAPIKey || got == "" {
 		t.Fatalf("trace auth header = %q, want masked value", got)
+	}
+}
+
+func TestHandleResponsesSkipsOpenCircuitOnNextRequest(t *testing.T) {
+	t.Parallel()
+
+	var firstCalls int32
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&firstCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+	}))
+	defer first.Close()
+
+	var secondCalls int32
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&secondCalls, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{
+			APIKey: config.DefaultLocalAPIKey,
+			Routing: routing.Config{
+				Strategy: routing.DefaultStrategy,
+				Params:   json.RawMessage(`{"failureThreshold":1,"baseCooldownMs":60000,"maxCooldownMs":60000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":true,"rateLimitCooldownMs":60000}`),
+			},
+		},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1", APIKey: "sk-1"},
+			{ID: "p2", BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ocswitch/gpt-5.4","stream":true}`))
+	firstReq.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstReq.Header.Set("Accept", "text/event-stream")
+	firstResp := httptest.NewRecorder()
+	srv.handleResponses(firstResp, firstReq)
+
+	if firstResp.Code != http.StatusOK {
+		t.Fatalf("first response status = %d, want %d", firstResp.Code, http.StatusOK)
+	}
+	if got := atomic.LoadInt32(&firstCalls); got != 1 {
+		t.Fatalf("first provider calls after first request = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&secondCalls); got != 1 {
+		t.Fatalf("second provider calls after first request = %d, want 1", got)
+	}
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ocswitch/gpt-5.4","stream":true}`))
+	secondReq.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	secondReq.Header.Set("Content-Type", "application/json")
+	secondReq.Header.Set("Accept", "text/event-stream")
+	secondResp := httptest.NewRecorder()
+	srv.handleResponses(secondResp, secondReq)
+
+	if secondResp.Code != http.StatusOK {
+		t.Fatalf("second response status = %d, want %d", secondResp.Code, http.StatusOK)
+	}
+	if got := atomic.LoadInt32(&firstCalls); got != 1 {
+		t.Fatalf("first provider calls after second request = %d, want still 1", got)
+	}
+	if got := atomic.LoadInt32(&secondCalls); got != 2 {
+		t.Fatalf("second provider calls after second request = %d, want 2", got)
+	}
+	if got := secondResp.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+		t.Fatalf("second response X-OCSWITCH-Attempt = %q, want 2", got)
+	}
+	if got := secondResp.Header().Get("X-OCSWITCH-Failover-Count"); got != "1" {
+		t.Fatalf("second response X-OCSWITCH-Failover-Count = %q, want 1", got)
+	}
+
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 2 {
+		t.Fatalf("trace count = %d, want 2", len(traces))
+	}
+	latest := traces[0]
+	if len(latest.Attempts) != 2 {
+		t.Fatalf("latest trace attempts = %d, want 2", len(latest.Attempts))
+	}
+	if !latest.Attempts[0].Skipped || latest.Attempts[0].Provider != "p1" || latest.Attempts[0].Error != "circuit_open" {
+		t.Fatalf("latest first attempt = %#v", latest.Attempts[0])
+	}
+	if latest.Attempts[1].Provider != "p2" || !latest.Attempts[1].Success {
+		t.Fatalf("latest second attempt = %#v", latest.Attempts[1])
 	}
 }
 

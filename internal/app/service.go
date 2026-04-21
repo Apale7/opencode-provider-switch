@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 	"github.com/Apale7/opencode-provider-switch/internal/proxy"
+	"github.com/Apale7/opencode-provider-switch/internal/routing"
 )
 
 type Service struct {
@@ -295,6 +297,11 @@ func (s *Service) SaveProxySettings(ctx context.Context, in ProxySettingsInput) 
 	cfg.Server.FirstByteTimeoutMs = normalizePositiveInt(in.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
 	cfg.Server.RequestReadTimeoutMs = normalizePositiveInt(in.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs)
 	cfg.Server.StreamIdleTimeoutMs = normalizePositiveInt(in.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
+	normalizedRouting := routing.NormalizeConfig(routing.Config{Strategy: in.Routing.Strategy, Params: in.Routing.Params})
+	if err := routing.ValidateConfig(normalizedRouting); err != nil {
+		return ProxySettingsSaveResult{}, err
+	}
+	cfg.Server.Routing = normalizedRouting
 	if err := cfg.Save(); err != nil {
 		return ProxySettingsSaveResult{}, err
 	}
@@ -564,7 +571,19 @@ func proxySettingsView(server config.Server) ProxySettingsView {
 		FirstByteTimeoutMs:      normalizePositiveInt(server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs),
 		RequestReadTimeoutMs:    normalizePositiveInt(server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
 		StreamIdleTimeoutMs:     normalizePositiveInt(server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs),
+		Routing:                 routingSettingsView(server.Routing),
 	}
+}
+
+func routingInputJSON(value map[string]any) json.RawMessage {
+	if len(value) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func normalizePositiveInt(value int, fallback int) int {

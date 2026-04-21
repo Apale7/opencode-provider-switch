@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 	"github.com/Apale7/opencode-provider-switch/internal/proxy"
+	"github.com/Apale7/opencode-provider-switch/internal/routing"
 )
 
 func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
@@ -78,6 +80,10 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 		FirstByteTimeoutMs:      22000,
 		RequestReadTimeoutMs:    33000,
 		StreamIdleTimeoutMs:     70000,
+		Routing: ProxyRoutingSettingsInput{
+			Strategy: "circuit-breaker",
+			Params:   json.RawMessage(`{"failureThreshold":3,"baseCooldownMs":45000,"maxCooldownMs":90000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":false,"rateLimitCooldownMs":12000}`),
+		},
 	})
 	if err != nil {
 		t.Fatalf("SaveProxySettings() error = %v", err)
@@ -92,6 +98,19 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 	}
 	if cfg.Server.ConnectTimeoutMs != 12000 || cfg.Server.ResponseHeaderTimeoutMs != 21000 || cfg.Server.FirstByteTimeoutMs != 22000 || cfg.Server.RequestReadTimeoutMs != 33000 || cfg.Server.StreamIdleTimeoutMs != 70000 {
 		t.Fatalf("persisted server settings = %#v", cfg.Server)
+	}
+	if cfg.Server.Routing.Strategy != routing.DefaultStrategy {
+		t.Fatalf("routing strategy = %q, want %q", cfg.Server.Routing.Strategy, routing.DefaultStrategy)
+	}
+	params, err := routing.ResolveParams(cfg.Server.Routing)
+	if err != nil {
+		t.Fatalf("routing.ResolveParams() error = %v", err)
+	}
+	if got := params["failureThreshold"]; got != 3 {
+		t.Fatalf("failureThreshold = %#v, want 3", got)
+	}
+	if got := params["countPostCommitErrors"]; got != false {
+		t.Fatalf("countPostCommitErrors = %#v, want false", got)
 	}
 }
 

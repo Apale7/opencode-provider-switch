@@ -364,11 +364,52 @@
     "firstByteTimeout": "首字节超时（毫秒）",
     "requestReadTimeout": "客户端请求读取超时（毫秒）",
     "streamIdleTimeout": "流空闲超时（毫秒）",
+    "routingStrategy": "路由策略",
     "timeoutHint": "保存后会在下一次启动代理时生效。",
     "timeoutRunningHint": "代理当前正在运行，保存后的值要在重启代理后才会生效。",
     "saveTimeouts": "保存代理超时",
     "minimizeToTray": "最小化到托盘 / 关闭时转入后台",
-    "notifications": "系统通知"
+    "notifications": "系统通知",
+    "routing": {
+      "circuitBreaker": {
+        "displayName": "熔断策略",
+        "description": "当 provider 最近不稳定时先跳过它，冷却后再重新探测。",
+        "params": {
+          "failureThreshold": {
+            "label": "失败阈值",
+            "description": "连续多少次可重试失败后打开熔断。"
+          },
+          "baseCooldownMs": {
+            "label": "基础冷却（毫秒）",
+            "description": "熔断打开后的初始冷却时间。"
+          },
+          "maxCooldownMs": {
+            "label": "最大冷却（毫秒）",
+            "description": "指数退避时冷却时间的上限。"
+          },
+          "backoffMultiplier": {
+            "label": "退避倍率",
+            "description": "同一 provider 反复打开熔断时使用的倍率。"
+          },
+          "halfOpenMaxRequests": {
+            "label": "半开最大请求数",
+            "description": "半开状态下允许的并发探测请求数。"
+          },
+          "closeAfterSuccesses": {
+            "label": "成功后关闭",
+            "description": "需要多少次成功探测才重新关闭熔断。"
+          },
+          "countPostCommitErrors": {
+            "label": "统计提交后错误",
+            "description": "响应开始后发生的流式错误是否计入 provider 健康状态。"
+          },
+          "rateLimitCooldownMs": {
+            "label": "限流冷却（毫秒）",
+            "description": "对 429 响应的可选冷却时间覆盖。"
+          }
+        }
+      }
+    }
   },
   "errors": {
     "invalidHeaderFormat": "Header \"{{line}}\" 格式无效，请使用 KEY=VALUE。",

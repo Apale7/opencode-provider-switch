@@ -812,12 +812,125 @@ export namespace app {
 	    }
 	}
 	
+	export class ProxyRoutingSettingsInput {
+	    strategy: string;
+	    params?: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyRoutingSettingsInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.strategy = source["strategy"];
+	        this.params = source["params"];
+	    }
+	}
+	export class RoutingStrategyParamSpec {
+	    key: string;
+	    type: string;
+	    required: boolean;
+	    defaultValue?: any;
+	    description?: string;
+	    enum?: string[];
+	    min?: number;
+	    max?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RoutingStrategyParamSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.type = source["type"];
+	        this.required = source["required"];
+	        this.defaultValue = source["defaultValue"];
+	        this.description = source["description"];
+	        this.enum = source["enum"];
+	        this.min = source["min"];
+	        this.max = source["max"];
+	    }
+	}
+	export class RoutingStrategyDescriptor {
+	    name: string;
+	    displayName: string;
+	    description?: string;
+	    defaults?: Record<string, any>;
+	    parameters?: RoutingStrategyParamSpec[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RoutingStrategyDescriptor(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.displayName = source["displayName"];
+	        this.description = source["description"];
+	        this.defaults = source["defaults"];
+	        this.parameters = this.convertValues(source["parameters"], RoutingStrategyParamSpec);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProxyRoutingSettingsView {
+	    strategy: string;
+	    params?: Record<string, any>;
+	    descriptors?: RoutingStrategyDescriptor[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyRoutingSettingsView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.strategy = source["strategy"];
+	        this.params = source["params"];
+	        this.descriptors = this.convertValues(source["descriptors"], RoutingStrategyDescriptor);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ProxySettingsInput {
 	    connectTimeoutMs: number;
 	    responseHeaderTimeoutMs: number;
 	    firstByteTimeoutMs: number;
 	    requestReadTimeoutMs: number;
 	    streamIdleTimeoutMs: number;
+	    routing: ProxyRoutingSettingsInput;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProxySettingsInput(source);
@@ -830,7 +943,26 @@ export namespace app {
 	        this.firstByteTimeoutMs = source["firstByteTimeoutMs"];
 	        this.requestReadTimeoutMs = source["requestReadTimeoutMs"];
 	        this.streamIdleTimeoutMs = source["streamIdleTimeoutMs"];
+	        this.routing = this.convertValues(source["routing"], ProxyRoutingSettingsInput);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ProxySettingsView {
 	    connectTimeoutMs: number;
@@ -838,6 +970,7 @@ export namespace app {
 	    firstByteTimeoutMs: number;
 	    requestReadTimeoutMs: number;
 	    streamIdleTimeoutMs: number;
+	    routing: ProxyRoutingSettingsView;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProxySettingsView(source);
@@ -850,7 +983,26 @@ export namespace app {
 	        this.firstByteTimeoutMs = source["firstByteTimeoutMs"];
 	        this.requestReadTimeoutMs = source["requestReadTimeoutMs"];
 	        this.streamIdleTimeoutMs = source["streamIdleTimeoutMs"];
+	        this.routing = this.convertValues(source["routing"], ProxyRoutingSettingsView);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ProxySettingsSaveResult {
 	    settings: ProxySettingsView;
@@ -1102,6 +1254,8 @@ export namespace app {
 		    return a;
 		}
 	}
+	
+	
 	export class Service {
 	
 	

@@ -7,6 +7,7 @@ stable model alias** routed to **multiple upstream providers** with
 - Expose one custom provider `ocswitch` to OpenCode.
 - Configure logical aliases (`ocswitch/gpt-5.4`, etc.).
 - Each alias has an ordered list of upstream `provider/model` targets.
+- A configurable routing strategy decides attempt order and temporary skips. The default is `circuit-breaker`.
 - Providers can be disabled without mutating alias target state.
 - When the primary upstream returns `5xx`/`429`/connect error *before* any
   stream bytes are flushed, `ocswitch` transparently retries the next target.
@@ -31,6 +32,7 @@ Current desktop capabilities:
 - Sidebar tabs: `Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Sync` / `Settings`
 - UI language preference: `en-US` / `zh-CN` / `system`
 - Theme preference: `light` / `dark` / `system`
+- `Settings` can edit proxy timeouts, the routing strategy, and strategy-specific parameters
 - Shared frontend between the desktop shell and the browser fallback shell
 
 ### Build the desktop executable
@@ -164,6 +166,15 @@ ocswitch provider enable <id>
 Disabling a provider only removes it from routing/failover consideration. It
 does **not** rewrite alias target `enabled` flags in config, which avoids odd
 interactions when the same provider is shared across multiple aliases.
+
+## Routing strategy
+
+The default routing strategy is `circuit-breaker`.
+
+- Retryable failures such as transport errors, pre-first-byte timeouts, `429`, and upstream `5xx` can trigger failover.
+- After enough consecutive retryable failures, a provider is temporarily skipped during its cooldown window.
+- After cooldown, the provider is probed again in half-open mode before it is fully closed and reused.
+- Strategy parameters such as failure threshold, cooldown durations, backoff multiplier, half-open probe limits, and whether post-commit stream errors count can be configured in desktop `Settings` or under `server.routing` in the config file.
 
 ## CLI reference
 

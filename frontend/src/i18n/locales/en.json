@@ -364,11 +364,52 @@
     "firstByteTimeout": "First byte timeout (ms)",
     "requestReadTimeout": "Client request read timeout (ms)",
     "streamIdleTimeout": "Stream idle timeout (ms)",
+    "routingStrategy": "Routing strategy",
     "timeoutHint": "Saved values apply to the next proxy start.",
     "timeoutRunningHint": "The proxy is currently running. Saved values apply only after you restart it.",
     "saveTimeouts": "Save proxy timeouts",
     "minimizeToTray": "Minimize to tray / close to background",
-    "notifications": "Native notifications"
+    "notifications": "Native notifications",
+    "routing": {
+      "circuitBreaker": {
+        "displayName": "Circuit breaker",
+        "description": "Skip recently unhealthy providers and probe them again after cooldown.",
+        "params": {
+          "failureThreshold": {
+            "label": "Failure threshold",
+            "description": "Consecutive retryable failures required before opening the circuit."
+          },
+          "baseCooldownMs": {
+            "label": "Base cooldown (ms)",
+            "description": "Initial cooldown applied after the circuit opens."
+          },
+          "maxCooldownMs": {
+            "label": "Max cooldown (ms)",
+            "description": "Upper bound for exponential cooldown backoff."
+          },
+          "backoffMultiplier": {
+            "label": "Backoff multiplier",
+            "description": "Multiplier used when the same provider keeps reopening."
+          },
+          "halfOpenMaxRequests": {
+            "label": "Half-open max requests",
+            "description": "Maximum concurrent probe requests allowed while half-open."
+          },
+          "closeAfterSuccesses": {
+            "label": "Close after successes",
+            "description": "Successful probe count required to close the circuit again."
+          },
+          "countPostCommitErrors": {
+            "label": "Count post-commit errors",
+            "description": "Whether stream failures after response start should count against provider health."
+          },
+          "rateLimitCooldownMs": {
+            "label": "Rate limit cooldown (ms)",
+            "description": "Optional cooldown override for 429 responses."
+          }
+        }
+      }
+    }
   },
   "errors": {
     "invalidHeaderFormat": "Invalid header \"{{line}}\". Use KEY=VALUE.",

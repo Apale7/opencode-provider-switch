@@ -1,6 +1,11 @@
 package app
 
-import "github.com/Apale7/opencode-provider-switch/internal/proxy"
+import (
+	"encoding/json"
+
+	"github.com/Apale7/opencode-provider-switch/internal/proxy"
+	"github.com/Apale7/opencode-provider-switch/internal/routing"
+)
 
 type Overview struct {
 	ConfigPath       string           `json:"configPath"`
@@ -24,6 +29,7 @@ type ProxySettingsView struct {
 	FirstByteTimeoutMs      int `json:"firstByteTimeoutMs"`
 	RequestReadTimeoutMs    int `json:"requestReadTimeoutMs"`
 	StreamIdleTimeoutMs     int `json:"streamIdleTimeoutMs"`
+	Routing                 ProxyRoutingSettingsView `json:"routing"`
 }
 
 type ProxySettingsInput struct {
@@ -32,11 +38,75 @@ type ProxySettingsInput struct {
 	FirstByteTimeoutMs      int `json:"firstByteTimeoutMs"`
 	RequestReadTimeoutMs    int `json:"requestReadTimeoutMs"`
 	StreamIdleTimeoutMs     int `json:"streamIdleTimeoutMs"`
+	Routing                 ProxyRoutingSettingsInput `json:"routing"`
 }
 
 type ProxySettingsSaveResult struct {
 	Settings ProxySettingsView `json:"settings"`
 	Warnings []string          `json:"warnings,omitempty"`
+}
+
+type ProxyRoutingSettingsView struct {
+	Strategy    string                       `json:"strategy"`
+	Params      map[string]any               `json:"params,omitempty"`
+	Descriptors []RoutingStrategyDescriptor  `json:"descriptors,omitempty"`
+}
+
+type ProxyRoutingSettingsInput struct {
+	Strategy string          `json:"strategy"`
+	Params   json.RawMessage `json:"params,omitempty"`
+}
+
+type RoutingStrategyDescriptor struct {
+	Name         string                    `json:"name"`
+	DisplayName  string                    `json:"displayName"`
+	Description  string                    `json:"description,omitempty"`
+	Defaults     map[string]any            `json:"defaults,omitempty"`
+	Parameters   []RoutingStrategyParamSpec `json:"parameters,omitempty"`
+}
+
+type RoutingStrategyParamSpec struct {
+	Key          string   `json:"key"`
+	Type         string   `json:"type"`
+	Required     bool     `json:"required"`
+	DefaultValue any      `json:"defaultValue,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	Enum         []string `json:"enum,omitempty"`
+	Min          *float64 `json:"min,omitempty"`
+	Max          *float64 `json:"max,omitempty"`
+}
+
+func routingSettingsView(cfg routing.Config) ProxyRoutingSettingsView {
+	params, _ := routing.ResolveParams(cfg)
+	descriptors := routing.ListDescriptors()
+	items := make([]RoutingStrategyDescriptor, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		parameters := make([]RoutingStrategyParamSpec, 0, len(descriptor.Parameters))
+		for _, parameter := range descriptor.Parameters {
+			parameters = append(parameters, RoutingStrategyParamSpec{
+				Key:          parameter.Key,
+				Type:         parameter.Type,
+				Required:     parameter.Required,
+				DefaultValue: parameter.DefaultValue,
+				Description:  parameter.Description,
+				Enum:         append([]string(nil), parameter.Enum...),
+				Min:          parameter.Min,
+				Max:          parameter.Max,
+			})
+		}
+		items = append(items, RoutingStrategyDescriptor{
+			Name:        descriptor.Name,
+			DisplayName: descriptor.DisplayName,
+			Description: descriptor.Description,
+			Defaults:    descriptor.Defaults,
+			Parameters:  parameters,
+		})
+	}
+	return ProxyRoutingSettingsView{
+		Strategy:    routing.NormalizeConfig(cfg).Strategy,
+		Params:      params,
+		Descriptors: items,
+	}
 }
 
 type RequestTrace struct {

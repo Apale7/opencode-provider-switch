@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/Apale7/opencode-provider-switch/internal/fileutil"
+	"github.com/Apale7/opencode-provider-switch/internal/routing"
 )
 
 const (
@@ -61,6 +62,7 @@ type Server struct {
 	FirstByteTimeoutMs      int    `json:"first_byte_timeout_ms,omitempty"`
 	RequestReadTimeoutMs    int    `json:"request_read_timeout_ms,omitempty"`
 	StreamIdleTimeoutMs     int    `json:"stream_idle_timeout_ms,omitempty"`
+	Routing                 routing.Config `json:"routing,omitempty"`
 }
 
 const (
@@ -131,6 +133,7 @@ func Default() *Config {
 			FirstByteTimeoutMs:      DefaultFirstByteTimeoutMs,
 			RequestReadTimeoutMs:    DefaultRequestReadTimeoutMs,
 			StreamIdleTimeoutMs:     DefaultStreamIdleTimeoutMs,
+			Routing:                 routing.Config{Strategy: routing.DefaultStrategy},
 		},
 		Desktop:   Desktop{},
 		Providers: []Provider{},
@@ -185,6 +188,7 @@ func Load(path string) (*Config, error) {
 		c.Server.APIKey = DefaultLocalAPIKey
 	}
 	normalizeServerTimeouts(&c.Server)
+	normalizeServerRouting(&c.Server)
 	c.path = path
 	return c, nil
 }
@@ -524,6 +528,9 @@ func (c *Config) Validate() []error {
 	if c.Server.StreamIdleTimeoutMs <= 0 {
 		errs = append(errs, fmt.Errorf("server.stream_idle_timeout_ms must be greater than 0"))
 	}
+	if err := routing.ValidateConfig(c.Server.Routing); err != nil {
+		errs = append(errs, err)
+	}
 	return errs
 }
 
@@ -536,6 +543,16 @@ func normalizeServerTimeouts(server *Server) {
 	server.FirstByteTimeoutMs = normalizeServerTimeoutMs(server.FirstByteTimeoutMs, DefaultFirstByteTimeoutMs)
 	server.RequestReadTimeoutMs = normalizeServerTimeoutMs(server.RequestReadTimeoutMs, DefaultRequestReadTimeoutMs)
 	server.StreamIdleTimeoutMs = normalizeServerTimeoutMs(server.StreamIdleTimeoutMs, DefaultStreamIdleTimeoutMs)
+}
+
+func normalizeServerRouting(server *Server) {
+	if server == nil {
+		return
+	}
+	server.Routing = routing.NormalizeConfig(server.Routing)
+	if _, err := routing.ResolveParams(server.Routing); err != nil {
+		server.Routing = routing.NormalizeConfig(routing.Config{Strategy: routing.DefaultStrategy})
+	}
 }
 
 func normalizeServerTimeoutMs(value int, fallback int) int {

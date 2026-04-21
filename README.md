@@ -8,7 +8,7 @@ English README: `README_EN.md`
 
 - 你在 OpenCode 里只使用一个稳定的模型名，例如 `ocswitch/gpt-5.4`
 - `ocswitch` 在本地把这个别名映射到多个上游 `provider/model`
-- 按你配置的顺序依次尝试上游
+- 用可配置路由策略决定上游选择与临时跳过逻辑
 - 如果主上游在响应开始前失败，自动切到下一个上游
 
 当前实现只支持 OpenAI Responses 协议，也就是 `POST /v1/responses`，并且支持流式响应。
@@ -26,6 +26,8 @@ English README: `README_EN.md`
 - 支持手动添加 provider，并自动发现其 `/v1/models` 模型列表
 - 支持从 OpenCode 配置导入 `@ai-sdk/openai` 自定义 provider
 - 支持创建 alias，并按顺序绑定多个上游 target
+- 支持可插拔路由策略，默认使用 `circuit-breaker`
+- 支持为路由策略配置参数，例如失败阈值、冷却时间和半开探测限制
 - 支持把 alias 同步到 OpenCode 的 `provider.ocswitch.models`
 - 支持本地代理 `POST /v1/responses`
 - 支持流式透传
@@ -63,6 +65,7 @@ go run ./cmd/ocswitch --help
 - 左侧导航页签：`Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Sync` / `Settings`
 - 中英文界面切换：`en-US` / `zh-CN` / `system`
 - 主题偏好：`light` / `dark` / `system`
+- 在 `Settings` 中配置代理超时、路由策略和策略参数
 - 与浏览器 fallback shell 共用同一套前端
 
 ### 构建桌面可执行文件
@@ -450,7 +453,20 @@ ocswitch --config /path/to/config.json doctor
   "server": {
     "host": "127.0.0.1",
     "port": 9982,
-    "api_key": "ocswitch-local"
+    "api_key": "ocswitch-local",
+    "routing": {
+      "strategy": "circuit-breaker",
+      "params": {
+        "failureThreshold": 2,
+        "baseCooldownMs": 30000,
+        "maxCooldownMs": 300000,
+        "backoffMultiplier": 2,
+        "halfOpenMaxRequests": 1,
+        "closeAfterSuccesses": 1,
+        "countPostCommitErrors": true,
+        "rateLimitCooldownMs": 15000
+      }
+    }
   },
   "providers": [
     {
@@ -492,6 +508,8 @@ ocswitch --config /path/to/config.json doctor
 ## 失败切换规则
 
 `ocswitch` 的切换规则很保守，也很容易理解。
+
+当前默认路由策略是 `circuit-breaker`：当某个 provider 连续出现可重试失败时，会在一段冷却时间内临时跳过它；冷却结束后再以半开探测方式恢复。失败阈值、冷却时间、回退倍率、半开并发等参数都可以在桌面 `Settings` 或配置文件里的 `server.routing` 中调整。
 
 会切换到下一个 target 的情况：
 

@@ -30,6 +30,32 @@ export type ProxySettingsView = {
   firstByteTimeoutMs: number
   requestReadTimeoutMs: number
   streamIdleTimeoutMs: number
+  routing: ProxyRoutingSettingsView
+}
+
+export type ProxyRoutingSettingsView = {
+  strategy: string
+  params?: Record<string, unknown>
+  descriptors?: RoutingStrategyDescriptor[]
+}
+
+export type RoutingStrategyDescriptor = {
+  name: string
+  displayName: string
+  description?: string
+  defaults?: Record<string, unknown>
+  parameters?: RoutingStrategyParamSpec[]
+}
+
+export type RoutingStrategyParamSpec = {
+  key: string
+  type: string
+  required: boolean
+  defaultValue?: unknown
+  description?: string
+  enum?: string[]
+  min?: number
+  max?: number
 }
 
 export type ProxySettingsSaveResult = {
