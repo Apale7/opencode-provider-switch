@@ -444,10 +444,75 @@ function formatDuration(value?: number): string {
 }
 
 function formatTokenCount(value?: number): string {
-  if (value == null || value <= 0) {
+  if (value == null) {
     return '-'
   }
   return value.toLocaleString()
+}
+
+function formatUsageText(value?: number | string): string {
+  if (value == null || value === '') {
+    return '-'
+  }
+  if (typeof value === 'number') {
+    return value.toLocaleString()
+  }
+  return value
+}
+
+function formatEstimatedCost(value?: number): string {
+  if (value == null) {
+    return '-'
+  }
+  const digits = value > 0 && value < 0.01 ? 6 : 4
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
+}
+
+function isProviderProtocol(value?: string): value is ProviderProtocol {
+  return value === 'openai-responses' || value === 'anthropic-messages'
+}
+
+function usageSourceLabel(source?: string): string {
+  if (!source) {
+    return '-'
+  }
+  if (isProviderProtocol(source)) {
+    return protocolLabel(source)
+  }
+  return source
+}
+
+function usageSourceBadgeClass(source?: string): string {
+  if (isProviderProtocol(source)) {
+    return protocolBadgeClass(source)
+  }
+  return 'badge outline'
+}
+
+function usagePrecisionLabel(precision?: string): string {
+  switch (precision) {
+    case 'exact':
+      return i18n.t('log.usagePrecisionValues.exact')
+    case 'partial':
+      return i18n.t('log.usagePrecisionValues.partial')
+    case 'unavailable':
+      return i18n.t('log.usagePrecisionValues.unavailable')
+    default:
+      return formatUsageText(precision)
+  }
+}
+
+function usagePrecisionBadgeClass(precision?: string): string {
+  switch (precision) {
+    case 'exact':
+      return 'badge live'
+    case 'partial':
+      return 'badge warn'
+    case 'unavailable':
+      return 'badge outline idle'
+    default:
+      return 'badge outline'
+  }
 }
 
 function formatTokenRate(trace: RequestTrace): string {
@@ -3086,6 +3151,65 @@ export default function App() {
                   <div>
                     <dt>{t('log.outputRate')}</dt>
                     <dd>{formatTokenRate(selectedLogTrace)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.estimatedCost')}</dt>
+                    <dd>
+                      {selectedLogTrace.usage?.estimatedCost != null ? (
+                        <span className="usage-value-stack">
+                          <span>{formatEstimatedCost(selectedLogTrace.usage.estimatedCost)}</span>
+                          <span className="subtle">{t('log.estimatedCostHint')}</span>
+                        </span>
+                      ) : '-'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.reasoningTokens')}</dt>
+                    <dd>{formatUsageText(selectedLogTrace.usage?.reasoningTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.cacheReadTokens')}</dt>
+                    <dd>{formatUsageText(selectedLogTrace.usage?.cacheReadTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.cacheWriteTokens')}</dt>
+                    <dd>{formatUsageText(selectedLogTrace.usage?.cacheWriteTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.cacheWrite1hTokens')}</dt>
+                    <dd>{formatUsageText(selectedLogTrace.usage?.cacheWrite1hTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.rawInputTokens')}</dt>
+                    <dd>{formatUsageText(selectedLogTrace.usage?.rawInputTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.rawOutputTokens')}</dt>
+                    <dd>{formatUsageText(selectedLogTrace.usage?.rawOutputTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.rawTotalTokens')}</dt>
+                    <dd>{formatUsageText(selectedLogTrace.usage?.rawTotalTokens)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.usageSource')}</dt>
+                    <dd>
+                      {selectedLogTrace.usage?.source ? (
+                        <span className={usageSourceBadgeClass(selectedLogTrace.usage.source)}>{usageSourceLabel(selectedLogTrace.usage.source)}</span>
+                      ) : '-'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.usagePrecision')}</dt>
+                    <dd>
+                      {selectedLogTrace.usage?.precision ? (
+                        <span className={usagePrecisionBadgeClass(selectedLogTrace.usage.precision)}>{usagePrecisionLabel(selectedLogTrace.usage.precision)}</span>
+                      ) : '-'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('log.usageNotes')}</dt>
+                    <dd>{selectedLogTrace.usage?.notes?.length ? selectedLogTrace.usage.notes.join(', ') : '-'}</dd>
                   </div>
                 </div>
 

@@ -45,6 +45,7 @@ type RequestTrace struct {
 	FinishedAt     string            `json:"finishedAt,omitempty"`
 	DurationMs     int64             `json:"durationMs"`
 	FirstByteMs    int64             `json:"firstByteMs,omitempty"`
+	Usage          TraceUsage        `json:"usage,omitempty"`
 	InputTokens    int64             `json:"inputTokens,omitempty"`
 	OutputTokens   int64             `json:"outputTokens,omitempty"`
 	Protocol       string            `json:"protocol"`
@@ -62,6 +63,22 @@ type RequestTrace struct {
 	RequestHeaders map[string]string `json:"requestHeaders,omitempty"`
 	RequestParams  any               `json:"requestParams,omitempty"`
 	Attempts       []TraceAttempt    `json:"attempts"`
+}
+
+type TraceUsage struct {
+	RawInputTokens     *int64   `json:"rawInputTokens,omitempty"`
+	RawOutputTokens    *int64   `json:"rawOutputTokens,omitempty"`
+	RawTotalTokens     *int64   `json:"rawTotalTokens,omitempty"`
+	InputTokens        *int64   `json:"inputTokens,omitempty"`
+	OutputTokens       *int64   `json:"outputTokens,omitempty"`
+	ReasoningTokens    *int64   `json:"reasoningTokens,omitempty"`
+	CacheReadTokens    *int64   `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens   *int64   `json:"cacheWriteTokens,omitempty"`
+	CacheWrite1HTokens *int64   `json:"cacheWrite1hTokens,omitempty"`
+	EstimatedCost      *float64 `json:"estimatedCost,omitempty"`
+	Source             string   `json:"source,omitempty"`
+	Precision          string   `json:"precision,omitempty"`
+	Notes              []string `json:"notes,omitempty"`
 }
 
 type RequestTraceListInput struct {
@@ -113,6 +130,7 @@ func requestTraceView(trace proxy.RequestTrace) RequestTrace {
 		FinishedAt:     formatTimestamp(trace.FinishedAt),
 		DurationMs:     trace.DurationMs,
 		FirstByteMs:    trace.FirstByteMs,
+		Usage:          traceUsageView(trace.Usage),
 		InputTokens:    trace.InputTokens,
 		OutputTokens:   trace.OutputTokens,
 		Protocol:       trace.Protocol,
@@ -131,6 +149,39 @@ func requestTraceView(trace proxy.RequestTrace) RequestTrace {
 		RequestParams:  trace.RequestParams,
 		Attempts:       attempts,
 	}
+}
+
+func traceUsageView(usage proxy.TraceUsage) TraceUsage {
+	return TraceUsage{
+		RawInputTokens:     cloneInt64Ptr(usage.RawInputTokens),
+		RawOutputTokens:    cloneInt64Ptr(usage.RawOutputTokens),
+		RawTotalTokens:     cloneInt64Ptr(usage.RawTotalTokens),
+		InputTokens:        cloneInt64Ptr(usage.InputTokens),
+		OutputTokens:       cloneInt64Ptr(usage.OutputTokens),
+		ReasoningTokens:    cloneInt64Ptr(usage.ReasoningTokens),
+		CacheReadTokens:    cloneInt64Ptr(usage.CacheReadTokens),
+		CacheWriteTokens:   cloneInt64Ptr(usage.CacheWriteTokens),
+		CacheWrite1HTokens: cloneInt64Ptr(usage.CacheWrite1HTokens),
+		Source:             usage.Source,
+		Precision:          usage.Precision,
+		Notes:              append([]string(nil), usage.Notes...),
+	}
+}
+
+func cloneInt64Ptr(in *int64) *int64 {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
+}
+
+func cloneFloat64Ptr(in *float64) *float64 {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func traceAttemptView(attempt proxy.TraceAttempt) TraceAttempt {
@@ -276,15 +327,15 @@ type OpenCodeRuntimeModelSnapshot struct {
 }
 
 type OpenCodeRuntimeProviderSnapshot struct {
-	ID             string                           `json:"id"`
-	Name           string                           `json:"name,omitempty"`
-	API            string                           `json:"api,omitempty"`
-	NPM            string                           `json:"npm,omitempty"`
-	Env            []string                         `json:"env,omitempty"`
-	ModelIDs       []string                         `json:"modelIds,omitempty"`
-	Models         []OpenCodeRuntimeModelSnapshot   `json:"models,omitempty"`
-	ExtraFieldKeys []string                         `json:"extraFieldKeys,omitempty"`
-	RawJSON        string                           `json:"rawJson,omitempty"`
+	ID             string                         `json:"id"`
+	Name           string                         `json:"name,omitempty"`
+	API            string                         `json:"api,omitempty"`
+	NPM            string                         `json:"npm,omitempty"`
+	Env            []string                       `json:"env,omitempty"`
+	ModelIDs       []string                       `json:"modelIds,omitempty"`
+	Models         []OpenCodeRuntimeModelSnapshot `json:"models,omitempty"`
+	ExtraFieldKeys []string                       `json:"extraFieldKeys,omitempty"`
+	RawJSON        string                         `json:"rawJson,omitempty"`
 }
 
 type OpenCodeRuntimeSnapshot struct {
@@ -319,20 +370,20 @@ type OpenCodeReconciliationSummary struct {
 }
 
 type DoctorReport struct {
-	OK                  bool                           `json:"ok"`
-	Issues              []DoctorIssue                  `json:"issues"`
-	SyncProtocols       []string                       `json:"syncProtocols"`
-	ConfigPath          string                         `json:"configPath"`
-	ProviderCount       int                            `json:"providerCount"`
-	AliasCount          int                            `json:"aliasCount"`
-	ProxyBindAddress    string                         `json:"proxyBindAddress"`
-	OpenCodeTargetPath  string                         `json:"openCodeTargetPath"`
-	OpenCodeTargetFound bool                           `json:"openCodeTargetFound"`
-	RuntimeBaseURL      string                         `json:"runtimeBaseUrl,omitempty"`
-	RuntimeDirectory    string                         `json:"runtimeDirectory,omitempty"`
-	FileSnapshot        OpenCodeFileSnapshot           `json:"fileSnapshot"`
-	RuntimeSnapshot     OpenCodeRuntimeSnapshot        `json:"runtimeSnapshot"`
-	Summary             OpenCodeReconciliationSummary  `json:"summary"`
+	OK                  bool                          `json:"ok"`
+	Issues              []DoctorIssue                 `json:"issues"`
+	SyncProtocols       []string                      `json:"syncProtocols"`
+	ConfigPath          string                        `json:"configPath"`
+	ProviderCount       int                           `json:"providerCount"`
+	AliasCount          int                           `json:"aliasCount"`
+	ProxyBindAddress    string                        `json:"proxyBindAddress"`
+	OpenCodeTargetPath  string                        `json:"openCodeTargetPath"`
+	OpenCodeTargetFound bool                          `json:"openCodeTargetFound"`
+	RuntimeBaseURL      string                        `json:"runtimeBaseUrl,omitempty"`
+	RuntimeDirectory    string                        `json:"runtimeDirectory,omitempty"`
+	FileSnapshot        OpenCodeFileSnapshot          `json:"fileSnapshot"`
+	RuntimeSnapshot     OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
+	Summary             OpenCodeReconciliationSummary `json:"summary"`
 }
 
 type DoctorRunResult struct {
@@ -350,32 +401,32 @@ type SyncInput struct {
 }
 
 type SyncPreview struct {
-	TargetPath        string                        `json:"targetPath"`
-	Protocols         []SyncedProviderView          `json:"protocols"`
-	SetModel          string                        `json:"setModel,omitempty"`
-	SetSmallModel     string                        `json:"setSmallModel,omitempty"`
-	WouldChange       bool                          `json:"wouldChange"`
-	RuntimeBaseURL    string                        `json:"runtimeBaseUrl,omitempty"`
-	RuntimeDirectory  string                        `json:"runtimeDirectory,omitempty"`
-	FileSnapshot      OpenCodeFileSnapshot          `json:"fileSnapshot"`
-	RuntimeSnapshot   OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
-	DoctorIssues      []DoctorIssue                 `json:"doctorIssues,omitempty"`
-	Summary           OpenCodeReconciliationSummary `json:"summary"`
+	TargetPath       string                        `json:"targetPath"`
+	Protocols        []SyncedProviderView          `json:"protocols"`
+	SetModel         string                        `json:"setModel,omitempty"`
+	SetSmallModel    string                        `json:"setSmallModel,omitempty"`
+	WouldChange      bool                          `json:"wouldChange"`
+	RuntimeBaseURL   string                        `json:"runtimeBaseUrl,omitempty"`
+	RuntimeDirectory string                        `json:"runtimeDirectory,omitempty"`
+	FileSnapshot     OpenCodeFileSnapshot          `json:"fileSnapshot"`
+	RuntimeSnapshot  OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
+	DoctorIssues     []DoctorIssue                 `json:"doctorIssues,omitempty"`
+	Summary          OpenCodeReconciliationSummary `json:"summary"`
 }
 
 type SyncResult struct {
-	TargetPath        string                        `json:"targetPath"`
-	Protocols         []SyncedProviderView          `json:"protocols"`
-	Changed           bool                          `json:"changed"`
-	DryRun            bool                          `json:"dryRun"`
-	SetModel          string                        `json:"setModel,omitempty"`
-	SetSmallModel     string                        `json:"setSmallModel,omitempty"`
-	RuntimeBaseURL    string                        `json:"runtimeBaseUrl,omitempty"`
-	RuntimeDirectory  string                        `json:"runtimeDirectory,omitempty"`
-	FileSnapshot      OpenCodeFileSnapshot          `json:"fileSnapshot"`
-	RuntimeSnapshot   OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
-	DoctorIssues      []DoctorIssue                 `json:"doctorIssues,omitempty"`
-	Summary           OpenCodeReconciliationSummary `json:"summary"`
+	TargetPath       string                        `json:"targetPath"`
+	Protocols        []SyncedProviderView          `json:"protocols"`
+	Changed          bool                          `json:"changed"`
+	DryRun           bool                          `json:"dryRun"`
+	SetModel         string                        `json:"setModel,omitempty"`
+	SetSmallModel    string                        `json:"setSmallModel,omitempty"`
+	RuntimeBaseURL   string                        `json:"runtimeBaseUrl,omitempty"`
+	RuntimeDirectory string                        `json:"runtimeDirectory,omitempty"`
+	FileSnapshot     OpenCodeFileSnapshot          `json:"fileSnapshot"`
+	RuntimeSnapshot  OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
+	DoctorIssues     []DoctorIssue                 `json:"doctorIssues,omitempty"`
+	Summary          OpenCodeReconciliationSummary `json:"summary"`
 }
 
 type SyncedProviderView struct {

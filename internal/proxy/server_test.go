@@ -8,7 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -119,6 +122,12 @@ func TestHandleMessagesProxiesAnthropicRequest(t *testing.T) {
 	}
 	if len(traces) != 1 || traces[0].Protocol != config.ProtocolAnthropicMessages {
 		t.Fatalf("traces = %#v", traces)
+	}
+	if traces[0].InputTokens != 11 {
+		t.Fatalf("trace input tokens = %d, want 11", traces[0].InputTokens)
+	}
+	if traces[0].OutputTokens != 7 {
+		t.Fatalf("trace output tokens = %d, want 7", traces[0].OutputTokens)
 	}
 }
 
@@ -261,6 +270,294 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	}
 	if got := traces[0].RequestHeaders["Authorization"]; got == "Bearer "+config.DefaultLocalAPIKey || got == "" {
 		t.Fatalf("trace auth header = %q, want masked value", got)
+	}
+}
+
+func TestHandleResponsesCapturesFinalOpenAIUsageFromCompletedEvent(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_123"}}`,
+			"",
+			"event: response.completed",
+			`data: {"type":"response.completed","response":{"usage":{"input_tokens":120,"input_tokens_details":{"cached_tokens":20},"output_tokens":45,"output_tokens_details":{"reasoning_tokens":5}}}}`,
+			"",
+		}, "\n")))
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if traces[0].InputTokens != 100 {
+		t.Fatalf("trace input tokens = %d, want 100", traces[0].InputTokens)
+	}
+	if traces[0].OutputTokens != 40 {
+		t.Fatalf("trace output tokens = %d, want 40", traces[0].OutputTokens)
+	}
+}
+
+func TestSQLiteTraceStoreRoundTripsUsageJSON(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "ocswitch.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	defer store.Close()
+
+	rawInput := int64(120)
+	rawOutput := int64(45)
+	rawTotal := int64(165)
+	input := int64(100)
+	output := int64(40)
+	reasoning := int64(5)
+	cacheRead := int64(20)
+
+	trace := RequestTrace{
+		ID:           1,
+		StartedAt:    time.Now().UTC(),
+		DurationMs:   123,
+		Protocol:     config.ProtocolOpenAIResponses,
+		Success:      true,
+		InputTokens:  input,
+		OutputTokens: output,
+		Usage: TraceUsage{
+			RawInputTokens:  &rawInput,
+			RawOutputTokens: &rawOutput,
+			RawTotalTokens:  &rawTotal,
+			InputTokens:     &input,
+			OutputTokens:    &output,
+			ReasoningTokens: &reasoning,
+			CacheReadTokens: &cacheRead,
+			Source:          "openai-responses",
+			Precision:       "exact",
+			Notes:           []string{"final completed event"},
+		},
+	}
+
+	if err := store.Add(context.Background(), trace); err != nil {
+		t.Fatalf("store.Add() error = %v", err)
+	}
+
+	items, err := store.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("store.List() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(items))
+	}
+	got := items[0]
+	if got.Usage.Source != "openai-responses" {
+		t.Fatalf("usage source = %q, want openai-responses", got.Usage.Source)
+	}
+	if got.Usage.Precision != "exact" {
+		t.Fatalf("usage precision = %q, want exact", got.Usage.Precision)
+	}
+	if got.Usage.InputTokens == nil || *got.Usage.InputTokens != 100 {
+		t.Fatalf("usage input tokens = %#v, want 100", got.Usage.InputTokens)
+	}
+	if got.Usage.ReasoningTokens == nil || *got.Usage.ReasoningTokens != 5 {
+		t.Fatalf("usage reasoning tokens = %#v, want 5", got.Usage.ReasoningTokens)
+	}
+	if got.Usage.CacheReadTokens == nil || *got.Usage.CacheReadTokens != 20 {
+		t.Fatalf("usage cache read tokens = %#v, want 20", got.Usage.CacheReadTokens)
+	}
+	if len(got.Usage.Notes) != 1 || got.Usage.Notes[0] != "final completed event" {
+		t.Fatalf("usage notes = %#v, want preserved note", got.Usage.Notes)
+	}
+	if got.InputTokens != 100 || got.OutputTokens != 40 {
+		t.Fatalf("projected tokens = %d/%d, want 100/40", got.InputTokens, got.OutputTokens)
+	}
+}
+
+func TestSQLiteTraceStoreSeedsRequestCounterFromExistingMaxID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "ocswitch.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	atomic.StoreUint64(&reqCounter, 0)
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+
+	trace := RequestTrace{
+		ID:         188,
+		StartedAt:  time.Now().UTC(),
+		DurationMs: 10,
+		Protocol:   config.ProtocolOpenAIResponses,
+		Success:    true,
+	}
+	if err := store.Add(context.Background(), trace); err != nil {
+		t.Fatalf("store.Add() error = %v", err)
+	}
+	_ = store.Close()
+
+	atomic.StoreUint64(&reqCounter, 0)
+	store2, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() second error = %v", err)
+	}
+	defer store2.Close()
+
+	got := atomic.AddUint64(&reqCounter, 1)
+	if got != 189 {
+		t.Fatalf("next request id = %d, want 189", got)
+	}
+}
+
+func TestHandleResponsesIgnoresEarlierZeroUsageAndUsesFinalCompletedUsage(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"event: response.completed",
+			`data: {"type":"response.completed","response":{"usage":{"input_tokens":0,"output_tokens":0}}}`,
+			"",
+			"event: response.output_text.delta",
+			`data: {"type":"response.output_text.delta","delta":"hello"}`,
+			"",
+			"event: response.completed",
+			`data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":8}}}`,
+			"",
+		}, "\n")))
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if traces[0].InputTokens != 12 {
+		t.Fatalf("trace input tokens = %d, want 12", traces[0].InputTokens)
+	}
+	if traces[0].OutputTokens != 8 {
+		t.Fatalf("trace output tokens = %d, want 8", traces[0].OutputTokens)
+	}
+}
+
+func TestHandleMessagesMergesAnthropicStreamingUsage(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"event: message_start",
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":30,"cache_read_input_tokens":4}}}`,
+			"",
+			"event: message_delta",
+			`data: {"type":"message_delta","usage":{"output_tokens":18}}`,
+			"",
+			"event: message_stop",
+			`data: {"type":"message_stop"}`,
+			"",
+		}, "\n")))
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID:       "anthropic",
+			Protocol: config.ProtocolAnthropicMessages,
+			BaseURL:  upstream.URL + "/v1",
+			APIKey:   "sk-ant-upstream",
+		}},
+		Aliases: []config.Alias{{
+			Alias:    "claude",
+			Protocol: config.ProtocolAnthropicMessages,
+			Enabled:  true,
+			Targets:  []config.Target{{Provider: "anthropic", Model: "claude-3-7-sonnet", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude","stream":true}`))
+	req.Header.Set("X-Api-Key", config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if traces[0].InputTokens != 30 {
+		t.Fatalf("trace input tokens = %d, want 30", traces[0].InputTokens)
+	}
+	if traces[0].OutputTokens != 18 {
+		t.Fatalf("trace output tokens = %d, want 18", traces[0].OutputTokens)
 	}
 }
 
@@ -415,6 +712,95 @@ func TestHandleResponsesMarksBrokenStreamAsFailure(t *testing.T) {
 	}
 	if traces[0].Attempts[0].Result != "stream_error" {
 		t.Fatalf("attempt result = %q, want stream_error", traces[0].Attempts[0].Result)
+	}
+	if traces[0].Usage.Precision != "unavailable" {
+		t.Fatalf("usage precision = %q, want unavailable", traces[0].Usage.Precision)
+	}
+	if traces[0].Usage.Source != config.ProtocolOpenAIResponses {
+		t.Fatalf("usage source = %q, want %q", traces[0].Usage.Source, config.ProtocolOpenAIResponses)
+	}
+	if len(traces[0].Usage.Notes) == 0 {
+		t.Fatalf("usage notes = %#v, want stream failure note", traces[0].Usage.Notes)
+	}
+}
+
+func TestHandleMessagesMarksBrokenStreamUsageAsPartial(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"event: message_start",
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":30,"cache_read_input_tokens":4,"cache_creation":{"ephemeral_5m_input_tokens":8,"ephemeral_1h_input_tokens":2}}}}`,
+			"",
+		}, "\n")))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("response writer does not support hijacking")
+		}
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Fatalf("Hijack() error = %v", err)
+		}
+		_ = conn.Close()
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID:       "anthropic",
+			Protocol: config.ProtocolAnthropicMessages,
+			BaseURL:  upstream.URL + "/v1",
+			APIKey:   "sk-ant-upstream",
+		}},
+		Aliases: []config.Alias{{
+			Alias:    "claude",
+			Protocol: config.ProtocolAnthropicMessages,
+			Enabled:  true,
+			Targets:  []config.Target{{Provider: "anthropic", Model: "claude-3-7-sonnet", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude","stream":true}`))
+	req.Header.Set("X-Api-Key", config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleMessages(rr, req)
+
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if traces[0].Success {
+		t.Fatalf("trace = %#v, want failed trace", traces[0])
+	}
+	if traces[0].Usage.Precision != "partial" {
+		t.Fatalf("usage precision = %q, want partial", traces[0].Usage.Precision)
+	}
+	if traces[0].InputTokens != 30 {
+		t.Fatalf("trace input tokens = %d, want 30", traces[0].InputTokens)
+	}
+	if traces[0].Usage.CacheReadTokens == nil || *traces[0].Usage.CacheReadTokens != 4 {
+		t.Fatalf("cache read tokens = %#v, want 4", traces[0].Usage.CacheReadTokens)
+	}
+	if traces[0].Usage.CacheWriteTokens == nil || *traces[0].Usage.CacheWriteTokens != 8 {
+		t.Fatalf("cache write tokens = %#v, want 8", traces[0].Usage.CacheWriteTokens)
+	}
+	if traces[0].Usage.CacheWrite1HTokens == nil || *traces[0].Usage.CacheWrite1HTokens != 2 {
+		t.Fatalf("cache write 1h tokens = %#v, want 2", traces[0].Usage.CacheWrite1HTokens)
+	}
+	if len(traces[0].Usage.Notes) == 0 {
+		t.Fatalf("usage notes = %#v, want stream failure note", traces[0].Usage.Notes)
 	}
 }
 

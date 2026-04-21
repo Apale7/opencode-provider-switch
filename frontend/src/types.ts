@@ -78,12 +78,29 @@ export type TraceAttempt = {
   responseBody?: string
 }
 
+export type TraceUsage = {
+  rawInputTokens?: number
+  rawOutputTokens?: number
+  rawTotalTokens?: number
+  inputTokens?: number
+  outputTokens?: number
+  reasoningTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  cacheWrite1hTokens?: number
+  estimatedCost?: number
+  source?: string
+  precision?: string
+  notes?: string[]
+}
+
 export type RequestTrace = {
   id: number
   startedAt: string
   finishedAt?: string
   durationMs: number
   firstByteMs?: number
+  usage?: TraceUsage
   inputTokens?: number
   outputTokens?: number
   protocol: ProviderProtocol

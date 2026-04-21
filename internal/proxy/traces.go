@@ -56,6 +56,7 @@ type RequestTrace struct {
 	FinishedAt     time.Time         `json:"finishedAt,omitempty"`
 	DurationMs     int64             `json:"durationMs"`
 	FirstByteMs    int64             `json:"firstByteMs,omitempty"`
+	Usage          TraceUsage        `json:"usage,omitempty"`
 	InputTokens    int64             `json:"inputTokens,omitempty"`
 	OutputTokens   int64             `json:"outputTokens,omitempty"`
 	Protocol       string            `json:"protocol,omitempty"`
@@ -73,6 +74,21 @@ type RequestTrace struct {
 	RequestHeaders map[string]string `json:"requestHeaders,omitempty"`
 	RequestParams  any               `json:"requestParams,omitempty"`
 	Attempts       []TraceAttempt    `json:"attempts"`
+}
+
+type TraceUsage struct {
+	RawInputTokens     *int64   `json:"rawInputTokens,omitempty"`
+	RawOutputTokens    *int64   `json:"rawOutputTokens,omitempty"`
+	RawTotalTokens     *int64   `json:"rawTotalTokens,omitempty"`
+	InputTokens        *int64   `json:"inputTokens,omitempty"`
+	OutputTokens       *int64   `json:"outputTokens,omitempty"`
+	ReasoningTokens    *int64   `json:"reasoningTokens,omitempty"`
+	CacheReadTokens    *int64   `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens   *int64   `json:"cacheWriteTokens,omitempty"`
+	CacheWrite1HTokens *int64   `json:"cacheWrite1hTokens,omitempty"`
+	Source             string   `json:"source,omitempty"`
+	Precision          string   `json:"precision,omitempty"`
+	Notes              []string `json:"notes,omitempty"`
 }
 
 type TraceAttempt struct {
@@ -175,6 +191,7 @@ func (s *TraceStore) Close() error {
 func cloneTrace(trace RequestTrace) RequestTrace {
 	trace.RequestHeaders = cloneStringMap(trace.RequestHeaders)
 	trace.RequestParams = cloneJSONValue(trace.RequestParams)
+	trace.Usage = cloneTraceUsage(trace.Usage)
 	if len(trace.Attempts) == 0 {
 		trace.Attempts = []TraceAttempt{}
 		return trace
@@ -186,6 +203,31 @@ func cloneTrace(trace RequestTrace) RequestTrace {
 		trace.Attempts[index].ResponseHeaders = cloneStringMap(trace.Attempts[index].ResponseHeaders)
 	}
 	return trace
+}
+
+func cloneTraceUsage(in TraceUsage) TraceUsage {
+	return TraceUsage{
+		RawInputTokens:     cloneInt64Ptr(in.RawInputTokens),
+		RawOutputTokens:    cloneInt64Ptr(in.RawOutputTokens),
+		RawTotalTokens:     cloneInt64Ptr(in.RawTotalTokens),
+		InputTokens:        cloneInt64Ptr(in.InputTokens),
+		OutputTokens:       cloneInt64Ptr(in.OutputTokens),
+		ReasoningTokens:    cloneInt64Ptr(in.ReasoningTokens),
+		CacheReadTokens:    cloneInt64Ptr(in.CacheReadTokens),
+		CacheWriteTokens:   cloneInt64Ptr(in.CacheWriteTokens),
+		CacheWrite1HTokens: cloneInt64Ptr(in.CacheWrite1HTokens),
+		Source:             in.Source,
+		Precision:          in.Precision,
+		Notes:              append([]string(nil), in.Notes...),
+	}
+}
+
+func cloneInt64Ptr(in *int64) *int64 {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

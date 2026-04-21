@@ -930,12 +930,49 @@ export namespace app {
 	        this.responseBody = source["responseBody"];
 	    }
 	}
+	export class TraceUsage {
+	    rawInputTokens?: number;
+	    rawOutputTokens?: number;
+	    rawTotalTokens?: number;
+	    inputTokens?: number;
+	    outputTokens?: number;
+	    reasoningTokens?: number;
+	    cacheReadTokens?: number;
+	    cacheWriteTokens?: number;
+	    cacheWrite1hTokens?: number;
+	    estimatedCost?: number;
+	    source?: string;
+	    precision?: string;
+	    notes?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TraceUsage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rawInputTokens = source["rawInputTokens"];
+	        this.rawOutputTokens = source["rawOutputTokens"];
+	        this.rawTotalTokens = source["rawTotalTokens"];
+	        this.inputTokens = source["inputTokens"];
+	        this.outputTokens = source["outputTokens"];
+	        this.reasoningTokens = source["reasoningTokens"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.cacheWriteTokens = source["cacheWriteTokens"];
+	        this.cacheWrite1hTokens = source["cacheWrite1hTokens"];
+	        this.estimatedCost = source["estimatedCost"];
+	        this.source = source["source"];
+	        this.precision = source["precision"];
+	        this.notes = source["notes"];
+	    }
+	}
 	export class RequestTrace {
 	    id: number;
 	    startedAt: string;
 	    finishedAt?: string;
 	    durationMs: number;
 	    firstByteMs?: number;
+	    usage?: TraceUsage;
 	    inputTokens?: number;
 	    outputTokens?: number;
 	    protocol: string;
@@ -965,6 +1002,7 @@ export namespace app {
 	        this.finishedAt = source["finishedAt"];
 	        this.durationMs = source["durationMs"];
 	        this.firstByteMs = source["firstByteMs"];
+	        this.usage = this.convertValues(source["usage"], TraceUsage);
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];
 	        this.protocol = source["protocol"];
@@ -1216,6 +1254,7 @@ export namespace app {
 		    return a;
 		}
 	}
+	
 	
 
 }

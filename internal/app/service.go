@@ -25,6 +25,13 @@ type Service struct {
 	proxyStatus ProxyStatusView
 }
 
+type tracePricing struct {
+	input      *float64
+	output     *float64
+	cacheRead  *float64
+	cacheWrite *float64
+}
+
 func NewService(configPath string) *Service {
 	resolvedPath := strings.TrimSpace(configPath)
 	store, err := proxy.NewSQLiteTraceStore(resolveConfigPath(resolvedPath))
@@ -304,9 +311,12 @@ func (s *Service) ListRequestTraces(ctx context.Context, limit int) ([]RequestTr
 	if err != nil {
 		return nil, err
 	}
+	pricing := loadTracePricingCatalog()
 	out := make([]RequestTrace, 0, len(raw))
 	for _, trace := range raw {
-		out = append(out, requestTraceView(trace))
+		view := requestTraceView(trace)
+		enrichTraceEstimatedCost(&view, pricing)
+		out = append(out, view)
 	}
 	return out, nil
 }
@@ -322,7 +332,12 @@ func (s *Service) QueryRequestTraces(ctx context.Context, in RequestTraceListInp
 	if err != nil {
 		return RequestTraceListResult{}, err
 	}
-	return requestTraceListResultView(result), nil
+	view := requestTraceListResultView(result)
+	pricing := loadTracePricingCatalog()
+	for index := range view.Items {
+		enrichTraceEstimatedCost(&view.Items[index], pricing)
+	}
+	return view, nil
 }
 
 func (s *Service) GetDesktopPrefs(ctx context.Context) (DesktopPrefsView, error) {
@@ -557,6 +572,141 @@ func normalizePositiveInt(value int, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func loadTracePricingCatalog() map[string]tracePricing {
+	path, _ := opencode.ResolveGlobalConfigPath()
+	raw, err := opencode.Load(path)
+	if err != nil {
+		return nil
+	}
+	providerRaw, _ := raw["provider"].(map[string]any)
+	if providerRaw == nil {
+		return nil
+	}
+	pricing := map[string]tracePricing{}
+	collectTracePricing(pricing, providerRaw[opencode.ProviderKey], config.ProtocolOpenAIResponses)
+	collectTracePricing(pricing, providerRaw[opencode.AnthropicProviderKey], config.ProtocolAnthropicMessages)
+	if len(pricing) == 0 {
+		return nil
+	}
+	return pricing
+}
+
+func collectTracePricing(dst map[string]tracePricing, providerValue any, protocol string) {
+	providerEntry, _ := providerValue.(map[string]any)
+	if providerEntry == nil {
+		return
+	}
+	models, _ := providerEntry["models"].(map[string]any)
+	for alias, value := range models {
+		modelEntry, _ := value.(map[string]any)
+		if modelEntry == nil {
+			continue
+		}
+		costValue, _ := modelEntry["cost"].(map[string]any)
+		pricing, ok := tracePricingFromRaw(costValue)
+		if !ok {
+			continue
+		}
+		dst[tracePricingKey(protocol, alias)] = pricing
+	}
+}
+
+func tracePricingFromRaw(costValue map[string]any) (tracePricing, bool) {
+	if len(costValue) == 0 {
+		return tracePricing{}, false
+	}
+	pricing := tracePricing{
+		input:      jsonNumberToFloat64Ptr(costValue["input"]),
+		output:     jsonNumberToFloat64Ptr(costValue["output"]),
+		cacheRead:  jsonNumberToFloat64Ptr(costValue["cache_read"]),
+		cacheWrite: jsonNumberToFloat64Ptr(costValue["cache_write"]),
+	}
+	if pricing.input == nil && pricing.output == nil && pricing.cacheRead == nil && pricing.cacheWrite == nil {
+		return tracePricing{}, false
+	}
+	return pricing, true
+}
+
+func tracePricingKey(protocol string, alias string) string {
+	return config.NormalizeProviderProtocol(protocol) + ":" + strings.TrimSpace(alias)
+}
+
+func enrichTraceEstimatedCost(trace *RequestTrace, pricing map[string]tracePricing) {
+	if trace == nil || trace.Usage.EstimatedCost != nil || len(pricing) == 0 {
+		return
+	}
+	alias := strings.TrimSpace(trace.Alias)
+	if alias == "" {
+		return
+	}
+	modelPricing, ok := pricing[tracePricingKey(trace.Protocol, alias)]
+	if !ok {
+		return
+	}
+	estimate, ok := estimateTraceUsageCost(trace.Usage, modelPricing)
+	if !ok {
+		return
+	}
+	trace.Usage.EstimatedCost = &estimate
+}
+
+func estimateTraceUsageCost(usage TraceUsage, pricing tracePricing) (float64, bool) {
+	if usage.InputTokens == nil && usage.OutputTokens == nil && usage.ReasoningTokens == nil && usage.CacheReadTokens == nil && usage.CacheWriteTokens == nil && usage.CacheWrite1HTokens == nil {
+		return 0, false
+	}
+	if pricing.input == nil && pricing.output == nil && pricing.cacheRead == nil && pricing.cacheWrite == nil {
+		return 0, false
+	}
+	total := 0.0
+	if pricing.input != nil && usage.InputTokens != nil {
+		total += float64(*usage.InputTokens) * *pricing.input / 1_000_000
+	}
+	if pricing.output != nil {
+		if usage.OutputTokens != nil {
+			total += float64(*usage.OutputTokens) * *pricing.output / 1_000_000
+		}
+		if usage.ReasoningTokens != nil {
+			total += float64(*usage.ReasoningTokens) * *pricing.output / 1_000_000
+		}
+	}
+	if pricing.cacheRead != nil && usage.CacheReadTokens != nil {
+		total += float64(*usage.CacheReadTokens) * *pricing.cacheRead / 1_000_000
+	}
+	if pricing.cacheWrite != nil {
+		if usage.CacheWriteTokens != nil {
+			total += float64(*usage.CacheWriteTokens) * *pricing.cacheWrite / 1_000_000
+		}
+		if usage.CacheWrite1HTokens != nil {
+			total += float64(*usage.CacheWrite1HTokens) * *pricing.cacheWrite / 1_000_000
+		}
+	}
+	return total, true
+}
+
+func jsonNumberToFloat64Ptr(value any) *float64 {
+	switch typed := value.(type) {
+	case float64:
+		if typed < 0 {
+			return nil
+		}
+		return &typed
+	case int:
+		if typed < 0 {
+			return nil
+		}
+		result := float64(typed)
+		return &result
+	case int64:
+		if typed < 0 {
+			return nil
+		}
+		result := float64(typed)
+		return &result
+	default:
+		return nil
+	}
 }
 
 func normalizeThemePreference(value string) string {

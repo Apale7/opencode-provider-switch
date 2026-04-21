@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 	"github.com/Apale7/opencode-provider-switch/internal/opencode"
+	"github.com/Apale7/opencode-provider-switch/internal/proxy"
 )
 
 func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
@@ -599,13 +601,13 @@ func TestReconcileRuntimeSnapshotReportsDriftCategories(t *testing.T) {
 		}},
 	}
 	runtimeSnapshot := opencode.RuntimeConfigSnapshot{
-		BaseURL:      "http://runtime",
-		Directory:    "/workspace/demo",
-		Reachable:    true,
-		ConfigLoaded: true,
+		BaseURL:         "http://runtime",
+		Directory:       "/workspace/demo",
+		Reachable:       true,
+		ConfigLoaded:    true,
 		ProvidersLoaded: true,
-		DefaultModel: "ocswitch/missing",
-		SmallModel:   "bad-small-model",
+		DefaultModel:    "ocswitch/missing",
+		SmallModel:      "bad-small-model",
 		Providers: []opencode.RuntimeProviderSnapshot{{
 			ID:       "ocswitch",
 			NPM:      "@custom/runtime",
@@ -658,6 +660,79 @@ func TestPreviewOpenCodeSyncIncludesRuntimeUnreachableAndSummary(t *testing.T) {
 	}
 	if !preview.Summary.FileSnapshotAvailable {
 		t.Fatalf("summary = %#v, want file snapshot available", preview.Summary)
+	}
+}
+
+func TestListRequestTracesEnrichesEstimatedCostFromOpenCodePricing(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+	opencodeDir := filepath.Join(root, "opencode")
+	if err := os.MkdirAll(opencodeDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	opencodePath := filepath.Join(opencodeDir, "opencode.jsonc")
+	if err := os.WriteFile(opencodePath, []byte(`{
+		"provider": {
+			"ocswitch": {
+				"models": {
+					"gpt-5.4": {
+						"cost": {
+							"input": 1.75,
+							"output": 14,
+							"cache_read": 0.5,
+							"cache_write": 7
+						}
+					}
+				}
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	input := int64(100)
+	output := int64(40)
+	reasoning := int64(5)
+	cacheRead := int64(20)
+	cacheWrite := int64(8)
+	cacheWrite1H := int64(2)
+
+	svc := NewService(filepath.Join(t.TempDir(), "ocswitch.json"))
+	svc.traces = proxy.NewTraceStore(10)
+	if err := svc.traces.Add(context.Background(), proxy.RequestTrace{
+		ID:         1,
+		StartedAt:  time.Now().UTC(),
+		DurationMs: 100,
+		Protocol:   config.ProtocolOpenAIResponses,
+		Alias:      "gpt-5.4",
+		Success:    true,
+		Usage: proxy.TraceUsage{
+			InputTokens:        &input,
+			OutputTokens:       &output,
+			ReasoningTokens:    &reasoning,
+			CacheReadTokens:    &cacheRead,
+			CacheWriteTokens:   &cacheWrite,
+			CacheWrite1HTokens: &cacheWrite1H,
+			Source:             config.ProtocolOpenAIResponses,
+			Precision:          "exact",
+		},
+	}); err != nil {
+		t.Fatalf("traces.Add() error = %v", err)
+	}
+
+	traces, err := svc.ListRequestTraces(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListRequestTraces() error = %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if traces[0].Usage.EstimatedCost == nil {
+		t.Fatalf("estimated cost = nil, want value")
+	}
+	want := 0.000885
+	if math.Abs(*traces[0].Usage.EstimatedCost-want) > 1e-12 {
+		t.Fatalf("estimated cost = %.12f, want %.12f", *traces[0].Usage.EstimatedCost, want)
 	}
 }
 

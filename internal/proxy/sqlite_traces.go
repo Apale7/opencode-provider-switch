@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"sync"
 	"time"
 
@@ -26,6 +27,7 @@ type traceRow struct {
 	AttemptsJSON string
 	HeadersJSON  string
 	ParamsJSON   string
+	UsageJSON    string
 }
 
 func NewSQLiteTraceStore(configPath string) (*SQLiteTraceStore, error) {
@@ -81,6 +83,7 @@ CREATE TABLE IF NOT EXISTS request_traces (
 	attempt_count INTEGER NOT NULL DEFAULT 0,
 	request_headers_json TEXT NOT NULL DEFAULT '',
 	request_params_json TEXT NOT NULL DEFAULT '',
+	usage_json TEXT NOT NULL DEFAULT '',
 	attempts_json TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_request_traces_started_at ON request_traces(started_at DESC, id DESC);
@@ -90,6 +93,12 @@ CREATE INDEX IF NOT EXISTS idx_request_traces_attempt_count ON request_traces(at
 `)
 	if err != nil {
 		return fmt.Errorf("init trace db: %w", err)
+	}
+	if err := ensureSQLiteTraceColumn(ctx, db, "request_traces", "usage_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := seedSQLiteTraceCounter(ctx, db); err != nil {
+		return err
 	}
 	return nil
 }
@@ -108,8 +117,8 @@ INSERT INTO request_traces (
 	id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
 	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
 	final_model, final_url, failover, attempt_count, request_headers_json,
-	request_params_json, attempts_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	request_params_json, usage_json, attempts_json
+ ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	finished_at=excluded.finished_at,
 	duration_ms=excluded.duration_ms,
@@ -130,6 +139,7 @@ ON CONFLICT(id) DO UPDATE SET
 	attempt_count=excluded.attempt_count,
 	request_headers_json=excluded.request_headers_json,
 	request_params_json=excluded.request_params_json,
+	usage_json=excluded.usage_json,
 	attempts_json=excluded.attempts_json
 `,
 			row.Trace.ID,
@@ -153,6 +163,7 @@ ON CONFLICT(id) DO UPDATE SET
 			row.Trace.AttemptCount,
 			row.HeadersJSON,
 			row.ParamsJSON,
+			row.UsageJSON,
 			row.AttemptsJSON,
 		)
 		if err != nil {
@@ -196,7 +207,7 @@ func (s *SQLiteTraceStore) Query(ctx context.Context, query TraceQuery) (TraceQu
 SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
 	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
 	final_model, final_url, failover, attempt_count, request_headers_json,
-	request_params_json, attempts_json
+	request_params_json, usage_json, attempts_json
 FROM request_traces`
 		if where != "" {
 			listSQL += " WHERE " + where
@@ -357,7 +368,63 @@ func encodeTraceRow(trace RequestTrace) (traceRow, error) {
 	if err != nil {
 		return traceRow{}, fmt.Errorf("marshal attempts: %w", err)
 	}
-	return traceRow{Trace: trace, HeadersJSON: headersJSON, ParamsJSON: paramsJSON, AttemptsJSON: attemptsJSON}, nil
+	usageJSON, err := marshalTraceJSON(trace.Usage)
+	if err != nil {
+		return traceRow{}, fmt.Errorf("marshal usage: %w", err)
+	}
+	return traceRow{Trace: trace, HeadersJSON: headersJSON, ParamsJSON: paramsJSON, UsageJSON: usageJSON, AttemptsJSON: attemptsJSON}, nil
+}
+
+func ensureSQLiteTraceColumn(ctx context.Context, db *sql.DB, table string, column string, definition string) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return fmt.Errorf("inspect %s schema: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return fmt.Errorf("scan %s schema: %w", table, err)
+		}
+		if strings.EqualFold(name, column) {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate %s schema: %w", table, err)
+	}
+	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)
+	if _, err := db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, column, err)
+	}
+	return nil
+}
+
+func seedSQLiteTraceCounter(ctx context.Context, db *sql.DB) error {
+	var maxID sql.NullInt64
+	if err := db.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) FROM request_traces").Scan(&maxID); err != nil {
+		return fmt.Errorf("query trace max id: %w", err)
+	}
+	if !maxID.Valid || maxID.Int64 <= 0 {
+		return nil
+	}
+	target := uint64(maxID.Int64)
+	for {
+		current := atomic.LoadUint64(&reqCounter)
+		if current >= target {
+			return nil
+		}
+		if atomic.CompareAndSwapUint64(&reqCounter, current, target) {
+			return nil
+		}
+	}
 }
 
 func marshalTraceJSON(value any) (string, error) {
@@ -381,6 +448,7 @@ func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace
 		failover    int
 		headersJSON string
 		paramsJSON  string
+		usageJSON   string
 		attemptsJSON string
 	)
 	err := scanner.Scan(
@@ -405,6 +473,7 @@ func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace
 		&trace.AttemptCount,
 		&headersJSON,
 		&paramsJSON,
+		&usageJSON,
 		&attemptsJSON,
 	)
 	if err != nil {
@@ -423,6 +492,11 @@ func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace
 	if paramsJSON != "" {
 		if err := json.Unmarshal([]byte(paramsJSON), &trace.RequestParams); err != nil {
 			return RequestTrace{}, fmt.Errorf("decode request params: %w", err)
+		}
+	}
+	if usageJSON != "" {
+		if err := json.Unmarshal([]byte(usageJSON), &trace.Usage); err != nil {
+			return RequestTrace{}, fmt.Errorf("decode usage: %w", err)
 		}
 	}
 	if attemptsJSON != "" {
