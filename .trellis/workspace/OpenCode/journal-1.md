@@ -231,3 +231,36 @@ Contained desktop shell scrolling so the sidebar stays visible while the workspa
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Fix log and network responsive layout
+
+**Date**: 2026-04-22
+**Task**: Fix log and network responsive layout
+**Branch**: `master`
+
+### Summary
+
+Repaired narrow-width log/network layout, restored internal horizontal scrolling for trace tables, and fixed overlapping log rows caused by incorrect table body grid.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8f6831d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
