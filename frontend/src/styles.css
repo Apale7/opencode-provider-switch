@@ -241,9 +241,10 @@ h4 {
 .app-shell {
   display: grid;
   grid-template-columns: 224px minmax(0, 1fr);
+  width: 100%;
   height: 100vh;
   overflow: hidden;
-  min-width: 1120px;
+  min-width: 0;
 }
 
 .app-shell.shell-locked,
@@ -488,6 +489,7 @@ dd {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   padding: 1.35rem;
@@ -495,13 +497,21 @@ dd {
 }
 
 .workspace > .tab-layout {
+  width: 100%;
   min-height: 0;
 }
 
 .tab-layout {
   display: grid;
   gap: 0.9rem;
+  width: 100%;
   align-content: start;
+}
+
+.trace-tab-layout,
+.trace-panel {
+  width: 100%;
+  min-width: 0;
 }
 
 .overview-layout {
@@ -528,6 +538,7 @@ dd {
 .panel-fill {
   min-height: 0;
   height: 100%;
+  width: 100%;
 }
 
 .panel-full {
@@ -847,30 +858,44 @@ html[data-theme='dark'] button.ghost-danger:hover {
 }
 
 .trace-scroll-list {
+  width: 100%;
+  min-width: 0;
   max-height: none;
   padding-right: 0;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 
 .trace-table {
 	display: grid;
 	gap: 0;
-	width: 100%;
-	min-width: 0;
+	width: max-content;
+	min-width: 100%;
 	background: #fff;
 }
 
 .trace-table-header,
 .trace-table-row {
 	display: grid;
-	grid-template-columns: minmax(9rem, 0.95fr) minmax(14rem, 1.6fr) minmax(15rem, 1.35fr) minmax(9rem, 0.8fr) minmax(10rem, 0.85fr);
+	grid-template-columns: var(--trace-table-columns);
+	width: max-content;
+	min-width: 100%;
 	column-gap: 1.4rem;
 	align-items: center;
 }
 
+.trace-table-log {
+	--trace-table-columns: 10rem minmax(15rem, 1.45fr) minmax(15rem, 1.25fr) minmax(8rem, 0.7fr) minmax(9rem, 0.8fr);
+	min-width: 70rem;
+}
+
 .trace-table-network .trace-table-header,
 .trace-table-network .trace-table-row {
-	grid-template-columns: minmax(9rem, 0.9fr) minmax(13rem, 1.15fr) minmax(15rem, 1.65fr) minmax(11rem, 1fr) minmax(7rem, 0.6fr);
+	grid-template-columns: 10rem minmax(14rem, 1.15fr) minmax(17rem, 1.55fr) minmax(11rem, 0.95fr) minmax(7.5rem, 0.55fr);
+}
+
+.trace-table-network {
+	min-width: 69rem;
 }
 
 .trace-table-header {
@@ -898,11 +923,16 @@ html[data-theme='dark'] button.ghost-danger:hover {
 
 .trace-table-body {
 	display: grid;
-	min-width: 0;
+	grid-template-columns: minmax(0, 1fr);
+	width: max-content;
+	min-width: 100%;
 }
 
 .trace-table-row {
-	width: 100%;
+	width: max-content;
+	min-width: 100%;
+	height: auto;
+	min-height: 4.25rem;
 	padding: 0.8rem 0;
 	border: 0;
 	border-bottom: 1px solid color-mix(in srgb, var(--border) 64%, transparent);
@@ -932,9 +962,11 @@ html[data-theme='dark'] button.ghost-danger:hover {
 .trace-table-cell {
 	min-width: 0;
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	gap: 0.55rem;
 	font-size: 0.9rem;
+	height: auto;
+	min-height: 0;
 	line-height: 1.35;
 	color: var(--text);
 }
@@ -962,8 +994,9 @@ html[data-theme='dark'] button.ghost-danger:hover {
 .trace-model-line {
 	display: flex;
 	flex-wrap: wrap;
-	align-items: center;
-	gap: 0.45rem;
+	align-items: flex-start;
+	column-gap: 0.45rem;
+	row-gap: 0.35rem;
 	min-width: 0;
 }
 
@@ -1007,9 +1040,20 @@ html[data-theme='dark'] button.ghost-danger:hover {
 
 .trace-table-metric {
 	display: inline-flex;
-	align-items: center;
-	gap: 0.45rem;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	column-gap: 0.45rem;
+	row-gap: 0.35rem;
 	min-width: 0;
+}
+
+.trace-table-metric > .trace-mono,
+.trace-table-cell > .trace-mono,
+.trace-table-cell > .trace-status-stack,
+.trace-info-popover,
+.trace-mini-tag,
+.protocol-badge {
+	flex-shrink: 0;
 }
 
 .trace-status-cell {
@@ -1916,6 +1960,7 @@ html[data-theme='dark'] .detail-empty-card {
 @media (max-width: 1240px) {
   .app-shell {
     grid-template-columns: 1fr;
+    width: 100%;
     height: auto;
     overflow: visible;
     min-width: 0;
@@ -1923,13 +1968,32 @@ html[data-theme='dark'] .detail-empty-card {
 
   .sidebar {
     height: auto;
+    width: 100%;
     overflow: visible;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
 
   .nav-list {
-    grid-template-columns: repeat(4, minmax(160px, 1fr));
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  .nav-item {
+    justify-content: center;
+  }
+
+  .nav-title {
+    text-align: center;
+  }
+
+  .workspace,
+  .workspace > .tab-layout,
+  .aliases-layout,
+  .providers-layout,
+  .panel-fill {
+    width: 100%;
+    max-width: 100%;
   }
 
   .overview-layout,
@@ -1965,6 +2029,10 @@ html[data-theme='dark'] .detail-empty-card {
   .workspace,
   .sidebar {
     padding: 1rem;
+  }
+
+  .workspace {
+    width: 100%;
   }
 
   .panel-header,
@@ -2005,6 +2073,10 @@ html[data-theme='dark'] .detail-empty-card {
     grid-template-columns: 1fr;
   }
 
+  .nav-list {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
   .list-header-actions {
     justify-items: stretch;
   }
@@ -2019,38 +2091,27 @@ html[data-theme='dark'] .detail-empty-card {
     justify-content: flex-start;
   }
 
-	.trace-table-header {
-		display: none;
+	.trace-toolbar {
+		gap: 0.75rem;
 	}
 
-	.trace-table-row,
-	.trace-table-network .trace-table-row {
-		grid-template-columns: 1fr;
-		row-gap: 0.45rem;
-		padding: 0.85rem 0;
+	.trace-toolbar .filter-group {
+		width: 100%;
+		min-width: 0;
 	}
 
-	.trace-table-cell {
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0.18rem;
+	.trace-toolbar .filter-chip-grid {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		padding-bottom: 0.2rem;
 	}
 
-	.trace-table-cell[data-label]::before {
-		display: block;
+	.trace-table-log {
+		min-width: 66rem;
 	}
 
-	.trace-status-cell,
-	.trace-status-stack {
-		justify-content: flex-start;
-		justify-items: start;
-	}
-
-	.trace-table-ellipsis,
-	.trace-table-muted,
-	.trace-model-name,
-	.trace-mono {
-		white-space: normal;
+	.trace-table-network {
+		min-width: 64rem;
 	}
 
 	.trace-info-card {
@@ -2061,11 +2122,12 @@ html[data-theme='dark'] .detail-empty-card {
 
   .scroll-list {
     max-height: none;
-    overflow: visible;
+    overflow: auto;
   }
 
   .panel-fill {
     min-height: auto;
+    width: 100%;
   }
 
   .detail-backdrop {
@@ -2096,6 +2158,14 @@ html[data-theme='dark'] .detail-empty-card {
     flex-direction: column;
     align-items: flex-start;
   }
+
+	.trace-table-log {
+		min-width: 62rem;
+	}
+
+	.trace-table-network {
+		min-width: 60rem;
+	}
 
   .panel,
   .subpanel {

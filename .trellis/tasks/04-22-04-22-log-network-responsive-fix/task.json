@@ -1,0 +1,66 @@
+{
+  "id": "04-22-log-network-responsive-fix",
+  "name": "04-22-log-network-responsive-fix",
+  "title": "修复日志与网络页面窄屏响应式布局",
+  "description": "修复日志与网络页面在窄屏下的主布局、顶部导航与 trace 表格横向滚动问题，并修正日志列表行内容重叠/穿模。",
+  "status": "completed",
+  "dev_type": "frontend",
+  "scope": "desktop-ui",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-22",
+  "completedAt": "2026-04-22",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-22-04-22-log-network-responsive-fix/prd.md",
+    "frontend/src/App.tsx",
+    "frontend/src/styles.css"
+  ],
+  "notes": "完成日志页与网络页窄屏响应式修复。去掉外层壳体的硬性最小宽度，改进侧栏转顶部导航时的排列，使主内容卡片在窄屏下占满宽度。日志与网络 trace 表改为由父容器负责横向滚动，并为表格及行定义稳定最小宽度，避免末列被挤出。随后修复日志列表穿模问题：将 trace table body 从错误的多列父网格恢复为单列堆叠容器，允许行高随内容自然撑开，并为模型标签、性能指标与状态元素补充更合理的换行/防收缩规则。验证通过 `npm run build`。",
+  "meta": {
+    "tests": [
+      "npm run build"
+    ],
+    "responsiveFixes": [
+      "top nav wraps cleanly on narrow widths",
+      "trace tables scroll horizontally inside list container",
+      "trace rows expand vertically instead of overlapping"
+    ]
+  }
+}

@@ -2201,8 +2201,8 @@ export default function App() {
         ) : null}
 
         {activeTab === 'log' ? (
-          <section className="tab-layout aliases-layout">
-            <article className="panel panel-fill list-column">
+          <section className="tab-layout trace-tab-layout">
+            <article className="panel panel-fill list-column trace-panel">
               <div className="panel-header">
                 <div>
                   <h3>{t('log.title')}</h3>
@@ -2372,8 +2372,8 @@ export default function App() {
         ) : null}
 
         {activeTab === 'network' ? (
-          <section className="tab-layout aliases-layout">
-            <article className="panel panel-fill list-column">
+          <section className="tab-layout trace-tab-layout">
+            <article className="panel panel-fill list-column trace-panel">
               <div className="panel-header">
                 <div>
                   <h3>{t('network.title')}</h3>
