@@ -755,6 +755,112 @@ func TestListRequestTracesEnrichesEstimatedCostFromOpenCodePricing(t *testing.T)
 	}
 }
 
+func TestListRequestTracesFallsBackToModelsDevPricing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api.json" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"openai": {
+				"models": {
+					"gpt-5.4": {
+						"cost": {
+							"input": 2.5,
+							"output": 15,
+							"cache_read": 0.25,
+							"context_over_200k": {
+								"input": 5,
+								"output": 22.5,
+								"cache_read": 0.5
+							}
+						}
+					}
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+	t.Setenv("OPENCODE_MODELS_URL", server.URL)
+
+	input := int64(100)
+	output := int64(40)
+	reasoning := int64(5)
+	cacheRead := int64(20)
+
+	svc := NewService(filepath.Join(t.TempDir(), "ocswitch.json"))
+	svc.traces = proxy.NewTraceStore(10)
+	if err := svc.traces.Add(context.Background(), proxy.RequestTrace{
+		ID:            1,
+		StartedAt:     time.Now().UTC(),
+		DurationMs:    100,
+		Protocol:      config.ProtocolOpenAIResponses,
+		Alias:         "chat",
+		FinalProvider: "relay",
+		FinalModel:    "gpt-5.4",
+		Success:       true,
+		Usage: proxy.TraceUsage{
+			InputTokens:     &input,
+			OutputTokens:    &output,
+			ReasoningTokens: &reasoning,
+			CacheReadTokens: &cacheRead,
+			Source:          config.ProtocolOpenAIResponses,
+			Precision:       "exact",
+		},
+	}); err != nil {
+		t.Fatalf("traces.Add() error = %v", err)
+	}
+
+	traces, err := svc.ListRequestTraces(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListRequestTraces() error = %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if traces[0].Usage.EstimatedCost == nil {
+		t.Fatalf("estimated cost = nil, want value")
+	}
+	want := 0.00093
+	if math.Abs(*traces[0].Usage.EstimatedCost-want) > 1e-12 {
+		t.Fatalf("estimated cost = %.12f, want %.12f", *traces[0].Usage.EstimatedCost, want)
+	}
+}
+
+func TestEstimateTraceUsageCostUsesOver200KPricing(t *testing.T) {
+	input := int64(210000)
+	output := int64(10)
+	cacheRead := int64(10)
+	pricing := tracePricing{
+		input:     float64Ptr(2.5),
+		output:    float64Ptr(15),
+		cacheRead: float64Ptr(0.25),
+		over200k: &tracePricingTier{
+			input:     float64Ptr(5),
+			output:    float64Ptr(22.5),
+			cacheRead: float64Ptr(0.5),
+		},
+	}
+
+	got, ok := estimateTraceUsageCost(TraceUsage{
+		InputTokens:     &input,
+		OutputTokens:    &output,
+		CacheReadTokens: &cacheRead,
+	}, pricing)
+	if !ok {
+		t.Fatal("estimateTraceUsageCost() ok = false, want true")
+	}
+	want := 1.05023
+	if math.Abs(got-want) > 1e-12 {
+		t.Fatalf("estimateTraceUsageCost() = %.12f, want %.12f", got, want)
+	}
+}
+
+func float64Ptr(value float64) *float64 {
+	return &value
+}
+
 func containsWarning(warnings []string, want string) bool {
 	for _, warning := range warnings {
 		if strings.Contains(warning, want) {

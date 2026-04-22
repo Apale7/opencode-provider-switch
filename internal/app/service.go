@@ -32,6 +32,14 @@ type tracePricing struct {
 	output     *float64
 	cacheRead  *float64
 	cacheWrite *float64
+	over200k   *tracePricingTier
+}
+
+type tracePricingTier struct {
+	input      *float64
+	output     *float64
+	cacheRead  *float64
+	cacheWrite *float64
 }
 
 func NewService(configPath string) *Service {
@@ -322,7 +330,7 @@ func (s *Service) ListRequestTraces(ctx context.Context, limit int) ([]RequestTr
 	out := make([]RequestTrace, 0, len(raw))
 	for _, trace := range raw {
 		view := requestTraceView(trace)
-		enrichTraceEstimatedCost(&view, pricing)
+		enrichTraceEstimatedCost(ctx, &view, pricing)
 		out = append(out, view)
 	}
 	return out, nil
@@ -342,7 +350,7 @@ func (s *Service) QueryRequestTraces(ctx context.Context, in RequestTraceListInp
 	view := requestTraceListResultView(result)
 	pricing := loadTracePricingCatalog()
 	for index := range view.Items {
-		enrichTraceEstimatedCost(&view.Items[index], pricing)
+		enrichTraceEstimatedCost(ctx, &view.Items[index], pricing)
 	}
 	return view, nil
 }
@@ -642,7 +650,18 @@ func tracePricingFromRaw(costValue map[string]any) (tracePricing, bool) {
 		cacheRead:  jsonNumberToFloat64Ptr(costValue["cache_read"]),
 		cacheWrite: jsonNumberToFloat64Ptr(costValue["cache_write"]),
 	}
-	if pricing.input == nil && pricing.output == nil && pricing.cacheRead == nil && pricing.cacheWrite == nil {
+	if over200kValue, _ := costValue["context_over_200k"].(map[string]any); over200kValue != nil {
+		pricing.over200k = &tracePricingTier{
+			input:      jsonNumberToFloat64Ptr(over200kValue["input"]),
+			output:     jsonNumberToFloat64Ptr(over200kValue["output"]),
+			cacheRead:  jsonNumberToFloat64Ptr(over200kValue["cache_read"]),
+			cacheWrite: jsonNumberToFloat64Ptr(over200kValue["cache_write"]),
+		}
+		if pricing.over200k.input == nil && pricing.over200k.output == nil && pricing.over200k.cacheRead == nil && pricing.over200k.cacheWrite == nil {
+			pricing.over200k = nil
+		}
+	}
+	if pricing.input == nil && pricing.output == nil && pricing.cacheRead == nil && pricing.cacheWrite == nil && pricing.over200k == nil {
 		return tracePricing{}, false
 	}
 	return pricing, true
@@ -652,15 +671,11 @@ func tracePricingKey(protocol string, alias string) string {
 	return config.NormalizeProviderProtocol(protocol) + ":" + strings.TrimSpace(alias)
 }
 
-func enrichTraceEstimatedCost(trace *RequestTrace, pricing map[string]tracePricing) {
-	if trace == nil || trace.Usage.EstimatedCost != nil || len(pricing) == 0 {
+func enrichTraceEstimatedCost(ctx context.Context, trace *RequestTrace, pricing map[string]tracePricing) {
+	if trace == nil || trace.Usage.EstimatedCost != nil {
 		return
 	}
-	alias := strings.TrimSpace(trace.Alias)
-	if alias == "" {
-		return
-	}
-	modelPricing, ok := pricing[tracePricingKey(trace.Protocol, alias)]
+	modelPricing, ok := lookupTracePricing(ctx, *trace, pricing)
 	if !ok {
 		return
 	}
@@ -671,37 +686,127 @@ func enrichTraceEstimatedCost(trace *RequestTrace, pricing map[string]tracePrici
 	trace.Usage.EstimatedCost = &estimate
 }
 
+func lookupTracePricing(ctx context.Context, trace RequestTrace, pricing map[string]tracePricing) (tracePricing, bool) {
+	alias := strings.TrimSpace(trace.Alias)
+	if alias != "" {
+		if modelPricing, ok := pricing[tracePricingKey(trace.Protocol, alias)]; ok {
+			return modelPricing, true
+		}
+	}
+	modelsDevPricing, ok := lookupTraceModelsDevPricing(ctx, trace)
+	if !ok {
+		return tracePricing{}, false
+	}
+	return modelsDevPricing, true
+}
+
+func lookupTraceModelsDevPricing(ctx context.Context, trace RequestTrace) (tracePricing, bool) {
+	candidates := uniqueTracePricingCandidates(trace.FinalModel, trace.Alias, trace.RawModel)
+	if len(candidates) == 0 {
+		return tracePricing{}, false
+	}
+	pricing, ok, err := opencode.LookupModelsDevPricing(ctx, candidates...)
+	if err != nil || !ok {
+		return tracePricing{}, false
+	}
+	return tracePricingFromModelsDev(pricing)
+}
+
+func uniqueTracePricingCandidates(values ...string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func tracePricingFromModelsDev(pricing opencode.ModelsDevPricing) (tracePricing, bool) {
+	result := tracePricing{
+		input:      pricing.Input,
+		output:     pricing.Output,
+		cacheRead:  pricing.CacheRead,
+		cacheWrite: pricing.CacheWrite,
+	}
+	if pricing.ContextOver200K != nil {
+		result.over200k = &tracePricingTier{
+			input:      pricing.ContextOver200K.Input,
+			output:     pricing.ContextOver200K.Output,
+			cacheRead:  pricing.ContextOver200K.CacheRead,
+			cacheWrite: pricing.ContextOver200K.CacheWrite,
+		}
+	}
+	if result.input == nil && result.output == nil && result.cacheRead == nil && result.cacheWrite == nil && result.over200k == nil {
+		return tracePricing{}, false
+	}
+	return result, true
+}
+
 func estimateTraceUsageCost(usage TraceUsage, pricing tracePricing) (float64, bool) {
 	if usage.InputTokens == nil && usage.OutputTokens == nil && usage.ReasoningTokens == nil && usage.CacheReadTokens == nil && usage.CacheWriteTokens == nil && usage.CacheWrite1HTokens == nil {
 		return 0, false
 	}
-	if pricing.input == nil && pricing.output == nil && pricing.cacheRead == nil && pricing.cacheWrite == nil {
+	selected := pricing
+	if pricing.over200k != nil && traceUsageExceeds200K(usage) {
+		selected.input = pricing.over200k.input
+		selected.output = pricing.over200k.output
+		selected.cacheRead = pricing.over200k.cacheRead
+		selected.cacheWrite = pricing.over200k.cacheWrite
+	}
+	if selected.input == nil && selected.output == nil && selected.cacheRead == nil && selected.cacheWrite == nil {
 		return 0, false
 	}
 	total := 0.0
-	if pricing.input != nil && usage.InputTokens != nil {
-		total += float64(*usage.InputTokens) * *pricing.input / 1_000_000
+	if selected.input != nil && usage.InputTokens != nil {
+		total += float64(*usage.InputTokens) * *selected.input / 1_000_000
 	}
-	if pricing.output != nil {
+	if selected.output != nil {
 		if usage.OutputTokens != nil {
-			total += float64(*usage.OutputTokens) * *pricing.output / 1_000_000
+			total += float64(*usage.OutputTokens) * *selected.output / 1_000_000
 		}
 		if usage.ReasoningTokens != nil {
-			total += float64(*usage.ReasoningTokens) * *pricing.output / 1_000_000
+			total += float64(*usage.ReasoningTokens) * *selected.output / 1_000_000
 		}
 	}
-	if pricing.cacheRead != nil && usage.CacheReadTokens != nil {
-		total += float64(*usage.CacheReadTokens) * *pricing.cacheRead / 1_000_000
+	if selected.cacheRead != nil && usage.CacheReadTokens != nil {
+		total += float64(*usage.CacheReadTokens) * *selected.cacheRead / 1_000_000
 	}
-	if pricing.cacheWrite != nil {
+	if selected.cacheWrite != nil {
 		if usage.CacheWriteTokens != nil {
-			total += float64(*usage.CacheWriteTokens) * *pricing.cacheWrite / 1_000_000
+			total += float64(*usage.CacheWriteTokens) * *selected.cacheWrite / 1_000_000
 		}
 		if usage.CacheWrite1HTokens != nil {
-			total += float64(*usage.CacheWrite1HTokens) * *pricing.cacheWrite / 1_000_000
+			total += float64(*usage.CacheWrite1HTokens) * *selected.cacheWrite / 1_000_000
 		}
 	}
 	return total, true
+}
+
+func traceUsageExceeds200K(usage TraceUsage) bool {
+	input := int64(0)
+	cacheRead := int64(0)
+	if usage.InputTokens != nil {
+		input = *usage.InputTokens
+	}
+	if usage.CacheReadTokens != nil {
+		cacheRead = *usage.CacheReadTokens
+	}
+	return input+cacheRead > 200_000
 }
 
 func jsonNumberToFloat64Ptr(value any) *float64 {
