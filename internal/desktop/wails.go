@@ -28,7 +28,7 @@ func RunWails(configPath string, version string) error {
 		Title:     "ocswitch desktop",
 		Width:     1280,
 		Height:    880,
-		MinWidth:  1120,
+		MinWidth:  1240,
 		MinHeight: 720,
 		AssetServer: &assetserver.Options{
 			Assets: mustFS(assets),
