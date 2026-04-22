@@ -869,8 +869,9 @@ html[data-theme='dark'] button.ghost-danger:hover {
 .trace-table {
 	display: grid;
 	gap: 0;
-	width: max-content;
-	min-width: 100%;
+	width: 100%;
+	min-width: var(--trace-table-min-width, 100%);
+	--trace-table-gap: clamp(0.6rem, 1vw, 1.4rem);
 	background: #fff;
 }
 
@@ -878,24 +879,24 @@ html[data-theme='dark'] button.ghost-danger:hover {
 .trace-table-row {
 	display: grid;
 	grid-template-columns: var(--trace-table-columns);
-	width: max-content;
-	min-width: 100%;
-	column-gap: 1.4rem;
+	width: 100%;
+	min-width: 0;
+	column-gap: var(--trace-table-gap);
 	align-items: center;
 }
 
 .trace-table-log {
-	--trace-table-columns: 10rem minmax(15rem, 1.45fr) minmax(15rem, 1.25fr) minmax(8rem, 0.7fr) minmax(9rem, 0.8fr);
-	min-width: 70rem;
+	--trace-table-columns: 9.5rem minmax(13rem, 1.45fr) minmax(13rem, 1.25fr) minmax(7.5rem, max-content) minmax(8.5rem, max-content);
+	--trace-table-min-width: 54rem;
 }
 
 .trace-table-network .trace-table-header,
 .trace-table-network .trace-table-row {
-	grid-template-columns: 10rem minmax(14rem, 1.15fr) minmax(17rem, 1.55fr) minmax(11rem, 0.95fr) minmax(7.5rem, 0.55fr);
+	grid-template-columns: 9.5rem minmax(12rem, 1.15fr) minmax(14rem, 1.55fr) minmax(9.5rem, 0.95fr) minmax(6.75rem, max-content);
 }
 
 .trace-table-network {
-	min-width: 69rem;
+	--trace-table-min-width: 54rem;
 }
 
 .trace-table-header {
@@ -924,13 +925,11 @@ html[data-theme='dark'] button.ghost-danger:hover {
 .trace-table-body {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
-	width: max-content;
-	min-width: 100%;
+	width: 100%;
+	min-width: 0;
 }
 
 .trace-table-row {
-	width: max-content;
-	min-width: 100%;
 	height: auto;
 	min-height: 4.25rem;
 	padding: 0.8rem 0;
@@ -2107,11 +2106,11 @@ html[data-theme='dark'] .detail-empty-card {
 	}
 
 	.trace-table-log {
-		min-width: 66rem;
+		--trace-table-min-width: 51rem;
 	}
 
 	.trace-table-network {
-		min-width: 64rem;
+		--trace-table-min-width: 50rem;
 	}
 
 	.trace-info-card {
@@ -2160,11 +2159,11 @@ html[data-theme='dark'] .detail-empty-card {
   }
 
 	.trace-table-log {
-		min-width: 62rem;
+		--trace-table-min-width: 48rem;
 	}
 
 	.trace-table-network {
-		min-width: 60rem;
+		--trace-table-min-width: 47rem;
 	}
 
   .panel,
