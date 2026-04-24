@@ -45,6 +45,10 @@ func (b *Bindings) RefreshProviderModels(ctx context.Context, in app.ProviderRef
 	return b.service.RefreshProviderModels(ctx, in)
 }
 
+func (b *Bindings) PingProviderBaseURL(ctx context.Context, in app.ProviderPingInput) (app.ProviderPingResult, error) {
+	return b.service.PingProviderBaseURL(ctx, in)
+}
+
 func (b *Bindings) SetProviderDisabled(ctx context.Context, in app.ProviderStateInput) (app.ProviderView, error) {
 	return b.service.SetProviderDisabled(ctx, in)
 }
@@ -75,6 +79,10 @@ func (b *Bindings) SetAliasTargetDisabled(ctx context.Context, in app.AliasTarge
 
 func (b *Bindings) UnbindAliasTarget(ctx context.Context, in app.AliasTargetInput) (app.AliasView, error) {
 	return b.service.UnbindAliasTarget(ctx, in)
+}
+
+func (b *Bindings) ReorderAliasTargets(ctx context.Context, in app.AliasTargetReorderInput) (app.AliasView, error) {
+	return b.service.ReorderAliasTargets(ctx, in)
 }
 
 func (b *Bindings) RunDoctor(ctx context.Context) (app.DoctorReport, error) {
@@ -151,6 +159,10 @@ func (b *Bindings) RefreshProviderModelsNow(in app.ProviderRefreshModelsInput) (
 	return b.RefreshProviderModels(context.Background(), in)
 }
 
+func (b *Bindings) PingProviderBaseURLNow(in app.ProviderPingInput) (app.ProviderPingResult, error) {
+	return b.PingProviderBaseURL(context.Background(), in)
+}
+
 func (b *Bindings) SetProviderState(in app.ProviderStateInput) (app.ProviderView, error) {
 	return b.SetProviderDisabled(context.Background(), in)
 }
@@ -181,6 +193,10 @@ func (b *Bindings) SetTargetState(in app.AliasTargetInput) (app.AliasView, error
 
 func (b *Bindings) UnbindTarget(in app.AliasTargetInput) (app.AliasView, error) {
 	return b.UnbindAliasTarget(context.Background(), in)
+}
+
+func (b *Bindings) ReorderTargets(in app.AliasTargetReorderInput) (app.AliasView, error) {
+	return b.ReorderAliasTargets(context.Background(), in)
 }
 
 func (b *Bindings) Doctor() (app.DoctorReport, error) {

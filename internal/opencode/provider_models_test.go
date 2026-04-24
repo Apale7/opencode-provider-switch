@@ -137,3 +137,56 @@ func TestFetchProviderModels(t *testing.T) {
 		}
 	})
 }
+
+func TestFetchProviderModelsWithFallback(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uses later base url after error", func(t *testing.T) {
+		t.Parallel()
+		first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = io.WriteString(w, `{"error":"bad gateway"}`)
+		}))
+		defer first.Close()
+		second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, `{"data":[{"id":"gpt-4.1"}]}`)
+		}))
+		defer second.Close()
+
+		models, probe, err := FetchProviderModelsWithFallback("openai-responses", []string{first.URL + "/v1", second.URL + "/v1"}, "", nil)
+		if err != nil {
+			t.Fatalf("FetchProviderModelsWithFallback() error = %v", err)
+		}
+		if probe == nil || probe.BaseURL != second.URL+"/v1" || !probe.Reachable {
+			t.Fatalf("probe = %#v", probe)
+		}
+		want := []string{"gpt-4.1"}
+		if !reflect.DeepEqual(models, want) {
+			t.Fatalf("models = %#v, want %#v", models, want)
+		}
+	})
+
+	t.Run("treats reachable empty result as success", func(t *testing.T) {
+		t.Parallel()
+		first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, `{"data":[]}`)
+		}))
+		defer first.Close()
+		second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, `{"data":[{"id":"gpt-4.1"}]}`)
+		}))
+		defer second.Close()
+
+		models, probe, err := FetchProviderModelsWithFallback("openai-responses", []string{first.URL + "/v1", second.URL + "/v1"}, "", nil)
+		if err != nil {
+			t.Fatalf("FetchProviderModelsWithFallback() error = %v", err)
+		}
+		if probe == nil || probe.BaseURL != second.URL+"/v1" || !probe.Reachable {
+			t.Fatalf("probe = %#v", probe)
+		}
+		want := []string{"gpt-4.1"}
+		if !reflect.DeepEqual(models, want) {
+			t.Fatalf("models = %#v, want %#v", models, want)
+		}
+	})
+}

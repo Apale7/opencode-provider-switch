@@ -34,6 +34,8 @@ export function OpenExternalURL(arg1:string):Promise<void>;
 
 export function Overview():Promise<app.Overview>;
 
+export function PingProviderBaseURL(arg1:app.ProviderPingInput):Promise<app.ProviderPingResult>;
+
 export function PreviewSync(arg1:app.SyncInput):Promise<app.SyncPreview>;
 
 export function Providers():Promise<Array<app.ProviderView>>;
@@ -43,6 +45,8 @@ export function ProxySettings():Promise<app.ProxySettingsView>;
 export function ProxyStatus():Promise<app.ProxyStatusView>;
 
 export function RefreshProviderModels(arg1:app.ProviderRefreshModelsInput):Promise<app.ProviderSaveResult>;
+
+export function ReorderTargets(arg1:app.AliasTargetReorderInput):Promise<app.AliasView>;
 
 export function RequestTraces(arg1:number):Promise<Array<app.RequestTrace>>;
 

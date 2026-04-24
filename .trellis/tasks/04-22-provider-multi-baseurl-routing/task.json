@@ -1,0 +1,85 @@
+{
+  "id": "provider-multi-baseurl-routing",
+  "name": "provider-multi-baseurl-routing",
+  "title": "Upgrade provider multi-baseurl routing and ping UX",
+  "description": "Upgrade provider multi-baseURL routing/ping management and add alias bound-target ordering controls so users can adjust deterministic failover priority from the UI.",
+  "status": "completed",
+  "dev_type": "fullstack",
+  "scope": "desktop-ui-routing",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-22",
+  "completedAt": "2026-04-24",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/04-22-provider-multi-baseurl-routing/prd.md",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/app/types.go",
+    "internal/app/manage.go",
+    "internal/app/service_test.go",
+    "internal/desktop/bindings.go",
+    "internal/desktop/app.go",
+    "internal/desktop/http.go",
+    "frontend/src/types.ts",
+    "frontend/src/api.ts",
+    "frontend/src/env.d.ts",
+    "frontend/src/App.tsx",
+    "frontend/src/styles.css",
+    "frontend/src/i18n/locales/en.json",
+    "frontend/src/i18n/locales/zh-CN.json",
+    "frontend/wailsjs/go/desktop/App.d.ts",
+    "frontend/wailsjs/go/desktop/App.js",
+    "frontend/wailsjs/go/models.ts"
+  ],
+  "notes": "Added PRD and implemented alias target ordering on top of existing ordered alias target arrays. Backend now validates exact target-set reorder requests, preserves enabled state, persists slice order, and exposes service/Wails/HTTP APIs. Frontend alias detail target cards now show order index plus up/down and drag/drop controls with i18n text. Verified with `go test ./...` and `npm run build`.",
+  "meta": {
+    "tests": [
+      "go test ./...",
+      "npm run build"
+    ],
+    "acceptance": [
+      "alias target order persists",
+      "disabled target state preserved during reorder",
+      "invalid reorder payloads rejected",
+      "Wails and fallback HTTP expose reorder endpoint",
+      "English and zh-CN UI labels added"
+    ]
+  }
+}

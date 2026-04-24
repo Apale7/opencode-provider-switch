@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -92,6 +93,88 @@ func TestAvailableTargetsSkipsDisabledAndMissingProviders(t *testing.T) {
 	}
 	if targets[0].Provider != "p1" || targets[0].Model != "up-1" {
 		t.Fatalf("available target = %#v, want p1/up-1", targets[0])
+	}
+}
+
+func TestReorderTargetsPreservesTargetState(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{Aliases: []Alias{{
+		Alias:   "chat",
+		Enabled: true,
+		Targets: []Target{
+			{Provider: "p1", Model: "up-1", Enabled: true},
+			{Provider: "p2", Model: "up-2", Enabled: false},
+			{Provider: "p3", Model: "up-3", Enabled: true},
+		},
+	}}}
+
+	if err := cfg.ReorderTargets("chat", []TargetRef{
+		{Provider: "p3", Model: "up-3"},
+		{Provider: "p1", Model: "up-1"},
+		{Provider: "p2", Model: "up-2"},
+	}); err != nil {
+		t.Fatalf("ReorderTargets() error = %v", err)
+	}
+
+	alias := cfg.FindAlias("chat")
+	if alias == nil {
+		t.Fatal("alias chat not found")
+	}
+	want := []Target{
+		{Provider: "p3", Model: "up-3", Enabled: true},
+		{Provider: "p1", Model: "up-1", Enabled: true},
+		{Provider: "p2", Model: "up-2", Enabled: false},
+	}
+	if !slices.Equal(alias.Targets, want) {
+		t.Fatalf("targets = %#v, want %#v", alias.Targets, want)
+	}
+}
+
+func TestReorderTargetsRejectsInvalidRequests(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		refs    []TargetRef
+		wantErr string
+	}{
+		{
+			name:    "missing target",
+			refs:    []TargetRef{{Provider: "p1", Model: "up-1"}},
+			wantErr: "target count mismatch",
+		},
+		{
+			name:    "duplicate target",
+			refs:    []TargetRef{{Provider: "p1", Model: "up-1"}, {Provider: "p1", Model: "up-1"}},
+			wantErr: "duplicate target p1/up-1",
+		},
+		{
+			name:    "unknown target",
+			refs:    []TargetRef{{Provider: "p1", Model: "up-1"}, {Provider: "missing", Model: "up-x"}},
+			wantErr: "not found",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{Aliases: []Alias{{
+				Alias: "chat",
+				Targets: []Target{
+					{Provider: "p1", Model: "up-1", Enabled: true},
+					{Provider: "p2", Model: "up-2", Enabled: true},
+				},
+			}}}
+			err := cfg.ReorderTargets("chat", tt.refs)
+			if err == nil {
+				t.Fatal("ReorderTargets() error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ReorderTargets() error = %q, want containing %q", err.Error(), tt.wantErr)
+			}
+		})
 	}
 }
 

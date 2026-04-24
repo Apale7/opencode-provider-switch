@@ -24,20 +24,20 @@ type ProxyStatusView struct {
 }
 
 type ProxySettingsView struct {
-	ConnectTimeoutMs        int `json:"connectTimeoutMs"`
-	ResponseHeaderTimeoutMs int `json:"responseHeaderTimeoutMs"`
-	FirstByteTimeoutMs      int `json:"firstByteTimeoutMs"`
-	RequestReadTimeoutMs    int `json:"requestReadTimeoutMs"`
-	StreamIdleTimeoutMs     int `json:"streamIdleTimeoutMs"`
+	ConnectTimeoutMs        int                      `json:"connectTimeoutMs"`
+	ResponseHeaderTimeoutMs int                      `json:"responseHeaderTimeoutMs"`
+	FirstByteTimeoutMs      int                      `json:"firstByteTimeoutMs"`
+	RequestReadTimeoutMs    int                      `json:"requestReadTimeoutMs"`
+	StreamIdleTimeoutMs     int                      `json:"streamIdleTimeoutMs"`
 	Routing                 ProxyRoutingSettingsView `json:"routing"`
 }
 
 type ProxySettingsInput struct {
-	ConnectTimeoutMs        int `json:"connectTimeoutMs"`
-	ResponseHeaderTimeoutMs int `json:"responseHeaderTimeoutMs"`
-	FirstByteTimeoutMs      int `json:"firstByteTimeoutMs"`
-	RequestReadTimeoutMs    int `json:"requestReadTimeoutMs"`
-	StreamIdleTimeoutMs     int `json:"streamIdleTimeoutMs"`
+	ConnectTimeoutMs        int                       `json:"connectTimeoutMs"`
+	ResponseHeaderTimeoutMs int                       `json:"responseHeaderTimeoutMs"`
+	FirstByteTimeoutMs      int                       `json:"firstByteTimeoutMs"`
+	RequestReadTimeoutMs    int                       `json:"requestReadTimeoutMs"`
+	StreamIdleTimeoutMs     int                       `json:"streamIdleTimeoutMs"`
 	Routing                 ProxyRoutingSettingsInput `json:"routing"`
 }
 
@@ -47,9 +47,9 @@ type ProxySettingsSaveResult struct {
 }
 
 type ProxyRoutingSettingsView struct {
-	Strategy    string                       `json:"strategy"`
-	Params      map[string]any               `json:"params,omitempty"`
-	Descriptors []RoutingStrategyDescriptor  `json:"descriptors,omitempty"`
+	Strategy    string                      `json:"strategy"`
+	Params      map[string]any              `json:"params,omitempty"`
+	Descriptors []RoutingStrategyDescriptor `json:"descriptors,omitempty"`
 }
 
 type ProxyRoutingSettingsInput struct {
@@ -58,11 +58,11 @@ type ProxyRoutingSettingsInput struct {
 }
 
 type RoutingStrategyDescriptor struct {
-	Name         string                    `json:"name"`
-	DisplayName  string                    `json:"displayName"`
-	Description  string                    `json:"description,omitempty"`
-	Defaults     map[string]any            `json:"defaults,omitempty"`
-	Parameters   []RoutingStrategyParamSpec `json:"parameters,omitempty"`
+	Name        string                     `json:"name"`
+	DisplayName string                     `json:"displayName"`
+	Description string                     `json:"description,omitempty"`
+	Defaults    map[string]any             `json:"defaults,omitempty"`
+	Parameters  []RoutingStrategyParamSpec `json:"parameters,omitempty"`
 }
 
 type RoutingStrategyParamSpec struct {
@@ -293,16 +293,18 @@ func requestTraceListResultView(result proxy.TraceQueryResult) RequestTraceListR
 }
 
 type ProviderView struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name,omitempty"`
-	Protocol     string            `json:"protocol"`
-	BaseURL      string            `json:"baseUrl"`
-	APIKeySet    bool              `json:"apiKeySet"`
-	APIKeyMasked string            `json:"apiKeyMasked,omitempty"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	Models       []string          `json:"models,omitempty"`
-	ModelsSource string            `json:"modelsSource,omitempty"`
-	Disabled     bool              `json:"disabled"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name,omitempty"`
+	Protocol        string            `json:"protocol"`
+	BaseURL         string            `json:"baseUrl"`
+	BaseURLs        []string          `json:"baseUrls,omitempty"`
+	BaseURLStrategy string            `json:"baseUrlStrategy"`
+	APIKeySet       bool              `json:"apiKeySet"`
+	APIKeyMasked    string            `json:"apiKeyMasked,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	Models          []string          `json:"models,omitempty"`
+	ModelsSource    string            `json:"modelsSource,omitempty"`
+	Disabled        bool              `json:"disabled"`
 }
 
 type ProviderSaveResult struct {
@@ -312,6 +314,23 @@ type ProviderSaveResult struct {
 
 type ProviderRefreshModelsInput struct {
 	ID string `json:"id"`
+}
+
+type ProviderPingInput struct {
+	ID       string            `json:"id,omitempty"`
+	Protocol string            `json:"protocol,omitempty"`
+	BaseURL  string            `json:"baseUrl"`
+	APIKey   string            `json:"apiKey,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
+}
+
+type ProviderPingResult struct {
+	ID         string `json:"id"`
+	BaseURL    string `json:"baseUrl"`
+	LatencyMs  int64  `json:"latencyMs"`
+	Reachable  bool   `json:"reachable"`
+	StatusCode int    `json:"statusCode,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 type AliasTargetView struct {
@@ -543,15 +562,17 @@ type ConfigImportResult struct {
 }
 
 type ProviderUpsertInput struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name,omitempty"`
-	Protocol     string            `json:"protocol"`
-	BaseURL      string            `json:"baseUrl"`
-	APIKey       string            `json:"apiKey,omitempty"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	Disabled     bool              `json:"disabled"`
-	SkipModels   bool              `json:"skipModels"`
-	ClearHeaders bool              `json:"clearHeaders"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name,omitempty"`
+	Protocol        string            `json:"protocol"`
+	BaseURL         string            `json:"baseUrl"`
+	BaseURLs        []string          `json:"baseUrls,omitempty"`
+	BaseURLStrategy string            `json:"baseUrlStrategy"`
+	APIKey          string            `json:"apiKey,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	Disabled        bool              `json:"disabled"`
+	SkipModels      bool              `json:"skipModels"`
+	ClearHeaders    bool              `json:"clearHeaders"`
 }
 
 type ProviderImportInput struct {
@@ -583,4 +604,14 @@ type AliasTargetInput struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	Disabled bool   `json:"disabled"`
+}
+
+type AliasTargetRefInput struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+type AliasTargetReorderInput struct {
+	Alias   string                `json:"alias"`
+	Targets []AliasTargetRefInput `json:"targets"`
 }

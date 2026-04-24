@@ -101,6 +101,43 @@ Added desktop theme/language preferences across Go and frontend, rebuilt the app
 - None - task complete
 
 
+## Session 7: Provider multi-baseURL and alias target ordering
+
+**Date**: 2026-04-24
+**Task**: Upgrade provider multi-baseurl routing and ping UX
+**Branch**: `master`
+
+### Summary
+
+Added the missing PRD and implemented alias bound-target ordering so target order can be managed from the desktop UI using the same index/up/down/drag interaction style as provider multi-baseURL rows.
+
+### Main Changes
+
+- Added reorder contract for alias targets: exact target set required, duplicate/missing/unknown refs rejected, enabled state preserved.
+- Exposed alias target reorder through app service, Wails binding, fallback HTTP API, frontend API types, and generated bridge stubs.
+- Added alias detail target order controls, dragging state, responsive target-card layout, and English/zh-CN i18n labels/status text.
+- Added backend tests for config-level reorder validation and service-level persisted order/state preservation.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| Uncommitted | Worktree changes only |
+
+### Testing
+
+- [OK] `go test ./...`
+- [OK] `npm run build`
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Review existing uncommitted provider multi-baseURL changes before committing this combined task.
+
+
 ## Session 2: Proxy SSE minimal fix
 
 **Date**: 2026-04-19

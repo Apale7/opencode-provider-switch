@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 	"github.com/Apale7/opencode-provider-switch/internal/opencode"
@@ -18,22 +19,28 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 		return ProviderSaveResult{}, fmt.Errorf("provider id is required")
 	}
 	protocol := config.NormalizeProviderProtocol(strings.TrimSpace(in.Protocol))
-	if err := config.ValidateProviderBaseURL(protocol, in.BaseURL); err != nil {
+	if err := config.ValidateProviderBaseURLs(protocol, in.BaseURL, in.BaseURLs); err != nil {
 		return ProviderSaveResult{}, fmt.Errorf("invalid baseUrl: %w", err)
+	}
+	if err := config.ValidateProviderBaseURLStrategy(in.BaseURLStrategy); err != nil {
+		return ProviderSaveResult{}, fmt.Errorf("invalid baseUrlStrategy: %w", err)
 	}
 	cfg, err := s.loadConfig()
 	if err != nil {
 		return ProviderSaveResult{}, err
 	}
+	baseURLs := config.NormalizeProviderBaseURLs(in.BaseURL, in.BaseURLs)
 	warnings := []string{}
 	provider := config.Provider{
-		ID:       strings.TrimSpace(in.ID),
-		Name:     strings.TrimSpace(in.Name),
-		Protocol: protocol,
-		BaseURL:  config.NormalizeProviderBaseURL(in.BaseURL),
-		APIKey:   in.APIKey,
-		Headers:  normalizeProviderHeaders(in.Headers),
-		Disabled: in.Disabled,
+		ID:              strings.TrimSpace(in.ID),
+		Name:            strings.TrimSpace(in.Name),
+		Protocol:        protocol,
+		BaseURL:         baseURLs[0],
+		BaseURLs:        append([]string(nil), baseURLs...),
+		BaseURLStrategy: config.NormalizeProviderBaseURLStrategy(in.BaseURLStrategy),
+		APIKey:          in.APIKey,
+		Headers:         normalizeProviderHeaders(in.Headers),
+		Disabled:        in.Disabled,
 	}
 	var existing *config.Provider
 	if cur := cfg.FindProvider(provider.ID); cur != nil {
@@ -88,6 +95,75 @@ func (s *Service) RefreshProviderModels(ctx context.Context, in ProviderRefreshM
 		return ProviderSaveResult{}, err
 	}
 	return ProviderSaveResult{Provider: providerView(provider), Warnings: warnings}, nil
+}
+
+func (s *Service) PingProviderBaseURL(ctx context.Context, in ProviderPingInput) (ProviderPingResult, error) {
+	id := strings.TrimSpace(in.ID)
+	baseURL := config.NormalizeProviderBaseURL(in.BaseURL)
+	protocol := config.NormalizeProviderProtocol(strings.TrimSpace(in.Protocol))
+	if id == "" && protocol == "" {
+		return ProviderPingResult{}, fmt.Errorf("provider id or protocol is required")
+	}
+	if baseURL == "" {
+		return ProviderPingResult{}, fmt.Errorf("baseUrl is required")
+	}
+	provider := &config.Provider{
+		ID:       id,
+		Protocol: protocol,
+		BaseURL:  baseURL,
+		BaseURLs: []string{baseURL},
+		APIKey:   in.APIKey,
+		Headers:  normalizeProviderHeaders(in.Headers),
+	}
+	if id != "" {
+		cfg, err := s.loadConfig()
+		if err != nil {
+			return ProviderPingResult{}, err
+		}
+		existing := cfg.FindProvider(id)
+		if existing != nil {
+			provider = existing
+			if protocol != "" {
+				provider.Protocol = protocol
+			}
+			provider.BaseURL = baseURL
+			provider.BaseURLs = config.NormalizeProviderBaseURLs(baseURL, []string{baseURL})
+			if in.APIKey != "" {
+				provider.APIKey = in.APIKey
+			}
+			if len(in.Headers) > 0 {
+				provider.Headers = normalizeProviderHeaders(in.Headers)
+			}
+		} else if protocol == "" {
+			return ProviderPingResult{}, fmt.Errorf("provider %q not found", id)
+		}
+	}
+	if provider.Protocol == "" {
+		return ProviderPingResult{}, fmt.Errorf("provider protocol is required")
+	}
+	startedAt := time.Now()
+	probe, err := opencode.ProbeProviderBaseURL(ctx, provider.Protocol, baseURL, provider.APIKey, provider.Headers)
+	latency := time.Since(startedAt).Milliseconds()
+	result := ProviderPingResult{
+		ID:        id,
+		BaseURL:   baseURL,
+		LatencyMs: latency,
+	}
+	if probe != nil {
+		result.StatusCode = probe.StatusCode
+		result.Reachable = probe.Reachable
+		if probe.LatencyMs > 0 {
+			result.LatencyMs = probe.LatencyMs
+		}
+		result.Error = probe.Error
+	}
+	if err != nil {
+		if result.Error == "" {
+			result.Error = err.Error()
+		}
+		return result, err
+	}
+	return result, nil
 }
 
 func (s *Service) RemoveProvider(ctx context.Context, id string) error {
@@ -314,8 +390,41 @@ func (s *Service) UnbindAliasTarget(ctx context.Context, in AliasTargetInput) (A
 	return aliasView(cfg, *current), nil
 }
 
+func (s *Service) ReorderAliasTargets(ctx context.Context, in AliasTargetReorderInput) (AliasView, error) {
+	_ = ctx
+	alias := strings.TrimSpace(in.Alias)
+	if alias == "" {
+		return AliasView{}, fmt.Errorf("alias is required")
+	}
+	refs := make([]config.TargetRef, 0, len(in.Targets))
+	for _, target := range in.Targets {
+		providerID := strings.TrimSpace(target.Provider)
+		model := strings.TrimSpace(target.Model)
+		if providerID == "" || model == "" {
+			return AliasView{}, fmt.Errorf("target provider and model are required")
+		}
+		refs = append(refs, config.TargetRef{Provider: providerID, Model: model})
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return AliasView{}, err
+	}
+	if err := cfg.ReorderTargets(alias, refs); err != nil {
+		return AliasView{}, err
+	}
+	if err := cfg.Save(); err != nil {
+		return AliasView{}, err
+	}
+	current := cfg.FindAlias(alias)
+	if current == nil {
+		return AliasView{}, fmt.Errorf("alias %q not found", alias)
+	}
+	return aliasView(cfg, *current), nil
+}
+
 func providerConnectionEqual(a, b config.Provider) bool {
-	return config.NormalizeProviderBaseURL(a.BaseURL) == config.NormalizeProviderBaseURL(b.BaseURL) &&
+	return config.ProviderBaseURLsEqual(a, b) &&
+		config.NormalizeProviderBaseURLStrategy(a.BaseURLStrategy) == config.NormalizeProviderBaseURLStrategy(b.BaseURLStrategy) &&
 		a.APIKey == b.APIKey &&
 		reflect.DeepEqual(normalizeProviderHeaders(a.Headers), normalizeProviderHeaders(b.Headers))
 }
@@ -341,14 +450,16 @@ func normalizeProviderHeaders(in map[string]string) map[string]string {
 func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProvider) config.Provider {
 	importedModels := config.NormalizeProviderModels(ip.Models)
 	merged := config.Provider{
-		ID:           ip.ID,
-		Name:         ip.Name,
-		Protocol:     config.NormalizeProviderProtocol(ip.Protocol),
-		BaseURL:      config.NormalizeProviderBaseURL(ip.BaseURL),
-		APIKey:       ip.APIKey,
-		Headers:      cloneHeaders(ip.Headers),
-		Models:       importedModels,
-		ModelsSource: "imported",
+		ID:              ip.ID,
+		Name:            ip.Name,
+		Protocol:        config.NormalizeProviderProtocol(ip.Protocol),
+		BaseURL:         config.NormalizeProviderBaseURL(ip.BaseURL),
+		BaseURLs:        config.NormalizeProviderBaseURLs(ip.BaseURL, nil),
+		BaseURLStrategy: config.ProviderBaseURLStrategyOrdered,
+		APIKey:          ip.APIKey,
+		Headers:         cloneHeaders(ip.Headers),
+		Models:          importedModels,
+		ModelsSource:    "imported",
 	}
 	if len(importedModels) == 0 {
 		merged.ModelsSource = ""
@@ -402,7 +513,10 @@ func discoverProviderModels(provider *config.Provider, existing *config.Provider
 	if provider == nil {
 		return nil
 	}
-	models, err := opencode.FetchProviderModels(provider.Protocol, provider.BaseURL, provider.APIKey, provider.Headers)
+	models, probe, err := opencode.FetchProviderModelsWithFallback(provider.Protocol, provider.EffectiveBaseURLs(), provider.APIKey, provider.Headers)
+	if probe != nil && probe.Reachable && probe.BaseURL != "" {
+		provider.BaseURL = probe.BaseURL
+	}
 	if err != nil {
 		warnings := []string{}
 		if existing != nil && !providerConnectionEqual(*existing, *provider) {

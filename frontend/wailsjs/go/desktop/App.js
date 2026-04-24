@@ -62,6 +62,10 @@ export function Overview() {
   return window['go']['desktop']['App']['Overview']();
 }
 
+export function PingProviderBaseURL(arg1) {
+  return window['go']['desktop']['App']['PingProviderBaseURL'](arg1);
+}
+
 export function PreviewSync(arg1) {
   return window['go']['desktop']['App']['PreviewSync'](arg1);
 }
@@ -80,6 +84,10 @@ export function ProxyStatus() {
 
 export function RefreshProviderModels(arg1) {
   return window['go']['desktop']['App']['RefreshProviderModels'](arg1);
+}
+
+export function ReorderTargets(arg1) {
+  return window['go']['desktop']['App']['ReorderTargets'](arg1);
 }
 
 export function RequestTraces(arg1) {

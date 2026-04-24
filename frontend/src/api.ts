@@ -1,5 +1,6 @@
 import type {
   AliasTargetInput,
+  AliasTargetReorderInput,
   AliasUpsertInput,
   ConfigExportView,
   ConfigImportInput,
@@ -12,6 +13,8 @@ import type {
   Overview,
   ProviderImportInput,
   ProviderImportResult,
+  ProviderPingInput,
+  ProviderPingResult,
   ProviderRefreshModelsInput,
   ProviderSaveResult,
   ProviderStateInput,
@@ -111,6 +114,12 @@ export function refreshProviderModels(input: ProviderRefreshModelsInput): Promis
 		: http<ProviderSaveResult>('/api/providers/refresh-models', { method: 'POST', body: JSON.stringify(input) })
 }
 
+export function pingProviderBaseUrl(input: ProviderPingInput): Promise<ProviderPingResult> {
+	return isWails()
+		? bridge().PingProviderBaseURL(input)
+		: http<ProviderPingResult>('/api/providers/ping', { method: 'POST', body: JSON.stringify(input) })
+}
+
 export function setProviderState(input: ProviderStateInput): Promise<ProviderView> {
   return isWails()
     ? bridge().SetProviderState(input)
@@ -161,6 +170,12 @@ export function unbindAliasTarget(input: AliasTargetInput): Promise<AliasView> {
   return isWails()
     ? bridge().UnbindTarget(input)
     : http<AliasView>('/api/aliases/unbind', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function reorderAliasTargets(input: AliasTargetReorderInput): Promise<AliasView> {
+  return isWails()
+    ? bridge().ReorderTargets(input)
+    : http<AliasView>('/api/aliases/reorder-targets', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function getDesktopPrefs(): Promise<DesktopPrefsView> {

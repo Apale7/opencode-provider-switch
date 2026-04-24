@@ -442,6 +442,74 @@ func TestUpsertProviderReturnsWarningsAndKeepsCatalog(t *testing.T) {
 	}
 }
 
+func TestPingProviderBaseURLSupportsDraftInput(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("path = %q, want /v1/models", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-draft" {
+			t.Fatalf("Authorization = %q, want Bearer sk-draft", got)
+		}
+		if got := r.Header.Get("X-Test"); got != "1" {
+			t.Fatalf("X-Test = %q, want 1", got)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4.1"}]}`))
+	}))
+	defer upstream.Close()
+
+	svc := NewService(path)
+	result, err := svc.PingProviderBaseURL(context.Background(), ProviderPingInput{
+		Protocol: "openai-responses",
+		BaseURL:  upstream.URL + "/v1",
+		APIKey:   "sk-draft",
+		Headers:  map[string]string{"X-Test": "1"},
+	})
+	if err != nil {
+		t.Fatalf("PingProviderBaseURL() error = %v", err)
+	}
+	if !result.Reachable {
+		t.Fatalf("result.Reachable = false, want true: %#v", result)
+	}
+	if result.BaseURL != upstream.URL+"/v1" {
+		t.Fatalf("result.BaseURL = %q, want %q", result.BaseURL, upstream.URL+"/v1")
+	}
+}
+
+func TestUpsertProviderUsesAnyReachableBaseURLForModelDiscovery(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"upstream unavailable"}`))
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4.1"},{"id":"gpt-4o"}]}`))
+	}))
+	defer second.Close()
+
+	svc := NewService(path)
+	result, err := svc.UpsertProvider(context.Background(), ProviderUpsertInput{
+		ID:       "relay",
+		Protocol: "openai-responses",
+		BaseURL:  first.URL + "/v1",
+		BaseURLs: []string{first.URL + "/v1", second.URL + "/v1"},
+	})
+	if err != nil {
+		t.Fatalf("UpsertProvider() error = %v", err)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want empty", result.Warnings)
+	}
+	if !strings.Contains(strings.Join(result.Provider.Models, ","), "gpt-4.1") {
+		t.Fatalf("models = %#v", result.Provider.Models)
+	}
+}
+
 func TestImportProvidersReturnsWarnings(t *testing.T) {
 	t.Parallel()
 
@@ -556,6 +624,56 @@ func TestSetAliasTargetDisabledPersistsState(t *testing.T) {
 	}
 	if len(alias.Targets) != 1 || !alias.Targets[0].Enabled {
 		t.Fatalf("persisted alias targets = %#v", alias.Targets)
+	}
+}
+
+func TestReorderAliasTargetsPersistsOrder(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://p1.example.com/v1"})
+	cfg.UpsertProvider(config.Provider{ID: "p2", BaseURL: "https://p2.example.com/v1"})
+	cfg.UpsertAlias(config.Alias{
+		Alias:   "chat",
+		Enabled: true,
+		Targets: []config.Target{
+			{Provider: "p1", Model: "up-1", Enabled: true},
+			{Provider: "p2", Model: "up-2", Enabled: false},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	view, err := svc.ReorderAliasTargets(context.Background(), AliasTargetReorderInput{
+		Alias: "chat",
+		Targets: []AliasTargetRefInput{
+			{Provider: "p2", Model: "up-2"},
+			{Provider: "p1", Model: "up-1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ReorderAliasTargets() error = %v", err)
+	}
+	if len(view.Targets) != 2 || view.Targets[0].Provider != "p2" || view.Targets[0].Enabled {
+		t.Fatalf("alias view targets = %#v, want p2 first and still disabled", view.Targets)
+	}
+
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	alias := reloaded.FindAlias("chat")
+	if alias == nil {
+		t.Fatal("alias chat not found after reorder")
+	}
+	if len(alias.Targets) != 2 || alias.Targets[0].Provider != "p2" || alias.Targets[0].Enabled {
+		t.Fatalf("persisted targets = %#v, want p2 first and still disabled", alias.Targets)
 	}
 }
 

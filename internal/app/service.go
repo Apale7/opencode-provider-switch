@@ -524,6 +524,8 @@ func providerView(provider config.Provider) ProviderView {
 		Name:         provider.Name,
 		Protocol:     config.NormalizeProviderProtocol(provider.Protocol),
 		BaseURL:      provider.BaseURL,
+		BaseURLs:     append([]string(nil), provider.EffectiveBaseURLs()...),
+		BaseURLStrategy: config.NormalizeProviderBaseURLStrategy(provider.BaseURLStrategy),
 		APIKeySet:    provider.APIKey != "",
 		APIKeyMasked: maskKey(provider.APIKey),
 		Headers:      cloneHeaders(provider.Headers),

@@ -188,6 +188,19 @@ func newHandler(instance *App, version string, baseURL string) (http.Handler, er
 		writeResult(w, data, err)
 	})
 
+	api.HandleFunc("/api/providers/ping", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.ProviderPingInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.PingProviderBaseURL(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
 	api.HandleFunc("/api/providers/state", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, http.MethodPost)
@@ -282,6 +295,19 @@ func newHandler(instance *App, version string, baseURL string) (http.Handler, er
 			return
 		}
 		data, err := b.UnbindAliasTarget(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/aliases/reorder-targets", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.AliasTargetReorderInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.ReorderAliasTargets(r.Context(), in)
 		writeResult(w, data, err)
 	})
 

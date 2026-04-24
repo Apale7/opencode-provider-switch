@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,12 @@ type Target struct {
 	Enabled  bool   `json:"enabled"`
 }
 
+// TargetRef identifies one alias target without mutable state.
+type TargetRef struct {
+	Provider string
+	Model    string
+}
+
 // Alias maps a logical model name to ordered upstream targets.
 type Alias struct {
 	Alias       string   `json:"alias"`
@@ -41,27 +48,34 @@ type Alias struct {
 
 // Provider is one upstream OpenAI-compatible endpoint.
 type Provider struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name,omitempty"`
-	Protocol     string            `json:"protocol,omitempty"`
-	BaseURL      string            `json:"base_url"`
-	APIKey       string            `json:"api_key"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	Models       []string          `json:"models,omitempty"`
-	ModelsSource string            `json:"models_source,omitempty"`
-	Disabled     bool              `json:"disabled,omitempty"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name,omitempty"`
+	Protocol        string            `json:"protocol,omitempty"`
+	BaseURL         string            `json:"base_url"`
+	BaseURLs        []string          `json:"base_urls,omitempty"`
+	BaseURLStrategy string            `json:"base_url_strategy,omitempty"`
+	APIKey          string            `json:"api_key"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	Models          []string          `json:"models,omitempty"`
+	ModelsSource    string            `json:"models_source,omitempty"`
+	Disabled        bool              `json:"disabled,omitempty"`
 }
+
+const (
+	ProviderBaseURLStrategyOrdered = "ordered"
+	ProviderBaseURLStrategyLatency = "latency"
+)
 
 // Server holds proxy listen settings.
 type Server struct {
-	Host                    string `json:"host"`
-	Port                    int    `json:"port"`
-	APIKey                  string `json:"api_key"`
-	ConnectTimeoutMs        int    `json:"connect_timeout_ms,omitempty"`
-	ResponseHeaderTimeoutMs int    `json:"response_header_timeout_ms,omitempty"`
-	FirstByteTimeoutMs      int    `json:"first_byte_timeout_ms,omitempty"`
-	RequestReadTimeoutMs    int    `json:"request_read_timeout_ms,omitempty"`
-	StreamIdleTimeoutMs     int    `json:"stream_idle_timeout_ms,omitempty"`
+	Host                    string         `json:"host"`
+	Port                    int            `json:"port"`
+	APIKey                  string         `json:"api_key"`
+	ConnectTimeoutMs        int            `json:"connect_timeout_ms,omitempty"`
+	ResponseHeaderTimeoutMs int            `json:"response_header_timeout_ms,omitempty"`
+	FirstByteTimeoutMs      int            `json:"first_byte_timeout_ms,omitempty"`
+	RequestReadTimeoutMs    int            `json:"request_read_timeout_ms,omitempty"`
+	StreamIdleTimeoutMs     int            `json:"stream_idle_timeout_ms,omitempty"`
 	Routing                 routing.Config `json:"routing,omitempty"`
 }
 
@@ -99,10 +113,67 @@ func (p Provider) IsEnabled() bool {
 	return !p.Disabled
 }
 
+// EffectiveBaseURLs returns the provider's normalized upstream base URL list.
+func (p Provider) EffectiveBaseURLs() []string {
+	return NormalizeProviderBaseURLs(p.BaseURL, p.BaseURLs)
+}
+
 // NormalizeProviderBaseURL canonicalizes equivalent /v1 roots for comparisons
 // and persisted config values.
 func NormalizeProviderBaseURL(baseURL string) string {
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
+}
+
+// NormalizeProviderBaseURLs canonicalizes, deduplicates, and preserves order.
+func NormalizeProviderBaseURLs(primary string, baseURLs []string) []string {
+	combined := make([]string, 0, len(baseURLs)+1)
+	if primary != "" {
+		combined = append(combined, primary)
+	}
+	combined = append(combined, baseURLs...)
+	seen := map[string]bool{}
+	out := make([]string, 0, len(combined))
+	for _, item := range combined {
+		normalized := NormalizeProviderBaseURL(item)
+		if normalized == "" || seen[normalized] {
+			continue
+		}
+		seen[normalized] = true
+		out = append(out, normalized)
+	}
+	return out
+}
+
+func NormalizeProviderBaseURLStrategy(strategy string) string {
+	switch strings.TrimSpace(strategy) {
+	case "", ProviderBaseURLStrategyOrdered:
+		return ProviderBaseURLStrategyOrdered
+	case ProviderBaseURLStrategyLatency:
+		return ProviderBaseURLStrategyLatency
+	default:
+		return ProviderBaseURLStrategyOrdered
+	}
+}
+
+func ValidateProviderBaseURLStrategy(strategy string) error {
+	strategy = NormalizeProviderBaseURLStrategy(strategy)
+	if strategy == ProviderBaseURLStrategyOrdered || strategy == ProviderBaseURLStrategyLatency {
+		return nil
+	}
+	return fmt.Errorf("unknown base_url_strategy %q", strategy)
+}
+
+func ValidateProviderBaseURLs(protocol string, primary string, baseURLs []string) error {
+	urls := NormalizeProviderBaseURLs(primary, baseURLs)
+	if len(urls) == 0 {
+		return fmt.Errorf("missing base_url")
+	}
+	for _, item := range urls {
+		if err := ValidateProviderBaseURL(protocol, item); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ValidateProviderBaseURL checks protocol-specific upstream base URL rules.
@@ -368,6 +439,50 @@ func (c *Config) RemoveTarget(alias, provider, model string) error {
 	return fmt.Errorf("alias %q not found", alias)
 }
 
+// ReorderTargets replaces an alias target order while preserving target state.
+func (c *Config) ReorderTargets(alias string, refs []TargetRef) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range c.Aliases {
+		if c.Aliases[i].Alias != alias {
+			continue
+		}
+		current := c.Aliases[i].Targets
+		if len(refs) != len(current) {
+			return fmt.Errorf("alias %s reorder target count mismatch: got %d, want %d", alias, len(refs), len(current))
+		}
+		byRef := make(map[TargetRef]Target, len(current))
+		for _, target := range current {
+			ref := TargetRef{Provider: target.Provider, Model: target.Model}
+			if _, exists := byRef[ref]; exists {
+				return fmt.Errorf("alias %s has duplicate target %s/%s", alias, target.Provider, target.Model)
+			}
+			byRef[ref] = target
+		}
+		seen := make(map[TargetRef]bool, len(refs))
+		next := make([]Target, 0, len(refs))
+		for _, ref := range refs {
+			ref.Provider = strings.TrimSpace(ref.Provider)
+			ref.Model = strings.TrimSpace(ref.Model)
+			if ref.Provider == "" || ref.Model == "" {
+				return fmt.Errorf("target provider and model are required")
+			}
+			if seen[ref] {
+				return fmt.Errorf("duplicate target %s/%s in reorder request", ref.Provider, ref.Model)
+			}
+			target, ok := byRef[ref]
+			if !ok {
+				return fmt.Errorf("target %s/%s not found on alias %s", ref.Provider, ref.Model, alias)
+			}
+			seen[ref] = true
+			next = append(next, target)
+		}
+		c.Aliases[i].Targets = next
+		return nil
+	}
+	return fmt.Errorf("alias %q not found", alias)
+}
+
 // AvailableTargets returns alias targets that are individually enabled and point
 // at providers that still exist and are enabled.
 func (c *Config) AvailableTargets(alias Alias) []Target {
@@ -443,13 +558,18 @@ func (c *Config) Validate() []error {
 		}
 		ids[p.ID] = true
 		if p.BaseURL == "" {
-			errs = append(errs, fmt.Errorf("provider %q missing base_url", p.ID))
-			continue
+			if len(p.EffectiveBaseURLs()) == 0 {
+				errs = append(errs, fmt.Errorf("provider %q missing base_url", p.ID))
+				continue
+			}
 		}
 		if err := ValidateProtocol(p.Protocol); err != nil {
 			errs = append(errs, fmt.Errorf("provider %q %s", p.ID, err))
 		}
-		if err := ValidateProviderBaseURL(p.Protocol, p.BaseURL); err != nil {
+		if err := ValidateProviderBaseURLs(p.Protocol, p.BaseURL, p.BaseURLs); err != nil {
+			errs = append(errs, fmt.Errorf("provider %q %s", p.ID, err))
+		}
+		if err := ValidateProviderBaseURLStrategy(p.BaseURLStrategy); err != nil {
 			errs = append(errs, fmt.Errorf("provider %q %s", p.ID, err))
 		}
 		seenModels := map[string]bool{}
@@ -572,6 +692,16 @@ func isLoopbackHost(host string) bool {
 
 func cloneProvider(p Provider) Provider {
 	p.Protocol = NormalizeProviderProtocol(p.Protocol)
+	p.BaseURLStrategy = NormalizeProviderBaseURLStrategy(p.BaseURLStrategy)
+	baseURLs := NormalizeProviderBaseURLs(p.BaseURL, p.BaseURLs)
+	if len(baseURLs) > 0 {
+		p.BaseURL = baseURLs[0]
+	}
+	if len(baseURLs) > 1 {
+		p.BaseURLs = cloneStrings(baseURLs)
+	} else {
+		p.BaseURLs = nil
+	}
 	p.Headers = cloneStringMap(p.Headers)
 	p.Models = cloneStrings(p.Models)
 	return p
@@ -586,8 +716,24 @@ func cloneAlias(a Alias) Alias {
 func normalizeProviders(providers []Provider) {
 	for i := range providers {
 		providers[i].Protocol = NormalizeProviderProtocol(providers[i].Protocol)
-		providers[i].BaseURL = NormalizeProviderBaseURL(providers[i].BaseURL)
+		providers[i].BaseURLStrategy = NormalizeProviderBaseURLStrategy(providers[i].BaseURLStrategy)
+		baseURLs := NormalizeProviderBaseURLs(providers[i].BaseURL, providers[i].BaseURLs)
+		if len(baseURLs) > 0 {
+			providers[i].BaseURL = baseURLs[0]
+		} else {
+			providers[i].BaseURL = NormalizeProviderBaseURL(providers[i].BaseURL)
+		}
+		if len(baseURLs) > 1 {
+			providers[i].BaseURLs = cloneStrings(baseURLs)
+		} else {
+			providers[i].BaseURLs = nil
+		}
 	}
+}
+
+// ProviderBaseURLsEqual compares normalized ordered base URL lists.
+func ProviderBaseURLsEqual(a Provider, b Provider) bool {
+	return slices.Equal(a.EffectiveBaseURLs(), b.EffectiveBaseURLs())
 }
 
 func normalizeAliases(aliases []Alias) {

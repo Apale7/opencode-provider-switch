@@ -185,6 +185,10 @@ func (a *App) RefreshProviderModels(in app.ProviderRefreshModelsInput) (app.Prov
 	return a.bindings.RefreshProviderModels(a.callContext(), in)
 }
 
+func (a *App) PingProviderBaseURL(in app.ProviderPingInput) (app.ProviderPingResult, error) {
+	return a.bindings.PingProviderBaseURL(a.callContext(), in)
+}
+
 func (a *App) SetProviderState(in app.ProviderStateInput) (app.ProviderView, error) {
 	return a.bindings.SetProviderDisabled(a.callContext(), in)
 }
@@ -215,6 +219,10 @@ func (a *App) SetTargetState(in app.AliasTargetInput) (app.AliasView, error) {
 
 func (a *App) UnbindTarget(in app.AliasTargetInput) (app.AliasView, error) {
 	return a.bindings.UnbindAliasTarget(a.callContext(), in)
+}
+
+func (a *App) ReorderTargets(in app.AliasTargetReorderInput) (app.AliasView, error) {
+	return a.bindings.ReorderAliasTargets(a.callContext(), in)
 }
 
 func (a *App) DoctorRun() (app.DoctorRunResult, error) {

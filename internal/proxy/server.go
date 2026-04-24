@@ -11,11 +11,14 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 	"github.com/Apale7/opencode-provider-switch/internal/routing"
 )
 
@@ -55,6 +58,53 @@ type Server struct {
 	traces RequestTraceStore
 	store  routing.StateStore
 	policy routing.Strategy
+	baseURLLatencyCache *providerBaseURLLatencyCache
+}
+
+type providerBaseURLLatencySample struct {
+	latencyMs int64
+	measuredAt time.Time
+	reachable bool
+}
+
+type providerBaseURLLatencyCache struct {
+	mu    sync.RWMutex
+	items map[string]providerBaseURLLatencySample
+	ttl   time.Duration
+}
+
+func newProviderBaseURLLatencyCache(ttl time.Duration) *providerBaseURLLatencyCache {
+	return &providerBaseURLLatencyCache{items: map[string]providerBaseURLLatencySample{}, ttl: ttl}
+}
+
+func providerBaseURLCacheKey(providerID, baseURL string) string {
+	return providerID + "\n" + strings.TrimSpace(baseURL)
+}
+
+func (c *providerBaseURLLatencyCache) get(providerID, baseURL string) (providerBaseURLLatencySample, bool) {
+	if c == nil {
+		return providerBaseURLLatencySample{}, false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	sample, ok := c.items[providerBaseURLCacheKey(providerID, baseURL)]
+	if !ok || time.Since(sample.measuredAt) > c.ttl {
+		return providerBaseURLLatencySample{}, false
+	}
+	return sample, true
+}
+
+func (c *providerBaseURLLatencyCache) put(providerID, baseURL string, probe *opencode.ProviderBaseURLProbe) {
+	if c == nil || probe == nil || strings.TrimSpace(baseURL) == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items[providerBaseURLCacheKey(providerID, baseURL)] = providerBaseURLLatencySample{
+		latencyMs: probe.LatencyMs,
+		measuredAt: time.Now(),
+		reachable: probe.Reachable,
+	}
 }
 
 // New constructs a Server from cfg.
@@ -94,7 +144,64 @@ func New(cfg *config.Config, stores ...RequestTraceStore) *Server {
 		traces: traces,
 		store:  store,
 		policy: policy,
+		baseURLLatencyCache: newProviderBaseURLLatencyCache(60 * time.Second),
 	}
+}
+
+func (s *Server) orderedProviderBaseURLs(ctx context.Context, provider *config.Provider) []string {
+	if provider == nil {
+		return nil
+	}
+	baseURLs := provider.EffectiveBaseURLs()
+	if len(baseURLs) <= 1 || config.NormalizeProviderBaseURLStrategy(provider.BaseURLStrategy) != config.ProviderBaseURLStrategyLatency {
+		return baseURLs
+	}
+	type scoredBaseURL struct {
+		baseURL string
+		latency int64
+		ok bool
+	}
+	scored := make([]scoredBaseURL, 0, len(baseURLs))
+	missing := make([]string, 0, len(baseURLs))
+	for _, baseURL := range baseURLs {
+		if sample, ok := s.baseURLLatencyCache.get(provider.ID, baseURL); ok && sample.reachable {
+			scored = append(scored, scoredBaseURL{baseURL: baseURL, latency: sample.latencyMs, ok: true})
+			continue
+		}
+		missing = append(missing, baseURL)
+	}
+	for _, baseURL := range missing {
+		probe, _ := opencode.ProbeProviderBaseURL(ctx, provider.Protocol, baseURL, provider.APIKey, provider.Headers)
+		s.baseURLLatencyCache.put(provider.ID, baseURL, probe)
+		if probe != nil && probe.Reachable {
+			scored = append(scored, scoredBaseURL{baseURL: baseURL, latency: probe.LatencyMs, ok: true})
+		}
+	}
+	if len(scored) == 0 {
+		return baseURLs
+	}
+	slices.SortStableFunc(scored, func(a, b scoredBaseURL) int {
+		switch {
+		case a.latency < b.latency:
+			return -1
+		case a.latency > b.latency:
+			return 1
+		default:
+			return 0
+		}
+	})
+	ordered := make([]string, 0, len(baseURLs))
+	seen := map[string]bool{}
+	for _, item := range scored {
+		ordered = append(ordered, item.baseURL)
+		seen[item.baseURL] = true
+	}
+	for _, item := range baseURLs {
+		if !seen[item] {
+			ordered = append(ordered, item)
+		}
+	}
+	return ordered
 }
 
 // ListenAndServe starts the HTTP listener until ctx is cancelled.
@@ -331,8 +438,6 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt, p.ID, t.Model, failoverCount)
 		cloned := cloneMap(payload)
 		cloned["model"] = t.Model
-		upstreamURL := strings.TrimRight(p.BaseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
-		attemptTrace.URL = upstreamURL
 		attemptTrace.RequestParams = sanitizeJSONValue("", cloned)
 		newBody, err := json.Marshal(cloned)
 		if err != nil {
@@ -347,12 +452,12 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 			return
 		}
 
-		handled, success, retryable, upstreamErr, failure := s.tryOnce(r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
+		handled, success, retryable, upstreamErr, failure := s.tryProviderBaseURLs(r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
 		attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 		trace.Attempts = append(trace.Attempts, attemptTrace)
 		trace.FinalProvider = p.ID
 		trace.FinalModel = t.Model
-		trace.FinalURL = upstreamURL
+		trace.FinalURL = attemptTrace.URL
 		trace.StatusCode = attemptTrace.StatusCode
 		if trace.FirstByteMs == 0 {
 			trace.FirstByteMs = attemptTrace.FirstByteMs
@@ -411,6 +516,50 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 	trace.StatusCode = http.StatusBadGateway
 	trace.Error = fmt.Sprintf("all upstream targets failed for alias %q", aliasName)
 	writeProtocolError(w, http.StatusBadGateway, "server_error", fmt.Sprintf("all upstream targets failed for alias %q", aliasName))
+}
+
+func (s *Server) tryProviderBaseURLs(
+	ctx context.Context,
+	protocol string,
+	w http.ResponseWriter,
+	clientReq *http.Request,
+	provider *config.Provider,
+	target config.Target,
+	body []byte,
+	aliasName string,
+	attempt int,
+	failoverCount int,
+	attemptTrace *TraceAttempt,
+	trace *RequestTrace,
+) (handled bool, success bool, retryable bool, err error, failure *upstreamFailure) {
+	baseURLs := s.orderedProviderBaseURLs(ctx, provider)
+	if len(baseURLs) == 0 {
+		return false, false, false, fmt.Errorf("provider %q has no base URLs", provider.ID), nil
+	}
+	var lastRetryable *upstreamFailure
+	var lastErr error
+	for index, baseURL := range baseURLs {
+		providerCopy := *provider
+		providerCopy.BaseURL = baseURL
+		if attemptTrace != nil {
+			attemptTrace.URL = strings.TrimRight(baseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
+		}
+		handled, success, retryable, err, failure = s.tryOnce(ctx, protocol, w, clientReq, &providerCopy, target, body, aliasName, attempt, failoverCount, attemptTrace, trace)
+		if handled || success || !retryable {
+			if success {
+				s.baseURLLatencyCache.put(provider.ID, baseURL, &opencode.ProviderBaseURLProbe{BaseURL: baseURL, Reachable: true, LatencyMs: attemptTrace.FirstByteMs, StatusCode: attemptTrace.StatusCode})
+			}
+			return handled, success, retryable, err, failure
+		}
+		lastErr = err
+		if failure != nil {
+			lastRetryable = failure
+		}
+		if index == len(baseURLs)-1 {
+			break
+		}
+	}
+	return false, false, true, lastErr, lastRetryable
 }
 
 // tryOnce proxies one attempt. Returns (handled, success, retryable, err, failure).

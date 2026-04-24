@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   applySync,
@@ -17,6 +17,8 @@ import {
   queryRequestTraces,
   refreshProviderModels,
   previewSync,
+  pingProviderBaseUrl,
+  reorderAliasTargets,
   runDoctor,
   saveAlias,
   saveDesktopPrefs,
@@ -33,6 +35,7 @@ import i18n, { resolveLanguagePreference } from './i18n'
 import githubMark from './assets/GitHub_Invertocat_Black_Clearspace.png'
 import type {
   AliasTargetInput,
+  AliasTargetView,
   AliasView,
   AliasUpsertInput,
   DesktopPrefsSaveResult,
@@ -44,6 +47,9 @@ import type {
   Overview,
   ProviderImportInput,
   ProviderImportResult,
+  ProviderBaseURLStrategy,
+  ProviderPingInput,
+  ProviderPingResult,
   ProviderRefreshModelsInput,
   ProviderSaveResult,
   ProviderProtocol,
@@ -72,13 +78,16 @@ type ProviderFormState = {
   id: string
   name: string
   protocol: ProviderProtocol
-  baseUrl: string
+  baseUrls: string[]
+  baseUrlStrategy: ProviderBaseURLStrategy
   apiKey: string
   headersText: string
   disabled: boolean
   skipModels: boolean
   clearHeaders: boolean
 }
+
+type ProviderBaseUrlPingState = Record<string, ProviderPingResult | undefined>
 
 type AliasFormState = {
   alias: string
@@ -144,7 +153,8 @@ const emptyProviderForm: ProviderFormState = {
   id: '',
   name: '',
   protocol: 'openai-responses',
-  baseUrl: '',
+  baseUrls: [''],
+  baseUrlStrategy: 'ordered',
   apiKey: '',
   headersText: '',
   disabled: false,
@@ -372,13 +382,33 @@ function providerFormFromView(provider: ProviderView): ProviderFormState {
     id: provider.id,
     name: provider.name || '',
     protocol: provider.protocol,
-    baseUrl: provider.baseUrl,
+    baseUrls: provider.baseUrls && provider.baseUrls.length > 0 ? [...provider.baseUrls] : [provider.baseUrl],
+    baseUrlStrategy: provider.baseUrlStrategy || 'ordered',
     apiKey: '',
     headersText: headersTextFromMap(provider.headers),
     disabled: provider.disabled,
     skipModels: false,
     clearHeaders: false,
   }
+}
+
+function providerEffectiveBaseUrls(provider: ProviderView | null): string[] {
+	if (!provider) {
+		return []
+	}
+	return provider.baseUrls && provider.baseUrls.length > 0 ? provider.baseUrls : [provider.baseUrl]
+}
+
+function providerBaseUrlSummary(provider: ProviderView | null, form: ProviderFormState, t: (key: string, options?: Record<string, unknown>) => string): string {
+	const baseUrls = providerEffectiveBaseUrls(provider)
+	if (baseUrls.length > 0) {
+		return baseUrls.join('\n')
+	}
+	const draft = form.baseUrls.map((item) => item.trim()).filter(Boolean)
+	if (draft.length > 0) {
+		return draft.join('\n')
+	}
+	return t('providers.baseUrlsEmpty')
 }
 
 function aliasFormFromView(alias: AliasView): AliasFormState {
@@ -759,7 +789,7 @@ function providerMatches(provider: ProviderView, query: string, filter: FilterSt
   if (!query) {
     return true
   }
-  const haystack = [provider.id, provider.name || '', provider.baseUrl, provider.models?.join(' ') || '']
+  const haystack = [provider.id, provider.name || '', ...(provider.baseUrls || [provider.baseUrl]), provider.models?.join(' ') || '']
     .join(' ')
     .toLowerCase()
   return haystack.includes(query)
@@ -791,10 +821,13 @@ export default function App() {
   const [syncOutput, setSyncOutput] = useState<SyncPreview | SyncResult | string>('')
   const [providerStatus, setProviderStatus] = useState('')
   const [providerForm, setProviderForm] = useState<ProviderFormState>(emptyProviderForm)
+  const [providerBaseUrlPings, setProviderBaseUrlPings] = useState<ProviderBaseUrlPingState>({})
+  const [draggingProviderBaseUrlIndex, setDraggingProviderBaseUrlIndex] = useState<number | null>(null)
   const [providerImportForm, setProviderImportForm] = useState<ProviderImportInput>(emptyProviderImport)
   const [aliasStatus, setAliasStatus] = useState('')
   const [aliasForm, setAliasForm] = useState<AliasFormState>(emptyAliasForm)
   const [targetForm, setTargetForm] = useState<AliasTargetInput>(emptyTargetForm)
+  const [draggingAliasTargetIndex, setDraggingAliasTargetIndex] = useState<number | null>(null)
   const [logTraces, setLogTraces] = useState<RequestTrace[]>([])
   const [networkTraces, setNetworkTraces] = useState<RequestTrace[]>([])
   const [logTraceQuery, setLogTraceQuery] = useState<TraceQueryState>(emptyTraceQuery)
@@ -1106,6 +1139,7 @@ export default function App() {
   function resetProviderForm() {
     setEditingProviderId('')
     setProviderForm(emptyProviderForm)
+	setProviderBaseUrlPings({})
   }
 
   function resetAliasForm() {
@@ -1117,8 +1151,77 @@ export default function App() {
     setSelectedProviderId(provider.id)
     setEditingProviderId(provider.id)
     setProviderForm(providerFormFromView(provider))
+	setProviderBaseUrlPings({})
     setProviderDetailMode('edit')
   }
+
+	function updateProviderBaseUrl(index: number, value: string) {
+		setProviderForm((current) => ({
+			...current,
+			baseUrls: current.baseUrls.map((item, itemIndex) => itemIndex === index ? value : item),
+		}))
+	}
+
+	function addProviderBaseUrl() {
+		setProviderForm((current) => ({ ...current, baseUrls: [...current.baseUrls, ''] }))
+	}
+
+	function removeProviderBaseUrl(index: number) {
+		setProviderForm((current) => {
+			const next = current.baseUrls.filter((_, itemIndex) => itemIndex !== index)
+			return { ...current, baseUrls: next.length > 0 ? next : [''] }
+		})
+		setProviderBaseUrlPings((current) => {
+			const next = { ...current }
+			const baseUrl = providerForm.baseUrls[index]?.trim()
+			if (baseUrl) {
+				delete next[baseUrl]
+			}
+			return next
+		})
+	}
+
+  function moveProviderBaseUrl(index: number, direction: -1 | 1) {
+		setProviderForm((current) => {
+			const nextIndex = index + direction
+			if (nextIndex < 0 || nextIndex >= current.baseUrls.length) {
+				return current
+			}
+			const next = [...current.baseUrls]
+			const [item] = next.splice(index, 1)
+			next.splice(nextIndex, 0, item)
+			return { ...current, baseUrls: next }
+		})
+	}
+
+	function reorderProviderBaseUrl(fromIndex: number, toIndex: number) {
+		setProviderForm((current) => {
+			if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= current.baseUrls.length || toIndex >= current.baseUrls.length) {
+				return current
+			}
+			const next = [...current.baseUrls]
+			const [item] = next.splice(fromIndex, 1)
+			next.splice(toIndex, 0, item)
+			return { ...current, baseUrls: next }
+		})
+	}
+
+	function onProviderBaseUrlDragStart(event: DragEvent<HTMLDivElement>, index: number) {
+		setDraggingProviderBaseUrlIndex(index)
+		event.dataTransfer.effectAllowed = 'move'
+		event.dataTransfer.setData('text/plain', String(index))
+	}
+
+	function onProviderBaseUrlDrop(event: DragEvent<HTMLDivElement>, index: number) {
+		event.preventDefault()
+		const fromIndex = Number(event.dataTransfer.getData('text/plain'))
+		if (Number.isNaN(fromIndex)) {
+			setDraggingProviderBaseUrlIndex(null)
+			return
+		}
+		reorderProviderBaseUrl(fromIndex, index)
+		setDraggingProviderBaseUrlIndex(null)
+	}
 
   function selectAliasDetail(alias: AliasView) {
     setSelectedAliasId(alias.alias)
@@ -1145,6 +1248,7 @@ export default function App() {
   function closeAliasDetail() {
     setSelectedAliasId(null)
     resetAliasForm()
+    setDraggingAliasTargetIndex(null)
     setAliasDetailMode('empty')
   }
 
@@ -1349,7 +1453,9 @@ export default function App() {
         id: providerForm.id.trim(),
         name: providerForm.name.trim(),
         protocol: providerForm.protocol,
-        baseUrl: providerForm.baseUrl.trim(),
+        baseUrl: providerForm.baseUrls.map((item) => item.trim()).find(Boolean) || '',
+        baseUrls: providerForm.baseUrls.map((item) => item.trim()).filter(Boolean),
+        baseUrlStrategy: providerForm.baseUrlStrategy,
         apiKey: providerForm.apiKey,
         headers: parseHeadersText(providerForm.headersText),
         disabled: providerForm.disabled,
@@ -1382,6 +1488,21 @@ export default function App() {
 		setProviderStatus(formatError(error))
 	}
   }
+
+	async function onPingProviderBaseUrl(input: ProviderPingInput) {
+		setProviderStatus(i18n.t('providers.statusPingingBaseUrl', { baseUrl: input.baseUrl }))
+		try {
+			const result = await pingProviderBaseUrl(input)
+			setProviderBaseUrlPings((current) => ({ ...current, [result.baseUrl]: result }))
+			setProviderStatus(
+				result.reachable
+					? i18n.t('providers.statusPingedBaseUrl', { baseUrl: result.baseUrl, latency: result.latencyMs })
+					: (result.error || i18n.t('providers.pingUnreachable')),
+			)
+		} catch (error) {
+			setProviderStatus(formatError(error))
+		}
+	}
 
   async function onImportProviders(event: FormEvent) {
     event.preventDefault()
@@ -1555,6 +1676,71 @@ export default function App() {
     } catch (error) {
       setAliasStatus(formatError(error))
     }
+  }
+
+  function reorderAliasTargetItems(targets: AliasTargetView[], fromIndex: number, toIndex: number): AliasTargetView[] | null {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= targets.length || toIndex >= targets.length) {
+      return null
+    }
+    const next = [...targets]
+    const [item] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, item)
+    return next
+  }
+
+  async function persistAliasTargetOrder(alias: AliasView, targets: AliasTargetView[]) {
+    setAliasStatus(i18n.t('aliases.statusReorderingTarget', { alias: alias.alias }))
+    try {
+      const updated = await reorderAliasTargets({
+        alias: alias.alias,
+        targets: targets.map((target) => ({ provider: target.provider, model: target.model })),
+      })
+      setAliases((current) => current.map((item) => (item.alias === updated.alias ? updated : item)))
+      setSelectedAliasId(updated.alias)
+      setAliasStatus(i18n.t('aliases.statusReorderedTarget', { alias: updated.alias }))
+      await refreshAll()
+    } catch (error) {
+      setAliasStatus(formatError(error))
+    }
+  }
+
+  async function moveAliasTarget(index: number, direction: -1 | 1) {
+    if (!selectedAlias) {
+      return
+    }
+    const next = reorderAliasTargetItems(selectedAlias.targets, index, index + direction)
+    if (!next) {
+      return
+    }
+    await persistAliasTargetOrder(selectedAlias, next)
+  }
+
+  async function reorderAliasTarget(fromIndex: number, toIndex: number) {
+    if (!selectedAlias) {
+      return
+    }
+    const next = reorderAliasTargetItems(selectedAlias.targets, fromIndex, toIndex)
+    if (!next) {
+      return
+    }
+    await persistAliasTargetOrder(selectedAlias, next)
+  }
+
+  function onAliasTargetDragStart(event: DragEvent<HTMLDivElement>, index: number) {
+    setDraggingAliasTargetIndex(index)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(index))
+  }
+
+  function onAliasTargetDrop(event: DragEvent<HTMLDivElement>, index: number) {
+    event.preventDefault()
+    const fromIndex = Number(event.dataTransfer.getData('text/plain'))
+    if (Number.isNaN(fromIndex)) {
+      setDraggingAliasTargetIndex(null)
+      return
+    }
+    void reorderAliasTarget(fromIndex, index)
+    setDraggingAliasTargetIndex(null)
   }
 
   async function onToggleProxy() {
@@ -1920,7 +2106,7 @@ export default function App() {
                           <strong className="resource-card-title">{provider.name || provider.id}</strong>
                           <code className="resource-card-code">{provider.id}</code>
                         </div>
-                        <p className="resource-card-subtitle">{provider.baseUrl}</p>
+                        <p className="resource-card-subtitle resource-card-subtitle-multiline">{providerEffectiveBaseUrls(provider).join('\n')}</p>
                       </div>
                       <div className="resource-card-side">
                         <span className={`badge status-badge ${provider.disabled ? 'idle' : 'live'}`}>
@@ -1935,7 +2121,7 @@ export default function App() {
                       </div>
                       <div className="resource-meta-item resource-meta-route">
                         <span className="resource-meta-label">{t('providers.cardBaseUrl')}</span>
-                        <span className="resource-meta-value">{provider.baseUrl}</span>
+                        <span className="resource-meta-value">{providerEffectiveBaseUrls(provider).length}</span>
                       </div>
                       <div className="resource-meta-item">
                         <span className="resource-meta-label">{t('providers.cardModels')}</span>
@@ -2906,7 +3092,7 @@ export default function App() {
                   <div className="detail-hero-card detail-hero-primary">
                     <span className="meta-label">{t('providers.name')}</span>
                     <strong>{providerForm.name || providerForm.id || t('providers.formCreateTitle')}</strong>
-                    <p className="subtle detail-hero-subtle">{selectedProvider?.baseUrl || providerForm.baseUrl || '-'}</p>
+                    <p className="subtle detail-hero-subtle detail-hero-prewrap">{providerBaseUrlSummary(selectedProvider, providerForm, t)}</p>
                   </div>
                   <div className="detail-hero-card">
                     <span className="meta-label">{t('status.status')}</span>
@@ -2964,15 +3150,97 @@ export default function App() {
                         ))}
                       </div>
                     </fieldset>
-                    <label className="detail-form-span">
-                      <span>{t('providers.baseUrl')}</span>
-                      <input
-                        type="text"
-                        value={providerForm.baseUrl}
-                        onChange={(event) => setProviderForm((current) => ({ ...current, baseUrl: event.target.value }))}
-                        placeholder={t('providers.placeholderBaseUrl')}
-                      />
-                    </label>
+                    <fieldset className="detail-form-span provider-baseurl-fieldset">
+                      <legend>{t('providers.baseUrls')}</legend>
+                      <div className="provider-baseurl-stack">
+                        <div className="toggle-grid provider-strategy-grid">
+                          <label className="checkbox-row checkbox-card">
+                            <input
+                              type="radio"
+                              name="provider-baseurl-strategy"
+                              checked={providerForm.baseUrlStrategy === 'ordered'}
+                              onChange={() => setProviderForm((current) => ({ ...current, baseUrlStrategy: 'ordered' }))}
+                            />
+                            <span>{t('providers.baseUrlStrategyOrdered')}</span>
+                          </label>
+                          <label className="checkbox-row checkbox-card">
+                            <input
+                              type="radio"
+                              name="provider-baseurl-strategy"
+                              checked={providerForm.baseUrlStrategy === 'latency'}
+                              onChange={() => setProviderForm((current) => ({ ...current, baseUrlStrategy: 'latency' }))}
+                            />
+                            <span>{t('providers.baseUrlStrategyLatency')}</span>
+                          </label>
+                        </div>
+                        <p className="subtle">{t(providerForm.baseUrlStrategy === 'latency' ? 'providers.baseUrlStrategyLatencyHint' : 'providers.baseUrlStrategyOrderedHint')}</p>
+                        {providerForm.baseUrls.map((baseUrl, index) => {
+                          const normalizedBaseUrl = baseUrl.trim()
+                          const pingResult = normalizedBaseUrl ? providerBaseUrlPings[normalizedBaseUrl] : undefined
+                          return (
+                            <div
+                              className={`provider-baseurl-row ${draggingProviderBaseUrlIndex === index ? 'dragging' : ''}`}
+                              key={index}
+                              draggable={providerForm.baseUrls.length > 1}
+                              onDragStart={(event) => onProviderBaseUrlDragStart(event, index)}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={(event) => onProviderBaseUrlDrop(event, index)}
+                              onDragEnd={() => setDraggingProviderBaseUrlIndex(null)}
+                            >
+                              <span className="provider-baseurl-index">#{index + 1}</span>
+                              <input
+                                type="text"
+                                value={baseUrl}
+                                onChange={(event) => updateProviderBaseUrl(index, event.target.value)}
+                                placeholder={t('providers.placeholderBaseUrl')}
+                              />
+                              <button type="button" onClick={() => moveProviderBaseUrl(index, -1)} disabled={index === 0} aria-label={t('providers.moveUp')}>
+                                {t('providers.moveUpShort')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveProviderBaseUrl(index, 1)}
+                                disabled={index === providerForm.baseUrls.length - 1}
+                                aria-label={t('providers.moveDown')}
+                              >
+                                {t('providers.moveDownShort')}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onPingProviderBaseUrl({
+                                  id: providerForm.id.trim() || undefined,
+                                  protocol: providerForm.protocol,
+                                  baseUrl: normalizedBaseUrl,
+                                  apiKey: providerForm.apiKey,
+                                  headers: parseHeadersText(providerForm.headersText),
+                                })}
+                                disabled={!normalizedBaseUrl}
+                              >
+                                {t('providers.ping')}
+                              </button>
+                              <button
+                                type="button"
+                                className="danger ghost-danger"
+                                onClick={() => removeProviderBaseUrl(index)}
+                                disabled={providerForm.baseUrls.length === 1}
+                              >
+                                {t('actions.delete')}
+                              </button>
+                              <span className={`provider-baseurl-ping ${pingResult?.reachable ? 'ok' : pingResult?.error ? 'bad' : ''}`}>
+                                {pingResult
+                                  ? pingResult.reachable
+                                    ? t('providers.pingLatency', { latency: pingResult.latencyMs })
+                                    : (pingResult.error || t('providers.pingUnreachable'))
+                                  : t('providers.pingIdle')}
+                              </span>
+                            </div>
+                          )
+                        })}
+                        <div className="toolbar">
+                          <button type="button" onClick={addProviderBaseUrl}>{t('providers.addBaseUrl')}</button>
+                        </div>
+                      </div>
+                    </fieldset>
                     <label className="detail-form-span">
                       <span>{t('providers.apiKey')}</span>
                       <input
@@ -3306,9 +3574,18 @@ export default function App() {
                         <p className="subtle">{t('aliases.emptyHint')}</p>
                       </article>
                     ) : null}
-                    {selectedAlias?.targets.map((target) => (
-                      <div className="target-card" key={`${selectedAlias.alias}-${target.provider}-${target.model}`}>
+                    {selectedAlias?.targets.map((target, index) => (
+                      <div
+                        className={`target-card ${draggingAliasTargetIndex === index ? 'dragging' : ''}`}
+                        key={`${selectedAlias.alias}-${target.provider}-${target.model}`}
+                        draggable={selectedAlias.targets.length > 1}
+                        onDragStart={(event) => onAliasTargetDragStart(event, index)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => onAliasTargetDrop(event, index)}
+                        onDragEnd={() => setDraggingAliasTargetIndex(null)}
+                      >
                         <div className="target-card-main">
+                          <span className="target-card-index">#{index + 1}</span>
                           <div className="target-card-copy">
                             <code>
                               {target.provider}/{target.model}
@@ -3320,6 +3597,17 @@ export default function App() {
                           </span>
                         </div>
                         <div className="toolbar toolbar-end">
+                          <button type="button" onClick={() => void moveAliasTarget(index, -1)} disabled={index === 0} aria-label={t('aliases.moveTargetUp')}>
+                            {t('aliases.moveTargetUpShort')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void moveAliasTarget(index, 1)}
+                            disabled={index === selectedAlias.targets.length - 1}
+                            aria-label={t('aliases.moveTargetDown')}
+                          >
+                            {t('aliases.moveTargetDownShort')}
+                          </button>
                           <button
                             type="button"
                             onClick={() =>

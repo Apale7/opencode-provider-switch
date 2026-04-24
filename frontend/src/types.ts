@@ -4,6 +4,8 @@ export type LanguagePreference = 'system' | 'en-US' | 'zh-CN'
 
 export type ProviderProtocol = 'openai-responses' | 'anthropic-messages'
 
+export type ProviderBaseURLStrategy = 'ordered' | 'latency'
+
 export type SyncedProviderView = {
   key: string
   protocol: ProviderProtocol
@@ -178,6 +180,8 @@ export type ProviderView = {
   name?: string
   protocol: ProviderProtocol
   baseUrl: string
+  baseUrls?: string[]
+  baseUrlStrategy: ProviderBaseURLStrategy
   apiKeySet: boolean
   apiKeyMasked?: string
   headers?: Record<string, string>
@@ -195,11 +199,30 @@ export type ProviderRefreshModelsInput = {
   id: string
 }
 
+export type ProviderPingInput = {
+  id?: string
+  protocol?: ProviderProtocol
+  baseUrl: string
+  apiKey?: string
+  headers?: Record<string, string>
+}
+
+export type ProviderPingResult = {
+  id: string
+  baseUrl: string
+  latencyMs: number
+  reachable: boolean
+  statusCode?: number
+  error?: string
+}
+
 export type ProviderUpsertInput = {
   id: string
   name?: string
   protocol: ProviderProtocol
   baseUrl: string
+  baseUrls?: string[]
+  baseUrlStrategy: ProviderBaseURLStrategy
   apiKey?: string
   headers?: Record<string, string>
   disabled: boolean
@@ -252,6 +275,16 @@ export type AliasTargetInput = {
   provider: string
   model: string
   disabled: boolean
+}
+
+export type AliasTargetRefInput = {
+  provider: string
+  model: string
+}
+
+export type AliasTargetReorderInput = {
+  alias: string
+  targets: AliasTargetRefInput[]
 }
 
 export type DoctorIssue = {
