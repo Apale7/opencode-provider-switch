@@ -615,6 +615,7 @@ func loadTracePricingCatalog() map[string]tracePricing {
 	}
 	pricing := map[string]tracePricing{}
 	collectTracePricing(pricing, providerRaw[opencode.ProviderKey], config.ProtocolOpenAIResponses)
+	collectTracePricing(pricing, providerRaw[opencode.CompatProviderKey], config.ProtocolOpenAICompatible)
 	collectTracePricing(pricing, providerRaw[opencode.AnthropicProviderKey], config.ProtocolAnthropicMessages)
 	if len(pricing) == 0 {
 		return nil
@@ -884,14 +885,18 @@ func validateSyncedModelSelection(value string, aliasesByProtocol map[string][]s
 }
 
 func syncedProtocols() []string {
-	return []string{config.ProtocolOpenAIResponses, config.ProtocolAnthropicMessages}
+	return []string{config.ProtocolOpenAIResponses, config.ProtocolAnthropicMessages, config.ProtocolOpenAICompatible}
 }
 
 func syncedProviderKey(protocol string) string {
-	if config.NormalizeProviderProtocol(protocol) == config.ProtocolAnthropicMessages {
+	switch config.NormalizeProviderProtocol(protocol) {
+	case config.ProtocolAnthropicMessages:
 		return opencode.AnthropicProviderKey
+	case config.ProtocolOpenAICompatible:
+		return opencode.CompatProviderKey
+	default:
+		return opencode.ProviderKey
 	}
-	return opencode.ProviderKey
 }
 
 func shouldSyncProtocol(raw opencode.Raw, protocol string, aliasNames []string) bool {

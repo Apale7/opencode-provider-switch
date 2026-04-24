@@ -110,7 +110,7 @@ type ConfirmIntent =
 
 const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'sync', 'settings']
 const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switch'
-const protocolOptions: ProviderProtocol[] = ['openai-responses', 'anthropic-messages']
+const protocolOptions: ProviderProtocol[] = ['openai-responses', 'anthropic-messages', 'openai-compatible']
 
 const emptyPrefs: DesktopPrefsView = {
   launchAtLogin: false,
@@ -180,6 +180,8 @@ function protocolLabel(protocol: ProviderProtocol): string {
 		: protocol === 'anthropic-messages'
 			? 'Anthropic Messages'
 			: protocol
+			: protocol === 'openai-compatible'
+				? 'OpenAI Compatible'
 }
 
 function resolveAliasProtocol(alias: AliasView | null): ProviderProtocol {
@@ -633,7 +635,7 @@ function formatEstimatedCost(value?: number): string {
 }
 
 function isProviderProtocol(value?: string): value is ProviderProtocol {
-  return value === 'openai-responses' || value === 'anthropic-messages'
+  return value === 'openai-responses' || value === 'anthropic-messages' || value === 'openai-compatible'
 }
 
 function usageSourceLabel(source?: string): string {

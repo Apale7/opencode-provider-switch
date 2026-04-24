@@ -52,19 +52,19 @@ type protocolErrorWriter func(http.ResponseWriter, int, string, string)
 
 // Server is the local ocswitch HTTP proxy.
 type Server struct {
-	cfg    *config.Config
-	client *http.Client
-	logger *log.Logger
-	traces RequestTraceStore
-	store  routing.StateStore
-	policy routing.Strategy
+	cfg                 *config.Config
+	client              *http.Client
+	logger              *log.Logger
+	traces              RequestTraceStore
+	store               routing.StateStore
+	policy              routing.Strategy
 	baseURLLatencyCache *providerBaseURLLatencyCache
 }
 
 type providerBaseURLLatencySample struct {
-	latencyMs int64
+	latencyMs  int64
 	measuredAt time.Time
-	reachable bool
+	reachable  bool
 }
 
 type providerBaseURLLatencyCache struct {
@@ -101,9 +101,9 @@ func (c *providerBaseURLLatencyCache) put(providerID, baseURL string, probe *ope
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.items[providerBaseURLCacheKey(providerID, baseURL)] = providerBaseURLLatencySample{
-		latencyMs: probe.LatencyMs,
+		latencyMs:  probe.LatencyMs,
 		measuredAt: time.Now(),
-		reachable: probe.Reachable,
+		reachable:  probe.Reachable,
 	}
 }
 
@@ -140,10 +140,10 @@ func New(cfg *config.Config, stores ...RequestTraceStore) *Server {
 			Transport: transport,
 			Timeout:   0,
 		},
-		logger: log.New(log.Writer(), "[ocswitch] ", log.LstdFlags|log.Lmicroseconds),
-		traces: traces,
-		store:  store,
-		policy: policy,
+		logger:              log.New(log.Writer(), "[ocswitch] ", log.LstdFlags|log.Lmicroseconds),
+		traces:              traces,
+		store:               store,
+		policy:              policy,
 		baseURLLatencyCache: newProviderBaseURLLatencyCache(60 * time.Second),
 	}
 }
@@ -159,7 +159,7 @@ func (s *Server) orderedProviderBaseURLs(ctx context.Context, provider *config.P
 	type scoredBaseURL struct {
 		baseURL string
 		latency int64
-		ok bool
+		ok      bool
 	}
 	scored := make([]scoredBaseURL, 0, len(baseURLs))
 	missing := make([]string, 0, len(baseURLs))
@@ -216,6 +216,7 @@ func (s *Server) ListenAndServeWithReady(ctx context.Context, ready chan<- error
 	mux := http.NewServeMux()
 	mux.HandleFunc(config.ProtocolLocalRequestPath(config.ProtocolOpenAIResponses), s.handleResponses)
 	mux.HandleFunc(config.ProtocolLocalRequestPath(config.ProtocolAnthropicMessages), s.handleMessages)
+	mux.HandleFunc(config.ProtocolLocalRequestPath(config.ProtocolOpenAICompatible), s.handleCompletions)
 	mux.HandleFunc(config.ProtocolLocalModelsPath(config.ProtocolOpenAIResponses), s.handleModels)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -292,6 +293,10 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	s.handleProtocolRequest(config.ProtocolAnthropicMessages, w, r)
+}
+
+func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
+	s.handleProtocolRequest(config.ProtocolOpenAICompatible, w, r)
 }
 
 // handleProtocolRequest is the main alias→failover proxy entry.
@@ -919,7 +924,8 @@ func writeAnthropicError(w http.ResponseWriter, status int, code, message string
 }
 
 func protocolErrorWriterFor(protocol string) protocolErrorWriter {
-	if config.NormalizeProviderProtocol(protocol) == config.ProtocolAnthropicMessages {
+	normalized := config.NormalizeProviderProtocol(protocol)
+	if normalized == config.ProtocolAnthropicMessages {
 		return writeAnthropicError
 	}
 	return writeOpenAIError

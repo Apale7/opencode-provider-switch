@@ -1,0 +1,75 @@
+{
+  "id": "openai-compatible-protocol",
+  "name": "openai-compatible-protocol",
+  "title": "Support OpenAI-compatible protocol",
+  "description": "Add openai-compatible protocol routing, provider and alias UI support, sync integration, usage logging, and tests.",
+  "status": "completed",
+  "dev_type": "fullstack",
+  "scope": "protocol-routing-sync-ui",
+  "package": null,
+  "priority": "P1",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-04-24",
+  "completedAt": "2026-04-24",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/config/protocol.go",
+    "internal/proxy/server.go",
+    "internal/proxy/usage_collector.go",
+    "internal/app/service.go",
+    "internal/opencode/opencode.go",
+    "internal/opencode/read_snapshot.go",
+    "frontend/src/types.ts",
+    "frontend/src/App.tsx",
+    "frontend/src/i18n/locales/en.json",
+    "frontend/src/i18n/locales/zh-CN.json"
+  ],
+  "notes": "Implemented openai-compatible protocol routing via /v1/chat/completions, added OpenCode sync/import provider support, extended usage logging and protocol UI labels, and verified with Go tests plus frontend build.",
+  "meta": {
+    "tests": [
+      "go test ./...",
+      "npm run build"
+    ],
+    "acceptance": [
+      "openai-compatible providers and aliases can be selected in UI",
+      "proxy forwards chat completions to /chat/completions with bearer auth",
+      "chat completions usage is captured in traces",
+      "OpenCode sync emits ocswitch-compat with @ai-sdk/openai-compatible"
+    ]
+  }
+}

@@ -59,6 +59,20 @@ func TestValidateProviderBaseURLAnthropic(t *testing.T) {
 	}
 }
 
+func TestValidateProviderBaseURLOpenAICompatible(t *testing.T) {
+	t.Parallel()
+
+	if err := ValidateProviderBaseURL(ProtocolOpenAICompatible, "https://compat.example.com/v1/"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := ProtocolLocalRequestPath(ProtocolOpenAICompatible); got != "/v1/chat/completions" {
+		t.Fatalf("ProtocolLocalRequestPath() = %q, want /v1/chat/completions", got)
+	}
+	if got := ProtocolUpstreamRequestPath(ProtocolOpenAICompatible); got != "/chat/completions" {
+		t.Fatalf("ProtocolUpstreamRequestPath() = %q, want /chat/completions", got)
+	}
+}
+
 func TestNormalizeProviderBaseURL(t *testing.T) {
 	t.Parallel()
 

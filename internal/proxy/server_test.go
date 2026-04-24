@@ -57,6 +57,67 @@ func TestHandleMessagesWritesAnthropicErrorForMissingAlias(t *testing.T) {
 	assertAnthropicError(t, rr.Body.Bytes(), "invalid_request_error", `alias "missing" not found`)
 }
 
+func TestHandleCompletionsProxiesOpenAICompatibleRequest(t *testing.T) {
+	t.Parallel()
+
+	var seenPath string
+	var seenAuth string
+	var seenModel string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		seenPath = r.URL.Path
+		seenAuth = r.Header.Get("Authorization")
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		seenModel, _ = payload["model"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","choices":[],"usage":{"prompt_tokens":17,"completion_tokens":9,"total_tokens":26}}`))
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", Protocol: config.ProtocolOpenAICompatible, BaseURL: upstream.URL + "/v1", APIKey: "sk-compat"}},
+		Aliases: []config.Alias{{
+			Alias:    "compat",
+			Protocol: config.ProtocolOpenAICompatible,
+			Enabled:  true,
+			Targets:  []config.Target{{Provider: "p1", Model: "up-compat", Enabled: true}},
+		}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"compat","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleCompletions(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rr.Code, rr.Body.String())
+	}
+	if seenPath != "/v1/chat/completions" {
+		t.Fatalf("upstream path = %q, want /v1/chat/completions", seenPath)
+	}
+	if seenAuth != "Bearer sk-compat" {
+		t.Fatalf("authorization = %q, want provider bearer", seenAuth)
+	}
+	if seenModel != "up-compat" {
+		t.Fatalf("model = %q, want up-compat", seenModel)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || traces[0].Protocol != config.ProtocolOpenAICompatible {
+		t.Fatalf("traces = %#v, want one openai-compatible trace", traces)
+	}
+	if traces[0].InputTokens != 17 || traces[0].OutputTokens != 9 {
+		t.Fatalf("trace tokens = %d/%d, want 17/9", traces[0].InputTokens, traces[0].OutputTokens)
+	}
+}
+
 func TestHandleMessagesProxiesAnthropicRequest(t *testing.T) {
 	t.Parallel()
 

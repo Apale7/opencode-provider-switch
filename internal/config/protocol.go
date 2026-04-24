@@ -9,6 +9,7 @@ import (
 const (
 	ProtocolOpenAIResponses   = "openai-responses"
 	ProtocolAnthropicMessages = "anthropic-messages"
+	ProtocolOpenAICompatible  = "openai-compatible"
 )
 
 func DefaultProviderProtocol() string {
@@ -36,6 +37,8 @@ func normalizeProtocol(protocol string, fallback string) string {
 		return protocol
 	case ProtocolAnthropicMessages:
 		return protocol
+	case ProtocolOpenAICompatible:
+		return protocol
 	default:
 		return protocol
 	}
@@ -46,6 +49,8 @@ func ValidateProtocol(protocol string) error {
 	case ProtocolOpenAIResponses:
 		return nil
 	case ProtocolAnthropicMessages:
+		return nil
+	case ProtocolOpenAICompatible:
 		return nil
 	case "":
 		return fmt.Errorf("missing protocol")
@@ -64,6 +69,8 @@ func ProtocolDisplayName(protocol string) string {
 		return "OpenAI Responses"
 	case ProtocolAnthropicMessages:
 		return "Anthropic Messages"
+	case ProtocolOpenAICompatible:
+		return "OpenAI Compatible"
 	default:
 		return protocol
 	}
@@ -84,6 +91,8 @@ func ProtocolLocalRequestPath(protocol string) string {
 		return ProtocolLocalBasePath(protocol) + "/responses"
 	case ProtocolAnthropicMessages:
 		return ProtocolLocalBasePath(protocol) + "/messages"
+	case ProtocolOpenAICompatible:
+		return ProtocolLocalBasePath(protocol) + "/chat/completions"
 	default:
 		return ProtocolLocalBasePath(protocol) + "/responses"
 	}
@@ -95,6 +104,8 @@ func ProtocolUpstreamRequestPath(protocol string) string {
 		return "/responses"
 	case ProtocolAnthropicMessages:
 		return "/messages"
+	case ProtocolOpenAICompatible:
+		return "/chat/completions"
 	default:
 		return "/responses"
 	}
@@ -125,6 +136,8 @@ func ApplyProtocolAuthHeaders(header http.Header, protocol string, apiKey string
 	switch NormalizeProviderProtocol(protocol) {
 	case ProtocolAnthropicMessages:
 		header.Set("X-Api-Key", apiKey)
+	case ProtocolOpenAICompatible:
+		header.Set("Authorization", "Bearer "+apiKey)
 	default:
 		header.Set("Authorization", "Bearer "+apiKey)
 	}

@@ -2,7 +2,7 @@ export type ThemePreference = 'system' | 'light' | 'dark'
 
 export type LanguagePreference = 'system' | 'en-US' | 'zh-CN'
 
-export type ProviderProtocol = 'openai-responses' | 'anthropic-messages'
+export type ProviderProtocol = 'openai-responses' | 'anthropic-messages' | 'openai-compatible'
 
 export type ProviderBaseURLStrategy = 'ordered' | 'latency'
 

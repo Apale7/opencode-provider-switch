@@ -106,6 +106,26 @@ func TestValidateOcswitchProviderAnthropic(t *testing.T) {
 	}
 }
 
+func TestValidateOcswitchProviderOpenAICompatible(t *testing.T) {
+	raw := Raw{}
+	aliases := []string{"gpt-oss"}
+	baseURL := "http://127.0.0.1:9982/v1"
+	apiKey := "ocswitch-local"
+	EnsureOcswitchProvider("openai-compatible", raw, baseURL, apiKey, aliases)
+
+	providerRaw, _ := raw["provider"].(map[string]any)
+	providerEntry, _ := providerRaw[CompatProviderKey].(map[string]any)
+	if providerEntry == nil {
+		t.Fatalf("missing provider.%s", CompatProviderKey)
+	}
+	if got, _ := providerEntry["npm"].(string); got != "@ai-sdk/openai-compatible" {
+		t.Fatalf("provider.%s.npm = %q", CompatProviderKey, got)
+	}
+	if err := ValidateOcswitchProvider("openai-compatible", raw, baseURL, apiKey, aliases); err != nil {
+		t.Fatalf("ValidateOcswitchProvider() unexpected error: %v", err)
+	}
+}
+
 func TestEnsureOcswitchProviderPreservesExistingModelMetadata(t *testing.T) {
 	raw := Raw{
 		"$schema": "https://opencode.ai/config.json",
@@ -427,6 +447,35 @@ func TestImportCustomProvidersAnthropic(t *testing.T) {
 	}
 	if imports[0].Headers["anthropic-version"] != "2023-06-01" {
 		t.Fatalf("headers = %#v", imports[0].Headers)
+	}
+}
+
+func TestImportCustomProvidersOpenAICompatible(t *testing.T) {
+	raw := Raw{
+		"provider": map[string]any{
+			"compat-custom": map[string]any{
+				"npm":  "@ai-sdk/openai-compatible",
+				"name": "Compat Custom",
+				"options": map[string]any{
+					"baseURL": "https://compat.example.com/v1",
+					"apiKey":  "sk-compat",
+				},
+				"models": map[string]any{
+					"gpt-oss": map[string]any{},
+				},
+			},
+		},
+	}
+
+	imports := ImportCustomProviders(raw)
+	if len(imports) != 1 {
+		t.Fatalf("len(imports) = %d, want 1", len(imports))
+	}
+	if imports[0].Protocol != "openai-compatible" {
+		t.Fatalf("protocol = %q, want openai-compatible", imports[0].Protocol)
+	}
+	if imports[0].ID != "compat-custom" || imports[0].APIKey != "sk-compat" {
+		t.Fatalf("import = %#v", imports[0])
 	}
 }
 

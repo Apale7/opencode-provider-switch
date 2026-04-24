@@ -408,8 +408,12 @@ func isParseError(err error) bool {
 }
 
 func syncedProviderKey(protocol string) string {
-	if strings.TrimSpace(protocol) == "anthropic-messages" {
+	trimmed := strings.TrimSpace(protocol)
+	if trimmed == "anthropic-messages" {
 		return AnthropicProviderKey
+	}
+	if trimmed == "openai-compatible" {
+		return CompatProviderKey
 	}
 	return ProviderKey
 }

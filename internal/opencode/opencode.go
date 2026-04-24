@@ -21,8 +21,10 @@ import (
 const (
 	ProviderKey           = "ocswitch"
 	AnthropicProviderKey  = "ocswitch-anthropic"
+	CompatProviderKey     = "ocswitch-compat"
 	ProviderName          = "OpenCode Provider Switch CLI"
 	AnthropicProviderName = "OpenCode Provider Switch Anthropic"
+	CompatProviderName    = "OpenCode Provider Switch Compat"
 )
 
 // ConfigFileCandidates is the precedence order inside the global config dir.
@@ -212,7 +214,7 @@ func syncedProviderValues(raw Raw) map[string]any {
 }
 
 func syncedProviderKeys() []string {
-	return []string{ProviderKey, AnthropicProviderKey}
+	return []string{ProviderKey, AnthropicProviderKey, CompatProviderKey}
 }
 
 type objectSpan struct {
@@ -602,6 +604,8 @@ func syncedProviderContract(protocol string) (providerKey string, providerName s
 				"anthropic-version": "2023-06-01",
 			},
 		}, nil
+	case "openai-compatible":
+		return CompatProviderKey, CompatProviderName, "@ai-sdk/openai-compatible", map[string]any{"setCacheKey": true}, nil
 	default:
 		return "", "", "", nil, fmt.Errorf("unsupported sync protocol %q", protocol)
 	}
@@ -635,7 +639,7 @@ func ImportCustomProviders(raw Raw) []ImportableProvider {
 	out := []ImportableProvider{}
 	provRaw, _ := raw["provider"].(map[string]any)
 	for id, v := range provRaw {
-		if id == ProviderKey || id == AnthropicProviderKey {
+		if id == ProviderKey || id == AnthropicProviderKey || id == CompatProviderKey {
 			continue
 		}
 		m, ok := v.(map[string]any)
@@ -685,6 +689,8 @@ func importProtocolForNPM(npm string) (string, bool) {
 		return "openai-responses", true
 	case "@ai-sdk/anthropic":
 		return "anthropic-messages", true
+	case "@ai-sdk/openai-compatible":
+		return "openai-compatible", true
 	default:
 		return "", false
 	}

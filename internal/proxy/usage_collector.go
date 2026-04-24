@@ -83,6 +83,8 @@ func newUsageCollector(protocol string, contentType string) usageCollector {
 		switch protocol {
 		case config.ProtocolAnthropicMessages:
 			return &anthropicSSEUsageCollector{}
+		case config.ProtocolOpenAICompatible:
+			return &openAICompatibleSSEUsageCollector{}
 		default:
 			return &openAIResponsesSSEUsageCollector{}
 		}
@@ -90,6 +92,8 @@ func newUsageCollector(protocol string, contentType string) usageCollector {
 	switch protocol {
 	case config.ProtocolAnthropicMessages:
 		return &jsonUsageCollector{source: protocol, parse: parseAnthropicJSONUsage}
+	case config.ProtocolOpenAICompatible:
+		return &jsonUsageCollector{source: protocol, parse: parseOpenAICompatibleJSONUsage}
 	default:
 		return &jsonUsageCollector{source: protocol, parse: parseOpenAIResponsesJSONUsage}
 	}
@@ -211,6 +215,73 @@ func (c *openAIResponsesSSEUsageCollector) consumeFrame(frame string) {
 		return
 	}
 	usage, ok := parseOpenAIResponsesJSONUsage(payload)
+	if !ok {
+		return
+	}
+	c.finalUsage = &usage
+}
+
+type openAICompatibleSSEUsageCollector struct {
+	pending    bytes.Buffer
+	finalUsage *tokenUsage
+}
+
+func (c *openAICompatibleSSEUsageCollector) Add(chunk []byte) {
+	if c == nil || len(chunk) == 0 {
+		return
+	}
+	_, _ = c.pending.Write(chunk)
+	for {
+		frame, ok := nextSSEFrame(&c.pending)
+		if !ok {
+			return
+		}
+		c.consumeFrame(frame)
+	}
+}
+
+func (c *openAICompatibleSSEUsageCollector) Usage() tokenUsage {
+	if c == nil {
+		return tokenUsage{}
+	}
+	c.flushPending()
+	if c.finalUsage == nil {
+		return unavailableUsage("openai-compatible", "upstream stream ended before final usage event")
+	}
+	return *c.finalUsage
+}
+
+func (c *openAICompatibleSSEUsageCollector) flushPending() {
+	if c == nil || c.pending.Len() == 0 {
+		return
+	}
+	frame := strings.TrimSpace(c.pending.String())
+	c.pending.Reset()
+	if frame != "" {
+		c.consumeFrame(frame)
+	}
+}
+
+func (c *openAICompatibleSSEUsageCollector) consumeFrame(frame string) {
+	dataLines := make([]string, 0, 1)
+	for _, rawLine := range strings.Split(frame, "\n") {
+		line := strings.TrimRight(rawLine, "\r")
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data != "" {
+				dataLines = append(dataLines, data)
+			}
+		}
+	}
+	data := strings.Join(dataLines, "\n")
+	if data == "" || data == "[DONE]" {
+		return
+	}
+	var payload any
+	if err := json.Unmarshal([]byte(data), &payload); err != nil {
+		return
+	}
+	usage, ok := parseOpenAICompatibleJSONUsage(payload)
 	if !ok {
 		return
 	}
@@ -388,6 +459,53 @@ func parseOpenAIResponsesJSONUsage(payload any) (tokenUsage, bool) {
 		reasoningTokens: int64Ptr(reasoning),
 		cacheReadTokens: int64Ptr(cacheRead),
 		source:          "openai-responses",
+		precision:       "exact",
+	}
+	if hasTotal {
+		usage.rawTotalTokens = int64Ptr(rawTotal)
+	} else {
+		usage.rawTotalTokens = int64Ptr(rawInput + rawOutput)
+	}
+	return usage, true
+}
+
+func parseOpenAICompatibleJSONUsage(payload any) (tokenUsage, bool) {
+	root, ok := payload.(map[string]any)
+	if !ok {
+		return tokenUsage{}, false
+	}
+	usageValue, ok := root["usage"]
+	if !ok {
+		return tokenUsage{}, false
+	}
+	usageMap, ok := usageValue.(map[string]any)
+	if !ok {
+		return tokenUsage{}, false
+	}
+	rawInput, hasInput := jsonNumberToInt64(usageMap["prompt_tokens"])
+	rawOutput, hasOutput := jsonNumberToInt64(usageMap["completion_tokens"])
+	if !hasInput && !hasOutput {
+		return tokenUsage{}, false
+	}
+	rawTotal, hasTotal := jsonNumberToInt64(usageMap["total_tokens"])
+	cacheRead := nestedInt64(usageMap, "prompt_tokens_details", "cached_tokens")
+	reasoning := nestedInt64(usageMap, "completion_tokens_details", "reasoning_tokens")
+	input := rawInput - cacheRead
+	if input < 0 {
+		input = 0
+	}
+	output := rawOutput - reasoning
+	if output < 0 {
+		output = 0
+	}
+	usage := tokenUsage{
+		rawInputTokens:  int64Ptr(rawInput),
+		rawOutputTokens: int64Ptr(rawOutput),
+		inputTokens:     int64Ptr(input),
+		outputTokens:    int64Ptr(output),
+		reasoningTokens: int64Ptr(reasoning),
+		cacheReadTokens: int64Ptr(cacheRead),
+		source:          "openai-compatible",
 		precision:       "exact",
 	}
 	if hasTotal {
