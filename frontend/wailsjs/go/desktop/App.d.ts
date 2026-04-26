@@ -78,6 +78,8 @@ export function StopProxy():Promise<app.ProxyStatusView>;
 
 export function SyncDesktopPreferences(arg1:context.Context):Promise<void>;
 
+export function TraceDetail(arg1:number):Promise<app.RequestTrace>;
+
 export function TraceList(arg1:app.RequestTraceListInput):Promise<app.RequestTraceListResult>;
 
 export function UnbindTarget(arg1:app.AliasTargetInput):Promise<app.AliasView>;

@@ -6,12 +6,12 @@ import {
   deleteAlias,
   deleteProvider,
   exportConfig,
+  getRequestTrace,
   getMeta,
   getOverview,
   getProxySettings,
   importConfig,
   importProviders,
-  listRequestTraces,
   listAliases,
   listProviders,
   queryRequestTraces,
@@ -57,10 +57,10 @@ import type {
   ProviderView,
   RoutingStrategyDescriptor,
   RoutingStrategyParamSpec,
+  ProxyStatusView,
   ProxySettingsSaveResult,
   ProxySettingsView,
   RequestTrace,
-  RequestTraceListInput,
   RequestTraceListResult,
   SyncInput,
   SyncPreview,
@@ -179,9 +179,9 @@ function protocolLabel(protocol: ProviderProtocol): string {
 		? 'OpenAI Responses'
 		: protocol === 'anthropic-messages'
 			? 'Anthropic Messages'
-			: protocol
 			: protocol === 'openai-compatible'
 				? 'OpenAI Compatible'
+			: protocol
 }
 
 function resolveAliasProtocol(alias: AliasView | null): ProviderProtocol {
@@ -214,6 +214,8 @@ type TraceCatalogState = {
 	statusCodes: number[]
 }
 
+type TracePageKind = 'log' | 'network'
+
 const emptyTraceQuery: TraceQueryState = {
 	page: 1,
 	aliases: [],
@@ -227,18 +229,8 @@ const emptyTraceCatalog: TraceCatalogState = {
 	statusCodes: [],
 }
 
-function sameTextSlice(left: string[], right: string[]): boolean {
-	if (left.length !== right.length) {
-		return false
-	}
-	return left.every((value, index) => value === right[index])
-}
-
-function sameNumberSlice(left: number[], right: number[]): boolean {
-	if (left.length !== right.length) {
-		return false
-	}
-	return left.every((value, index) => value === right[index])
+function traceQueryKey(query: TraceQueryState): string {
+	return [query.page, query.aliases.join('\u0000'), query.failoverCounts.join(','), query.statusCodes.join(',')].join('|')
 }
 
 function resolveDraftAliasProtocol(
@@ -263,10 +255,6 @@ function selectedTraceModel(providerId: string, providers: ProviderView[]): stri
 
 function tracePageCount(total: number, pageSize: number): number {
 	return Math.max(1, Math.ceil(total / pageSize))
-}
-
-function toggleTextFilter(values: string[], value: string): string[] {
-	return values.includes(value) ? values.filter((item) => item !== value) : [...values, value].sort((a, b) => a.localeCompare(b))
 }
 
 function toggleNumberFilter(values: number[], value: number): number[] {
@@ -626,14 +614,6 @@ function formatUsageText(value?: number | string): string {
   return value
 }
 
-function formatEstimatedCost(value?: number): string {
-  if (value == null) {
-    return '-'
-  }
-  const digits = value > 0 && value < 0.01 ? 6 : 4
-  return `$${value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
-}
-
 function isProviderProtocol(value?: string): value is ProviderProtocol {
   return value === 'openai-responses' || value === 'anthropic-messages' || value === 'openai-compatible'
 }
@@ -711,6 +691,16 @@ function traceDisplayModel(trace: RequestTrace): string {
 	return trace.finalModel || trace.alias || trace.rawModel || `#${trace.id}`
 }
 
+function InfoIcon() {
+	return (
+		<svg className="trace-info-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+			<circle cx="12" cy="12" r="10" />
+			<path d="M12 16v-4" />
+			<path d="M12 8h.01" />
+		</svg>
+	)
+}
+
 function TraceInfoPopover({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<span
@@ -720,7 +710,7 @@ function TraceInfoPopover({ label, children }: { label: string; children: ReactN
 			onKeyDown={(event) => event.stopPropagation()}
 		>
 			<button type="button" className="trace-info-trigger" aria-label={label}>
-				<span aria-hidden="true">i</span>
+				<InfoIcon />
 			</button>
 			<span className="trace-info-card" role="tooltip">
 				{children}
@@ -836,12 +826,18 @@ export default function App() {
   const [networkTraceQuery, setNetworkTraceQuery] = useState<TraceQueryState>(emptyTraceQuery)
   const [logTraceTotal, setLogTraceTotal] = useState(0)
   const [networkTraceTotal, setNetworkTraceTotal] = useState(0)
+  const [logTraceLoaded, setLogTraceLoaded] = useState(false)
+  const [networkTraceLoaded, setNetworkTraceLoaded] = useState(false)
   const [logTraceCatalog, setLogTraceCatalog] = useState<TraceCatalogState>(emptyTraceCatalog)
   const [networkTraceCatalog, setNetworkTraceCatalog] = useState<TraceCatalogState>(emptyTraceCatalog)
-  const [traceStatus, setTraceStatus] = useState('')
+  const [logTraceStatus, setLogTraceStatus] = useState('')
+  const [networkTraceStatus, setNetworkTraceStatus] = useState('')
   const [selectedLogTraceId, setSelectedLogTraceId] = useState<number | null>(null)
   const [selectedNetworkTraceId, setSelectedNetworkTraceId] = useState<number | null>(null)
+  const [logTraceDetail, setLogTraceDetail] = useState<RequestTrace | null>(null)
+  const [networkTraceDetail, setNetworkTraceDetail] = useState<RequestTrace | null>(null)
   const [loading, setLoading] = useState(false)
+  const [proxyActionLoading, setProxyActionLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [providerQuery, setProviderQuery] = useState('')
   const [providerFilter, setProviderFilter] = useState<FilterState>('all')
@@ -865,6 +861,10 @@ export default function App() {
   const aliasDetailRef = useRef<HTMLDivElement | null>(null)
   const logDetailRef = useRef<HTMLDivElement | null>(null)
   const networkDetailRef = useRef<HTMLDivElement | null>(null)
+  const logTraceRequestRef = useRef(0)
+  const networkTraceRequestRef = useRef(0)
+  const logTraceLoadingKeyRef = useRef<string | null>(null)
+  const networkTraceLoadingKeyRef = useRef<string | null>(null)
 
   const fetchTracePage = useCallback(async (query: TraceQueryState): Promise<RequestTraceListResult> => {
 	return queryRequestTraces({
@@ -876,19 +876,70 @@ export default function App() {
 	})
   }, [])
 
+  const applyTracePageResult = useCallback((kind: TracePageKind, result: RequestTraceListResult) => {
+	if (kind === 'log') {
+		setLogTraces(result.items)
+		setLogTraceTotal(result.total)
+		setLogTraceLoaded(true)
+		setLogTraceCatalog({
+			aliases: result.availableAliases || [],
+			failoverCounts: result.availableFailoverCounts || [],
+			statusCodes: result.availableStatusCodes || [],
+		})
+		setSelectedLogTraceId((current) => resolveSelectedTraceId(current, result.items))
+		return
+	}
+	setNetworkTraces(result.items)
+	setNetworkTraceTotal(result.total)
+	setNetworkTraceLoaded(true)
+	setNetworkTraceCatalog({
+		aliases: result.availableAliases || [],
+		failoverCounts: result.availableFailoverCounts || [],
+		statusCodes: result.availableStatusCodes || [],
+	})
+	setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, result.items))
+  }, [])
+
+  const loadTraceQuery = useCallback(async (kind: TracePageKind, query: TraceQueryState) => {
+	const requestRef = kind === 'log' ? logTraceRequestRef : networkTraceRequestRef
+	const loadingKeyRef = kind === 'log' ? logTraceLoadingKeyRef : networkTraceLoadingKeyRef
+	const setStatus = kind === 'log' ? setLogTraceStatus : setNetworkTraceStatus
+	const queryKey = traceQueryKey(query)
+	if (loadingKeyRef.current === queryKey) {
+		return
+	}
+	const requestId = requestRef.current + 1
+	requestRef.current = requestId
+	loadingKeyRef.current = queryKey
+	try {
+		const result = await fetchTracePage(query)
+		if (requestRef.current !== requestId) {
+			return
+		}
+		applyTracePageResult(kind, result)
+		setStatus(i18n.t('messages.fresh'))
+	} catch (error) {
+		if (requestRef.current === requestId) {
+			setStatus(formatError(error))
+		}
+	} finally {
+		if (loadingKeyRef.current === queryKey) {
+			loadingKeyRef.current = null
+		}
+	}
+  }, [applyTracePageResult, fetchTracePage])
+
   const refreshAll = useCallback(async (options?: { syncDesktopPrefs?: boolean }) => {
     const syncDesktopPrefs = options?.syncDesktopPrefs ?? false
     setLoading(true)
     setPrefsStatus(i18n.t('messages.refreshing'))
     try {
-      const [metaData, overviewData, providerData, aliasData, proxySettingsData, logResult, networkResult] = await Promise.all([
+      const [metaData, overviewData, providerData, aliasData, proxySettingsData] = await Promise.all([
         getMeta(),
         getOverview(),
         listProviders(),
         listAliases(),
         getProxySettings(),
-        fetchTracePage(logTraceQuery),
-        fetchTracePage(networkTraceQuery),
       ])
       setMeta(metaData)
       setOverview(overviewData)
@@ -898,33 +949,19 @@ export default function App() {
         setPrefs(overviewData.desktop)
       }
       setProxySettings(proxySettingsData)
-      setLogTraces(logResult.items)
-      setNetworkTraces(networkResult.items)
-      setLogTraceTotal(logResult.total)
-      setNetworkTraceTotal(networkResult.total)
-      setLogTraceCatalog({
-		aliases: logResult.availableAliases || [],
-		failoverCounts: logResult.availableFailoverCounts || [],
-		statusCodes: logResult.availableStatusCodes || [],
-	  })
-      setNetworkTraceCatalog({
-		aliases: networkResult.availableAliases || [],
-		failoverCounts: networkResult.availableFailoverCounts || [],
-		statusCodes: networkResult.availableStatusCodes || [],
-	  })
-      setSelectedLogTraceId((current) => resolveSelectedTraceId(current, logResult.items))
-      setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, networkResult.items))
       setPrefsStatus(i18n.t('messages.fresh'))
       setProxySettingsStatus(i18n.t('messages.fresh'))
-      setTraceStatus(i18n.t('messages.fresh'))
     } catch (error) {
       setPrefsStatus(formatError(error))
       setProxySettingsStatus(formatError(error))
-      setTraceStatus(formatError(error))
     } finally {
       setLoading(false)
     }
-  }, [fetchTracePage, logTraceQuery, networkTraceQuery])
+  }, [])
+
+  function applyProxyStatus(status: ProxyStatusView) {
+    setOverview((current) => current ? { ...current, proxy: status } : current)
+  }
 
   useEffect(() => {
     void refreshAll({ syncDesktopPrefs: true })
@@ -978,8 +1015,10 @@ export default function App() {
 		.filter((provider) => provider.protocol === targetProtocol)
 		.sort((left, right) => left.id.localeCompare(right.id))
 	const bindableModels = selectedTraceModel(targetForm.provider, providers)
-	const selectedLogTrace = logTraces.find((trace) => trace.id === selectedLogTraceId) || null
-  const selectedNetworkTrace = networkTraces.find((trace) => trace.id === selectedNetworkTraceId) || null
+  const selectedLogTrace =
+	(logTraceDetail?.id === selectedLogTraceId ? logTraceDetail : null) || logTraces.find((trace) => trace.id === selectedLogTraceId) || null
+  const selectedNetworkTrace =
+	(networkTraceDetail?.id === selectedNetworkTraceId ? networkTraceDetail : null) || networkTraces.find((trace) => trace.id === selectedNetworkTraceId) || null
   const logDetailOpen = selectedLogTraceId !== null && selectedLogTrace !== null
   const networkDetailOpen = selectedNetworkTraceId !== null && selectedNetworkTrace !== null
   const proxyRunning = overview?.proxy.running ?? false
@@ -1021,37 +1060,11 @@ export default function App() {
     }
     let cancelled = false
     const tick = async () => {
-      try {
-	        const query = activeTab === 'log' ? logTraceQuery : networkTraceQuery
-	        const result = await fetchTracePage(query)
-        if (cancelled) {
-          return
-        }
-	        if (activeTab === 'log') {
-			setLogTraces(result.items)
-			setLogTraceTotal(result.total)
-			setLogTraceCatalog({
-				aliases: result.availableAliases || [],
-				failoverCounts: result.availableFailoverCounts || [],
-				statusCodes: result.availableStatusCodes || [],
-			})
-			setSelectedLogTraceId((current) => resolveSelectedTraceId(current, result.items))
-		} else {
-			setNetworkTraces(result.items)
-			setNetworkTraceTotal(result.total)
-			setNetworkTraceCatalog({
-				aliases: result.availableAliases || [],
-				failoverCounts: result.availableFailoverCounts || [],
-				statusCodes: result.availableStatusCodes || [],
-			})
-			setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, result.items))
+		const kind = activeTab === 'log' ? 'log' : 'network'
+		const query = kind === 'log' ? logTraceQuery : networkTraceQuery
+		if (!cancelled) {
+			await loadTraceQuery(kind, query)
 		}
-        setTraceStatus(i18n.t('messages.fresh'))
-      } catch (error) {
-        if (!cancelled) {
-          setTraceStatus(formatError(error))
-        }
-      }
     }
     void tick()
     const timer = window.setInterval(() => {
@@ -1061,7 +1074,7 @@ export default function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeTab, fetchTracePage, logTraceQuery, networkTraceQuery])
+  }, [activeTab, loadTraceQuery, logTraceQuery, networkTraceQuery])
 
   useEffect(() => {
     if (activeTab === 'providers' && providerDetailOpen) {
@@ -1087,8 +1100,54 @@ export default function App() {
     }
   }, [activeTab, networkDetailOpen])
 
+  useEffect(() => {
+	if (selectedLogTraceId === null) {
+		setLogTraceDetail(null)
+		return
+	}
+	let cancelled = false
+	setLogTraceDetail(null)
+	void getRequestTrace(selectedLogTraceId)
+		.then((trace) => {
+			if (!cancelled) {
+				setLogTraceDetail(trace)
+			}
+		})
+		.catch((error) => {
+			if (!cancelled) {
+				setLogTraceStatus(formatError(error))
+			}
+		})
+	return () => {
+		cancelled = true
+	}
+  }, [selectedLogTraceId])
+
+  useEffect(() => {
+	if (selectedNetworkTraceId === null) {
+		setNetworkTraceDetail(null)
+		return
+	}
+	let cancelled = false
+	setNetworkTraceDetail(null)
+	void getRequestTrace(selectedNetworkTraceId)
+		.then((trace) => {
+			if (!cancelled) {
+				setNetworkTraceDetail(trace)
+			}
+		})
+		.catch((error) => {
+			if (!cancelled) {
+				setNetworkTraceStatus(formatError(error))
+			}
+		})
+	return () => {
+		cancelled = true
+	}
+  }, [selectedNetworkTraceId])
+
 	useEffect(() => {
-		const shouldLockScroll = providerDetailOpen || aliasDetailOpen
+		const shouldLockScroll = providerDetailOpen || aliasDetailOpen || logDetailOpen || networkDetailOpen
 		const appShell = document.querySelector<HTMLElement>('.app-shell')
 		const sidebar = document.querySelector<HTMLElement>('.sidebar')
 		const workspace = document.querySelector<HTMLElement>('.workspace')
@@ -1106,7 +1165,7 @@ export default function App() {
       sidebar?.classList.remove('shell-locked')
       workspace?.classList.remove('shell-locked')
     }
-	}, [aliasDetailOpen, providerDetailOpen])
+	}, [aliasDetailOpen, logDetailOpen, networkDetailOpen, providerDetailOpen])
 
   useEffect(() => {
     if (providerDetailMode === 'create') {
@@ -1399,24 +1458,34 @@ export default function App() {
   }
 
   async function onStartProxy() {
+    if (proxyActionLoading) {
+      return
+    }
+    setProxyActionLoading(true)
     setPrefsStatus(i18n.t('messages.running'))
     try {
-      await startProxy()
+      applyProxyStatus(await startProxy())
       setPrefsStatus(i18n.t('messages.proxyStarted'))
-      await refreshAll()
     } catch (error) {
       setPrefsStatus(formatError(error))
+    } finally {
+      setProxyActionLoading(false)
     }
   }
 
   async function onStopProxy() {
+    if (proxyActionLoading) {
+      return
+    }
+    setProxyActionLoading(true)
     setPrefsStatus(i18n.t('messages.running'))
     try {
-      await stopProxy()
+      applyProxyStatus(await stopProxy())
       setPrefsStatus(i18n.t('messages.proxyStopped'))
-      await refreshAll()
     } catch (error) {
       setPrefsStatus(formatError(error))
+    } finally {
+      setProxyActionLoading(false)
     }
   }
 
@@ -1644,15 +1713,39 @@ export default function App() {
 	}))
   }
 
-  function updateLogTraceQuery(update: (current: TraceQueryState) => TraceQueryState) {
+	function updateLogTraceQuery(update: (current: TraceQueryState) => TraceQueryState) {
 	setLogTraceQuery((current) => update(current))
 	setSelectedLogTraceId(null)
   }
+
+	function loadLogTracePage(page: number) {
+		const nextQuery = { ...logTraceQuery, page }
+		updateLogTraceQuery(() => nextQuery)
+	}
+
+	function setLogAliasFilter(alias: string, selected: boolean) {
+		updateLogTraceQuery((current) => ({
+			...current,
+			page: 1,
+			aliases: selected
+				? [...current.aliases, alias].sort((left, right) => left.localeCompare(right))
+				: current.aliases.filter((item) => item !== alias),
+		}))
+	}
+
+	function clearLogAliasFilter() {
+		updateLogTraceQuery((current) => ({ ...current, page: 1, aliases: [] }))
+	}
 
   function updateNetworkTraceQuery(update: (current: TraceQueryState) => TraceQueryState) {
 	setNetworkTraceQuery((current) => update(current))
 	setSelectedNetworkTraceId(null)
   }
+
+	function loadNetworkTracePage(page: number) {
+		const nextQuery = { ...networkTraceQuery, page }
+		updateNetworkTraceQuery(() => nextQuery)
+	}
 
   async function onUnbindTarget(alias: string, provider: string, model: string) {
     setAliasStatus(i18n.t('aliases.statusRemoving', { alias, provider, model }))
@@ -1848,6 +1941,7 @@ export default function App() {
     : ''
 
   const importModeLabelId = useId()
+  const logAliasFilterId = useId()
   const providerImportTitleId = useId()
   const aliasTargetTitleId = useId()
   const providerDetailTitleId = useId()
@@ -1927,6 +2021,7 @@ export default function App() {
                 <button
                   type="button"
                   className={overview?.proxy.running ? 'danger' : 'primary'}
+                  disabled={proxyActionLoading}
                   onClick={() => void onToggleProxy()}
                 >
                   {overview?.proxy.running ? t('actions.stopProxy') : t('actions.startProxy')}
@@ -2394,27 +2489,41 @@ export default function App() {
               <div className="panel-header">
                 <div>
                   <h3>{t('log.title')}</h3>
-                  <p className="subtle">{traceStatus || t('log.subtitle')}</p>
+                  <p className="subtle">{logTraceStatus || t('log.subtitle')}</p>
                 </div>
                 <div className="list-header-actions">
-	                  <span className="subtle list-status-text">{t('log.count', { count: logTraceTotal })}</span>
+	                  <span className="subtle list-status-text">{logTraceLoaded ? t('log.count', { count: logTraceTotal }) : t('messages.loading')}</span>
                 </div>
               </div>
 	              <div className="list-toolbar trace-toolbar">
-	                <div className="filter-group">
-	                  <span className="filter-group-label">{t('log.aliasFilter')}</span>
-	                  <div className="filter-chip-grid">
-	                    {logTraceCatalog.aliases.map((alias) => (
-	                      <button
-	                        key={alias}
-	                        type="button"
-	                        className={logTraceQuery.aliases.includes(alias) ? 'filter-chip active' : 'filter-chip'}
-	                        onClick={() => updateLogTraceQuery((current) => ({ ...current, page: 1, aliases: toggleTextFilter(current.aliases, alias) }))}
-	                      >
-	                        {alias}
-	                      </button>
-	                    ))}
-	                  </div>
+	                <div className="filter-group filter-group-alias">
+	                  <span className="filter-group-label" id={logAliasFilterId}>{t('log.aliasFilter')}</span>
+	                  <details className="filter-popover">
+	                    <summary className="filter-popover-trigger" aria-labelledby={logAliasFilterId}>
+	                      <span>{logTraceQuery.aliases.length > 0 ? t('log.aliasSelectedCount', { count: logTraceQuery.aliases.length }) : t('log.aliasAll')}</span>
+	                      <span className="filter-popover-caret" aria-hidden="true" />
+	                    </summary>
+	                    <div className="filter-popover-panel">
+	                      <div className="filter-popover-head">
+	                        <span className="filter-group-label">{t('log.aliasFilter')}</span>
+	                        <button type="button" className="filter-link-button" onClick={clearLogAliasFilter} disabled={logTraceQuery.aliases.length === 0}>
+	                          {t('log.aliasClear')}
+	                        </button>
+	                      </div>
+	                      <div className="filter-option-list">
+	                        {logTraceCatalog.aliases.length > 0 ? logTraceCatalog.aliases.map((alias) => (
+	                          <label className="filter-option" key={alias}>
+	                            <input
+	                              type="checkbox"
+	                              checked={logTraceQuery.aliases.includes(alias)}
+	                              onChange={(event) => setLogAliasFilter(alias, event.target.checked)}
+	                            />
+	                            <span>{alias}</span>
+	                          </label>
+	                        )) : <span className="subtle small-text">{t('log.aliasEmpty')}</span>}
+	                      </div>
+	                    </div>
+	                  </details>
 	                </div>
 	                <div className="filter-group">
 	                  <span className="filter-group-label">{t('log.failoverFilter')}</span>
@@ -2433,7 +2542,7 @@ export default function App() {
 	                </div>
 	              </div>
 	              <div className="scroll-list compact-list trace-scroll-list">
-	                {logTraces.length === 0 ? (
+	                {logTraceLoaded && logTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('log.empty')}</h4>
                     <p className="subtle">{t('log.emptyHint')}</p>
@@ -2446,7 +2555,7 @@ export default function App() {
 							<span className="trace-table-head" role="columnheader">{t('log.tableModel')}</span>
 							<span className="trace-table-head" role="columnheader">{t('log.tablePerformance')}</span>
 							<span className="trace-table-head" role="columnheader">{t('log.tableTokens')}</span>
-							<span className="trace-table-head trace-table-head-end" role="columnheader">{t('log.tableCostStatus')}</span>
+							<span className="trace-table-head trace-table-head-end" role="columnheader">{t('log.tableStatus')}</span>
 						</div>
 						<div className="trace-table-body">
 							{logTraces.map((trace) => (
@@ -2532,9 +2641,8 @@ export default function App() {
 											</TraceInfoPopover>
 										</div>
 									</div>
-									<div className="trace-table-cell trace-status-cell" role="cell" data-label={t('log.tableCostStatus')}>
+									<div className="trace-table-cell trace-status-cell" role="cell" data-label={t('log.tableStatus')}>
 										<div className="trace-status-stack">
-											<span className="trace-mono trace-status-value">{formatEstimatedCost(trace.usage?.estimatedCost)}</span>
 											<span className={`badge status-badge ${trace.success ? 'live' : 'idle'}`}>
 												{trace.success ? t('log.success') : trace.statusCode || t('log.failed')}
 											</span>
@@ -2547,11 +2655,11 @@ export default function App() {
 	                ) : null}
               </div>
 	              <div className="list-pagination">
-	                <button type="button" disabled={logTraceQuery.page <= 1} onClick={() => updateLogTraceQuery((current) => ({ ...current, page: current.page - 1 }))}>
+	                <button type="button" disabled={logTraceQuery.page <= 1} onClick={() => loadLogTracePage(logTraceQuery.page - 1)}>
 	                  {t('log.prevPage')}
 	                </button>
 	                <span className="subtle">{t('log.pageStatus', { page: logTraceQuery.page, total: logPageCount })}</span>
-	                <button type="button" disabled={logTraceQuery.page >= logPageCount} onClick={() => updateLogTraceQuery((current) => ({ ...current, page: current.page + 1 }))}>
+	                <button type="button" disabled={logTraceQuery.page >= logPageCount} onClick={() => loadLogTracePage(logTraceQuery.page + 1)}>
 	                  {t('log.nextPage')}
 	                </button>
 	              </div>
@@ -2565,10 +2673,10 @@ export default function App() {
               <div className="panel-header">
                 <div>
                   <h3>{t('network.title')}</h3>
-                  <p className="subtle">{traceStatus || t('network.subtitle')}</p>
+                  <p className="subtle">{networkTraceStatus || t('network.subtitle')}</p>
                 </div>
                 <div className="list-header-actions">
-	                  <span className="subtle list-status-text">{t('network.count', { count: networkTraceTotal })}</span>
+	                  <span className="subtle list-status-text">{networkTraceLoaded ? t('network.count', { count: networkTraceTotal }) : t('messages.loading')}</span>
                 </div>
               </div>
 	              <div className="list-toolbar trace-toolbar">
@@ -2589,10 +2697,10 @@ export default function App() {
 	                </div>
 	              </div>
 	              <div className="scroll-list compact-list trace-scroll-list">
-	                {networkTraces.length === 0 ? (
+	                {networkTraceLoaded && networkTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
-                    <h4>{t('log.empty')}</h4>
-                    <p className="subtle">{t('log.emptyHint')}</p>
+                    <h4>{t('network.empty')}</h4>
+                    <p className="subtle">{t('network.emptyHint')}</p>
                   </article>
                 ) : null}
 	                {networkTraces.length > 0 ? (
@@ -2644,7 +2752,7 @@ export default function App() {
 														<dd className="trace-mono">{formatCompactDuration(trace.durationMs)}</dd>
 													</div>
 													<div>
-														<dt>{t('log.chainTitle')}</dt>
+														<dt>{t('network.chainTitle')}</dt>
 														<dd className="trace-mono">{trace.attemptCount}</dd>
 													</div>
 													<div>
@@ -2668,11 +2776,11 @@ export default function App() {
 	                ) : null}
               </div>
 	              <div className="list-pagination">
-	                <button type="button" disabled={networkTraceQuery.page <= 1} onClick={() => updateNetworkTraceQuery((current) => ({ ...current, page: current.page - 1 }))}>
+	                <button type="button" disabled={networkTraceQuery.page <= 1} onClick={() => loadNetworkTracePage(networkTraceQuery.page - 1)}>
 	                  {t('network.prevPage')}
 	                </button>
 	                <span className="subtle">{t('network.pageStatus', { page: networkTraceQuery.page, total: networkPageCount })}</span>
-	                <button type="button" disabled={networkTraceQuery.page >= networkPageCount} onClick={() => updateNetworkTraceQuery((current) => ({ ...current, page: current.page + 1 }))}>
+	                <button type="button" disabled={networkTraceQuery.page >= networkPageCount} onClick={() => loadNetworkTracePage(networkTraceQuery.page + 1)}>
 	                  {t('network.nextPage')}
 	                </button>
 	              </div>
@@ -3718,17 +3826,6 @@ export default function App() {
                   <div>
                     <dt>{t('log.outputRate')}</dt>
                     <dd>{formatTokenRate(selectedLogTrace)}</dd>
-                  </div>
-                  <div>
-                    <dt>{t('log.estimatedCost')}</dt>
-                    <dd>
-                      {selectedLogTrace.usage?.estimatedCost != null ? (
-                        <span className="usage-value-stack">
-                          <span>{formatEstimatedCost(selectedLogTrace.usage.estimatedCost)}</span>
-                          <span className="subtle">{t('log.estimatedCostHint')}</span>
-                        </span>
-                      ) : '-'}
-                    </dd>
                   </div>
                   <div>
                     <dt>{t('log.reasoningTokens')}</dt>

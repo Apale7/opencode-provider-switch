@@ -145,7 +145,6 @@ type TraceUsage struct {
 	CacheReadTokens    *int64   `json:"cacheReadTokens,omitempty"`
 	CacheWriteTokens   *int64   `json:"cacheWriteTokens,omitempty"`
 	CacheWrite1HTokens *int64   `json:"cacheWrite1hTokens,omitempty"`
-	EstimatedCost      *float64 `json:"estimatedCost,omitempty"`
 	Source             string   `json:"source,omitempty"`
 	Precision          string   `json:"precision,omitempty"`
 	Notes              []string `json:"notes,omitempty"`
@@ -157,6 +156,10 @@ type RequestTraceListInput struct {
 	Aliases        []string `json:"aliases,omitempty"`
 	FailoverCounts []int    `json:"failoverCounts,omitempty"`
 	StatusCodes    []int    `json:"statusCodes,omitempty"`
+}
+
+type RequestTraceDetailInput struct {
+	ID uint64 `json:"id"`
 }
 
 type RequestTraceListResult struct {
@@ -239,14 +242,6 @@ func traceUsageView(usage proxy.TraceUsage) TraceUsage {
 }
 
 func cloneInt64Ptr(in *int64) *int64 {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	return &out
-}
-
-func cloneFloat64Ptr(in *float64) *float64 {
 	if in == nil {
 		return nil
 	}

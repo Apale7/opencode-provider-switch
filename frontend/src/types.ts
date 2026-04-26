@@ -116,7 +116,6 @@ export type TraceUsage = {
   cacheReadTokens?: number
   cacheWriteTokens?: number
   cacheWrite1hTokens?: number
-  estimatedCost?: number
   source?: string
   precision?: string
   notes?: string[]
@@ -154,6 +153,10 @@ export type RequestTraceListInput = {
   aliases?: string[]
   failoverCounts?: number[]
   statusCodes?: number[]
+}
+
+export type RequestTraceDetailInput = {
+  id: number
 }
 
 export type RequestTraceListResult = {

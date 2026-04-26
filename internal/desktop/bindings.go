@@ -109,6 +109,10 @@ func (b *Bindings) QueryRequestTraces(ctx context.Context, in app.RequestTraceLi
 	return b.service.QueryRequestTraces(ctx, in)
 }
 
+func (b *Bindings) GetRequestTrace(ctx context.Context, id uint64) (app.RequestTrace, error) {
+	return b.service.GetRequestTrace(ctx, id)
+}
+
 func (b *Bindings) GetProxySettings(ctx context.Context) (app.ProxySettingsView, error) {
 	return b.service.GetProxySettings(ctx)
 }
@@ -213,6 +217,10 @@ func (b *Bindings) RequestTraces(limit int) ([]app.RequestTrace, error) {
 
 func (b *Bindings) TraceList(in app.RequestTraceListInput) (app.RequestTraceListResult, error) {
 	return b.QueryRequestTraces(context.Background(), in)
+}
+
+func (b *Bindings) TraceDetail(id uint64) (app.RequestTrace, error) {
+	return b.GetRequestTrace(context.Background(), id)
 }
 
 func (b *Bindings) ProxySettings() (app.ProxySettingsView, error) {

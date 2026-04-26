@@ -19,27 +19,13 @@ type Service struct {
 	configPath string
 	traces     proxy.RequestTraceStore
 
-	mu          sync.Mutex
-	proxyCancel context.CancelFunc
-	proxyDone   chan struct{}
-	proxyReady  chan error
-	proxyErr    error
-	proxyStatus ProxyStatusView
-}
-
-type tracePricing struct {
-	input      *float64
-	output     *float64
-	cacheRead  *float64
-	cacheWrite *float64
-	over200k   *tracePricingTier
-}
-
-type tracePricingTier struct {
-	input      *float64
-	output     *float64
-	cacheRead  *float64
-	cacheWrite *float64
+	mu            sync.Mutex
+	proxyCancel   context.CancelFunc
+	proxyDone     chan struct{}
+	proxyReady    chan struct{}
+	proxyReadyErr error
+	proxyErr      error
+	proxyStatus   ProxyStatusView
 }
 
 func NewService(configPath string) *Service {
@@ -211,28 +197,43 @@ func (s *Service) StartProxy(ctx context.Context) error {
 	bindAddress := proxyBindAddress(cfg)
 
 	s.mu.Lock()
-	if s.proxyCancel == nil {
-		runCtx, cancel := context.WithCancel(context.Background())
-		done := make(chan struct{})
-		ready := make(chan error, 1)
-		s.proxyCancel = cancel
-		s.proxyDone = done
-		s.proxyReady = ready
-		s.proxyErr = nil
-		s.proxyStatus = ProxyStatusView{
-			Running:     true,
-			BindAddress: bindAddress,
-			StartedAt:   formatTimestamp(time.Now()),
+	if s.proxyCancel != nil {
+		ready := s.proxyReady
+		done := s.proxyDone
+		s.mu.Unlock()
+		select {
+		case <-ready:
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return s.proxyReadyErr
+		case <-done:
+			return s.WaitProxy(context.Background())
+		case <-ctx.Done():
+			_ = s.StopProxy(context.Background())
+			return ctx.Err()
 		}
-		go s.runProxy(runCtx, cancel, done, ready, cfg, bindAddress)
 	}
-	ready := s.proxyReady
-	done := s.proxyDone
+	runCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	ready := make(chan struct{})
+	s.proxyCancel = cancel
+	s.proxyDone = done
+	s.proxyReady = ready
+	s.proxyReadyErr = nil
+	s.proxyErr = nil
+	s.proxyStatus = ProxyStatusView{
+		Running:     true,
+		BindAddress: bindAddress,
+		StartedAt:   formatTimestamp(time.Now()),
+	}
+	go s.runProxy(runCtx, cancel, done, ready, cfg, bindAddress)
 	s.mu.Unlock()
 
 	select {
-	case err := <-ready:
-		return err
+	case <-ready:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.proxyReadyErr
 	case <-done:
 		return s.WaitProxy(context.Background())
 	case <-ctx.Done():
@@ -326,12 +327,9 @@ func (s *Service) ListRequestTraces(ctx context.Context, limit int) ([]RequestTr
 	if err != nil {
 		return nil, err
 	}
-	pricing := loadTracePricingCatalog()
 	out := make([]RequestTrace, 0, len(raw))
 	for _, trace := range raw {
-		view := requestTraceView(trace)
-		enrichTraceEstimatedCost(ctx, &view, pricing)
-		out = append(out, view)
+		out = append(out, requestTraceView(trace))
 	}
 	return out, nil
 }
@@ -347,12 +345,18 @@ func (s *Service) QueryRequestTraces(ctx context.Context, in RequestTraceListInp
 	if err != nil {
 		return RequestTraceListResult{}, err
 	}
-	view := requestTraceListResultView(result)
-	pricing := loadTracePricingCatalog()
-	for index := range view.Items {
-		enrichTraceEstimatedCost(ctx, &view.Items[index], pricing)
+	return requestTraceListResultView(result), nil
+}
+
+func (s *Service) GetRequestTrace(ctx context.Context, id uint64) (RequestTrace, error) {
+	trace, ok, err := s.traces.Get(ctx, id)
+	if err != nil {
+		return RequestTrace{}, err
 	}
-	return view, nil
+	if !ok {
+		return RequestTrace{}, fmt.Errorf("request trace %d not found", id)
+	}
+	return requestTraceView(trace), nil
 }
 
 func (s *Service) GetDesktopPrefs(ctx context.Context) (DesktopPrefsView, error) {
@@ -489,8 +493,21 @@ func (s *Service) currentProxyStatus(bindAddress string) ProxyStatusView {
 	return status
 }
 
-func (s *Service) runProxy(runCtx context.Context, cancel context.CancelFunc, done chan struct{}, ready chan error, cfg *config.Config, bindAddress string) {
-	err := proxy.New(cfg, s.traces).ListenAndServeWithReady(runCtx, ready)
+func (s *Service) runProxy(runCtx context.Context, cancel context.CancelFunc, done chan struct{}, ready chan struct{}, cfg *config.Config, bindAddress string) {
+	readyErr := make(chan error, 1)
+	readyReported := make(chan struct{})
+	go func() {
+		boundErr := <-readyErr
+		s.mu.Lock()
+		if s.proxyReady == ready {
+			s.proxyReadyErr = boundErr
+		}
+		close(ready)
+		s.mu.Unlock()
+		close(readyReported)
+	}()
+	err := proxy.New(cfg, s.traces).ListenAndServeWithReady(runCtx, readyErr)
+	<-readyReported
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.proxyDone == done {
@@ -520,18 +537,18 @@ func resolveConfigPath(path string) string {
 
 func providerView(provider config.Provider) ProviderView {
 	return ProviderView{
-		ID:           provider.ID,
-		Name:         provider.Name,
-		Protocol:     config.NormalizeProviderProtocol(provider.Protocol),
-		BaseURL:      provider.BaseURL,
-		BaseURLs:     append([]string(nil), provider.EffectiveBaseURLs()...),
+		ID:              provider.ID,
+		Name:            provider.Name,
+		Protocol:        config.NormalizeProviderProtocol(provider.Protocol),
+		BaseURL:         provider.BaseURL,
+		BaseURLs:        append([]string(nil), provider.EffectiveBaseURLs()...),
 		BaseURLStrategy: config.NormalizeProviderBaseURLStrategy(provider.BaseURLStrategy),
-		APIKeySet:    provider.APIKey != "",
-		APIKeyMasked: maskKey(provider.APIKey),
-		Headers:      cloneHeaders(provider.Headers),
-		Models:       append([]string(nil), provider.Models...),
-		ModelsSource: provider.ModelsSource,
-		Disabled:     provider.Disabled,
+		APIKeySet:       provider.APIKey != "",
+		APIKeyMasked:    maskKey(provider.APIKey),
+		Headers:         cloneHeaders(provider.Headers),
+		Models:          append([]string(nil), provider.Models...),
+		ModelsSource:    provider.ModelsSource,
+		Disabled:        provider.Disabled,
 	}
 }
 
@@ -601,239 +618,6 @@ func normalizePositiveInt(value int, fallback int) int {
 		return fallback
 	}
 	return value
-}
-
-func loadTracePricingCatalog() map[string]tracePricing {
-	path, _ := opencode.ResolveGlobalConfigPath()
-	raw, err := opencode.Load(path)
-	if err != nil {
-		return nil
-	}
-	providerRaw, _ := raw["provider"].(map[string]any)
-	if providerRaw == nil {
-		return nil
-	}
-	pricing := map[string]tracePricing{}
-	collectTracePricing(pricing, providerRaw[opencode.ProviderKey], config.ProtocolOpenAIResponses)
-	collectTracePricing(pricing, providerRaw[opencode.CompatProviderKey], config.ProtocolOpenAICompatible)
-	collectTracePricing(pricing, providerRaw[opencode.AnthropicProviderKey], config.ProtocolAnthropicMessages)
-	if len(pricing) == 0 {
-		return nil
-	}
-	return pricing
-}
-
-func collectTracePricing(dst map[string]tracePricing, providerValue any, protocol string) {
-	providerEntry, _ := providerValue.(map[string]any)
-	if providerEntry == nil {
-		return
-	}
-	models, _ := providerEntry["models"].(map[string]any)
-	for alias, value := range models {
-		modelEntry, _ := value.(map[string]any)
-		if modelEntry == nil {
-			continue
-		}
-		costValue, _ := modelEntry["cost"].(map[string]any)
-		pricing, ok := tracePricingFromRaw(costValue)
-		if !ok {
-			continue
-		}
-		dst[tracePricingKey(protocol, alias)] = pricing
-	}
-}
-
-func tracePricingFromRaw(costValue map[string]any) (tracePricing, bool) {
-	if len(costValue) == 0 {
-		return tracePricing{}, false
-	}
-	pricing := tracePricing{
-		input:      jsonNumberToFloat64Ptr(costValue["input"]),
-		output:     jsonNumberToFloat64Ptr(costValue["output"]),
-		cacheRead:  jsonNumberToFloat64Ptr(costValue["cache_read"]),
-		cacheWrite: jsonNumberToFloat64Ptr(costValue["cache_write"]),
-	}
-	if over200kValue, _ := costValue["context_over_200k"].(map[string]any); over200kValue != nil {
-		pricing.over200k = &tracePricingTier{
-			input:      jsonNumberToFloat64Ptr(over200kValue["input"]),
-			output:     jsonNumberToFloat64Ptr(over200kValue["output"]),
-			cacheRead:  jsonNumberToFloat64Ptr(over200kValue["cache_read"]),
-			cacheWrite: jsonNumberToFloat64Ptr(over200kValue["cache_write"]),
-		}
-		if pricing.over200k.input == nil && pricing.over200k.output == nil && pricing.over200k.cacheRead == nil && pricing.over200k.cacheWrite == nil {
-			pricing.over200k = nil
-		}
-	}
-	if pricing.input == nil && pricing.output == nil && pricing.cacheRead == nil && pricing.cacheWrite == nil && pricing.over200k == nil {
-		return tracePricing{}, false
-	}
-	return pricing, true
-}
-
-func tracePricingKey(protocol string, alias string) string {
-	return config.NormalizeProviderProtocol(protocol) + ":" + strings.TrimSpace(alias)
-}
-
-func enrichTraceEstimatedCost(ctx context.Context, trace *RequestTrace, pricing map[string]tracePricing) {
-	if trace == nil || trace.Usage.EstimatedCost != nil {
-		return
-	}
-	modelPricing, ok := lookupTracePricing(ctx, *trace, pricing)
-	if !ok {
-		return
-	}
-	estimate, ok := estimateTraceUsageCost(trace.Usage, modelPricing)
-	if !ok {
-		return
-	}
-	trace.Usage.EstimatedCost = &estimate
-}
-
-func lookupTracePricing(ctx context.Context, trace RequestTrace, pricing map[string]tracePricing) (tracePricing, bool) {
-	alias := strings.TrimSpace(trace.Alias)
-	if alias != "" {
-		if modelPricing, ok := pricing[tracePricingKey(trace.Protocol, alias)]; ok {
-			return modelPricing, true
-		}
-	}
-	modelsDevPricing, ok := lookupTraceModelsDevPricing(ctx, trace)
-	if !ok {
-		return tracePricing{}, false
-	}
-	return modelsDevPricing, true
-}
-
-func lookupTraceModelsDevPricing(ctx context.Context, trace RequestTrace) (tracePricing, bool) {
-	candidates := uniqueTracePricingCandidates(trace.FinalModel, trace.Alias, trace.RawModel)
-	if len(candidates) == 0 {
-		return tracePricing{}, false
-	}
-	pricing, ok, err := opencode.LookupModelsDevPricing(ctx, candidates...)
-	if err != nil || !ok {
-		return tracePricing{}, false
-	}
-	return tracePricingFromModelsDev(pricing)
-}
-
-func uniqueTracePricingCandidates(values ...string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		key := strings.ToLower(trimmed)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, trimmed)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func tracePricingFromModelsDev(pricing opencode.ModelsDevPricing) (tracePricing, bool) {
-	result := tracePricing{
-		input:      pricing.Input,
-		output:     pricing.Output,
-		cacheRead:  pricing.CacheRead,
-		cacheWrite: pricing.CacheWrite,
-	}
-	if pricing.ContextOver200K != nil {
-		result.over200k = &tracePricingTier{
-			input:      pricing.ContextOver200K.Input,
-			output:     pricing.ContextOver200K.Output,
-			cacheRead:  pricing.ContextOver200K.CacheRead,
-			cacheWrite: pricing.ContextOver200K.CacheWrite,
-		}
-	}
-	if result.input == nil && result.output == nil && result.cacheRead == nil && result.cacheWrite == nil && result.over200k == nil {
-		return tracePricing{}, false
-	}
-	return result, true
-}
-
-func estimateTraceUsageCost(usage TraceUsage, pricing tracePricing) (float64, bool) {
-	if usage.InputTokens == nil && usage.OutputTokens == nil && usage.ReasoningTokens == nil && usage.CacheReadTokens == nil && usage.CacheWriteTokens == nil && usage.CacheWrite1HTokens == nil {
-		return 0, false
-	}
-	selected := pricing
-	if pricing.over200k != nil && traceUsageExceeds200K(usage) {
-		selected.input = pricing.over200k.input
-		selected.output = pricing.over200k.output
-		selected.cacheRead = pricing.over200k.cacheRead
-		selected.cacheWrite = pricing.over200k.cacheWrite
-	}
-	if selected.input == nil && selected.output == nil && selected.cacheRead == nil && selected.cacheWrite == nil {
-		return 0, false
-	}
-	total := 0.0
-	if selected.input != nil && usage.InputTokens != nil {
-		total += float64(*usage.InputTokens) * *selected.input / 1_000_000
-	}
-	if selected.output != nil {
-		if usage.OutputTokens != nil {
-			total += float64(*usage.OutputTokens) * *selected.output / 1_000_000
-		}
-		if usage.ReasoningTokens != nil {
-			total += float64(*usage.ReasoningTokens) * *selected.output / 1_000_000
-		}
-	}
-	if selected.cacheRead != nil && usage.CacheReadTokens != nil {
-		total += float64(*usage.CacheReadTokens) * *selected.cacheRead / 1_000_000
-	}
-	if selected.cacheWrite != nil {
-		if usage.CacheWriteTokens != nil {
-			total += float64(*usage.CacheWriteTokens) * *selected.cacheWrite / 1_000_000
-		}
-		if usage.CacheWrite1HTokens != nil {
-			total += float64(*usage.CacheWrite1HTokens) * *selected.cacheWrite / 1_000_000
-		}
-	}
-	return total, true
-}
-
-func traceUsageExceeds200K(usage TraceUsage) bool {
-	input := int64(0)
-	cacheRead := int64(0)
-	if usage.InputTokens != nil {
-		input = *usage.InputTokens
-	}
-	if usage.CacheReadTokens != nil {
-		cacheRead = *usage.CacheReadTokens
-	}
-	return input+cacheRead > 200_000
-}
-
-func jsonNumberToFloat64Ptr(value any) *float64 {
-	switch typed := value.(type) {
-	case float64:
-		if typed < 0 {
-			return nil
-		}
-		return &typed
-	case int:
-		if typed < 0 {
-			return nil
-		}
-		result := float64(typed)
-		return &result
-	case int64:
-		if typed < 0 {
-			return nil
-		}
-		result := float64(typed)
-		return &result
-	default:
-		return nil
-	}
 }
 
 func normalizeThemePreference(value string) string {

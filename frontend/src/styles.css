@@ -873,7 +873,7 @@ html[data-theme='dark'] button.ghost-danger:hover {
 	gap: 0;
 	width: 100%;
 	min-width: var(--trace-table-min-width, 100%);
-	--trace-table-gap: clamp(0.6rem, 1vw, 1.4rem);
+	--trace-table-gap: clamp(0.45rem, 0.7vw, 0.85rem);
 	background: #fff;
 }
 
@@ -888,8 +888,8 @@ html[data-theme='dark'] button.ghost-danger:hover {
 }
 
 .trace-table-log {
-	--trace-table-columns: 9.5rem minmax(13rem, 1.45fr) minmax(13rem, 1.25fr) minmax(7.5rem, max-content) minmax(8.5rem, max-content);
-	--trace-table-min-width: 54rem;
+	--trace-table-columns: 9rem minmax(14rem, 1fr) minmax(12.5rem, max-content) minmax(6rem, max-content) minmax(7.25rem, max-content);
+	--trace-table-min-width: 50rem;
 }
 
 .trace-table-network .trace-table-header,
@@ -1090,23 +1090,34 @@ html[data-theme='dark'] button.ghost-danger:hover {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 1.15rem;
-	height: 1.15rem;
+	width: 1.35rem;
+	height: 1.35rem;
+	min-height: 0;
 	padding: 0;
-	border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+	border: 0;
 	border-radius: 999px;
 	background: transparent;
-	color: var(--text-muted);
-	font-size: 0.72rem;
-	font-weight: 700;
+	color: color-mix(in srgb, var(--text-muted) 88%, var(--text));
 	line-height: 1;
 	box-shadow: none;
 }
 
 .trace-info-trigger:hover,
 .trace-info-popover:focus-within .trace-info-trigger {
-	border-color: var(--accent);
+	background: var(--accent-softer);
 	color: var(--accent);
+	box-shadow: none;
+	transform: none;
+}
+
+.trace-info-icon {
+	width: 1rem;
+	height: 1rem;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
 }
 
 .trace-info-card {
@@ -1982,7 +1993,142 @@ input[type='file']::file-selector-button {
 }
 
 .trace-toolbar {
-	align-items: start;
+	align-items: stretch;
+}
+
+.filter-group-alias {
+	position: relative;
+	flex: 0 0 min(18rem, 100%);
+	overflow: visible;
+}
+
+.filter-popover {
+	position: relative;
+	min-width: 0;
+}
+
+.filter-popover > summary {
+	list-style: none;
+}
+
+.filter-popover > summary::-webkit-details-marker {
+	display: none;
+}
+
+.filter-popover-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.7rem;
+	width: 100%;
+	min-height: 42px;
+	padding: 0.62rem 0.82rem;
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	background: var(--panel-strong);
+	color: var(--text);
+	cursor: pointer;
+	user-select: none;
+}
+
+.filter-popover-trigger span:first-child {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.filter-popover-caret {
+	width: 0.48rem;
+	height: 0.48rem;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	transform: translateY(-0.12rem) rotate(45deg);
+	transition: transform 160ms ease;
+}
+
+.filter-popover[open] .filter-popover-caret {
+	transform: translateY(0.12rem) rotate(225deg);
+}
+
+.filter-popover[open] .filter-popover-trigger,
+.filter-popover-trigger:hover {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.filter-popover-panel {
+	position: absolute;
+	top: calc(100% + 0.45rem);
+	left: 0;
+	z-index: 12;
+	width: min(22rem, calc(100vw - 3rem));
+	padding: 0.75rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 18px;
+	background: var(--panel);
+	box-shadow: var(--shadow-md);
+}
+
+.filter-popover-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 0.55rem;
+}
+
+.filter-link-button {
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--accent-strong);
+	font-size: 0.78rem;
+	font-weight: 700;
+}
+
+.filter-link-button:hover {
+	background: transparent;
+	box-shadow: none;
+	transform: none;
+	color: var(--accent);
+}
+
+.filter-option-list {
+	display: grid;
+	gap: 0.25rem;
+	max-height: min(18rem, 48vh);
+	overflow: auto;
+}
+
+.filter-option {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	min-height: 36px;
+	padding: 0.42rem 0.5rem;
+	border-radius: 12px;
+	cursor: pointer;
+}
+
+.filter-option:hover {
+	background: var(--accent-softer);
+}
+
+.filter-option input {
+	flex: 0 0 auto;
+}
+
+.filter-option span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 0.88rem;
+	font-weight: 600;
 }
 
 .filter-chip-grid {
@@ -2065,6 +2211,7 @@ dd {
 }
 
 html[data-theme='dark'] .filter-group,
+html[data-theme='dark'] .filter-popover-panel,
 html[data-theme='dark'] .detail-section,
 html[data-theme='dark'] .detail-hero-card,
 html[data-theme='dark'] .target-card,

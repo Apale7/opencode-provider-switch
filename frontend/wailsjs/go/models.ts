@@ -1188,7 +1188,6 @@ export namespace app {
 	    cacheReadTokens?: number;
 	    cacheWriteTokens?: number;
 	    cacheWrite1hTokens?: number;
-	    estimatedCost?: number;
 	    source?: string;
 	    precision?: string;
 	    notes?: string[];
@@ -1208,7 +1207,6 @@ export namespace app {
 	        this.cacheReadTokens = source["cacheReadTokens"];
 	        this.cacheWriteTokens = source["cacheWriteTokens"];
 	        this.cacheWrite1hTokens = source["cacheWrite1hTokens"];
-	        this.estimatedCost = source["estimatedCost"];
 	        this.source = source["source"];
 	        this.precision = source["precision"];
 	        this.notes = source["notes"];

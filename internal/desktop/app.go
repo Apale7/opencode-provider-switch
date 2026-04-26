@@ -242,6 +242,10 @@ func (a *App) TraceList(in app.RequestTraceListInput) (app.RequestTraceListResul
 	return a.bindings.QueryRequestTraces(a.callContext(), in)
 }
 
+func (a *App) TraceDetail(id uint64) (app.RequestTrace, error) {
+	return a.bindings.GetRequestTrace(a.callContext(), id)
+}
+
 func (a *App) ProxySettings() (app.ProxySettingsView, error) {
 	return a.bindings.GetProxySettings(a.callContext())
 }

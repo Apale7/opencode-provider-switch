@@ -376,6 +376,19 @@ func newHandler(instance *App, version string, baseURL string) (http.Handler, er
 		writeResult(w, data, err)
 	})
 
+	api.HandleFunc("/api/proxy/traces/detail", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var payload appcore.RequestTraceDetailInput
+		if !decodeJSONBody(w, r, &payload) {
+			return
+		}
+		data, err := b.GetRequestTrace(r.Context(), payload.ID)
+		writeResult(w, data, err)
+	})
+
 	api.HandleFunc("/api/proxy/start", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w, http.MethodPost)

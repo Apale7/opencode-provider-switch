@@ -2,7 +2,7 @@
 
 本文说明 `ocswitch` 当前日志页中各字段的含义。当前页面分成两种视角：
 
-- `Log`：业务路由视角，重点看 alias 如何落到最终 provider/model，以及 token / usage / estimated cost
+- `Log`：业务路由视角，重点看 alias 如何落到最终 provider/model，以及 token / usage
 - `Network`：技术排障视角，重点看每次上游调用的 URL、状态码、请求头、响应头、响应体摘要
 
 ## 1. 通用显示规则
@@ -81,16 +81,8 @@
 - `Output rate`
   - 输出速率，含义同列表页
 
-### 3.3 Cost / Usage 字段
+### 3.3 Usage 字段
 
-- `Estimated cost`
-  - 基于当前 trace 的 usage 数据和 OpenCode 已同步的模型价格计算出的估算成本
-  - 不是 provider 账单权威值
-  - 当前价格来源仅使用：
-    - `provider.ocswitch.models[alias].cost`
-    - `provider.ocswitch-anthropic.models[alias].cost`
-  - 当前不会直接回退到 OpenCode 默认 `models.dev` 价格源
-  - 当前也不会根据 `serviceTier` / `Priority` / `Batch` / `Flex` / `short|long context` 做额外价格切换
 - `Reasoning tokens`
   - 推理 token 数
   - 对支持该字段的协议有意义
@@ -284,7 +276,7 @@
 
 ## 10. 当前限制
 
-- `Estimated cost` 是估算值，不是 provider 账单值
+- 当前不统计费用，也不调用 `models.dev` 价格目录
 - 不同协议的 usage 粒度不同，字段完整度也不同
 - `Anthropic Messages` 当前不拆 reasoning token
 - `partial` / `unavailable` 是显式状态，表示采集边界，不应和 `0` 混淆

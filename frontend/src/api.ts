@@ -211,9 +211,17 @@ export function listRequestTraces(): Promise<RequestTrace[]> {
 }
 
 export function queryRequestTraces(input: RequestTraceListInput): Promise<RequestTraceListResult> {
-	return isWails()
-		? bridge().TraceList(input)
-		: http<RequestTraceListResult>('/api/proxy/traces/query', { method: 'POST', body: JSON.stringify(input) })
+	if (isWails()) {
+		return bridge().TraceList(input)
+	}
+	return http<RequestTraceListResult>('/api/proxy/traces/query', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function getRequestTrace(id: number): Promise<RequestTrace> {
+	if (isWails()) {
+		return bridge().TraceDetail(id)
+	}
+	return http<RequestTrace>('/api/proxy/traces/detail', { method: 'POST', body: JSON.stringify({ id }) })
 }
 
 export function startProxy(): Promise<ProxyStatusView> {

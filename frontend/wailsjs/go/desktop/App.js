@@ -150,6 +150,10 @@ export function SyncDesktopPreferences(arg1) {
   return window['go']['desktop']['App']['SyncDesktopPreferences'](arg1);
 }
 
+export function TraceDetail(arg1) {
+  return window['go']['desktop']['App']['TraceDetail'](arg1);
+}
+
 export function TraceList(arg1) {
   return window['go']['desktop']['App']['TraceList'](arg1);
 }

@@ -566,6 +566,176 @@ func TestSQLiteTraceStoreRoundTripsUsageJSON(t *testing.T) {
 	}
 }
 
+func TestSQLiteTraceStoreQueryReturnsRequestedPage(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "ocswitch.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	defer store.Close()
+
+	baseTime := time.Now().UTC()
+	for id := 1; id <= 5; id++ {
+		if err := store.Add(context.Background(), RequestTrace{
+			ID:        uint64(id),
+			StartedAt: baseTime.Add(time.Duration(id) * time.Second),
+			Protocol:  config.ProtocolOpenAIResponses,
+			Alias:     "chat",
+			Success:   true,
+		}); err != nil {
+			t.Fatalf("store.Add(%d) error = %v", id, err)
+		}
+	}
+
+	result, err := store.Query(context.Background(), TraceQuery{Page: 2, PageSize: 2})
+	if err != nil {
+		t.Fatalf("store.Query() error = %v", err)
+	}
+	if result.Page != 2 || result.PageSize != 2 || result.Total != 5 {
+		t.Fatalf("result metadata = %#v, want page=2 pageSize=2 total=5", result)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("items count = %d, want 2", len(result.Items))
+	}
+	if result.Items[0].ID != 3 || result.Items[1].ID != 2 {
+		t.Fatalf("items ids = %d,%d, want 3,2", result.Items[0].ID, result.Items[1].ID)
+	}
+}
+
+func TestSQLiteTraceStoreQueryReturnsSummaryAndGetReturnsDetail(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "ocswitch.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	defer store.Close()
+
+	input := int64(12)
+	trace := RequestTrace{
+		ID:             7,
+		StartedAt:      time.Now().UTC(),
+		DurationMs:     80,
+		FirstByteMs:    20,
+		Protocol:       config.ProtocolOpenAIResponses,
+		Alias:          "chat",
+		Success:        true,
+		StatusCode:     http.StatusOK,
+		FinalProvider:  "p1",
+		FinalModel:     "up-model",
+		FinalURL:       "https://upstream.example/v1/responses",
+		AttemptCount:   1,
+		RequestHeaders: map[string]string{"X-Test": "present"},
+		RequestParams:  map[string]any{"stream": true},
+		Usage: TraceUsage{
+			InputTokens: &input,
+			Source:      config.ProtocolOpenAIResponses,
+			Precision:   "exact",
+		},
+		Attempts: []TraceAttempt{{
+			Attempt:         1,
+			Provider:        "p1",
+			Model:           "up-model",
+			URL:             "https://upstream.example/v1/responses",
+			StartedAt:       time.Now().UTC(),
+			DurationMs:      80,
+			StatusCode:      http.StatusOK,
+			Success:         true,
+			RequestHeaders:  map[string]string{"X-Attempt": "present"},
+			RequestParams:   map[string]any{"model": "up-model"},
+			ResponseHeaders: map[string]string{"Content-Type": "application/json"},
+			ResponseBody:    `{}`,
+		}},
+	}
+	if err := store.Add(context.Background(), trace); err != nil {
+		t.Fatalf("store.Add() error = %v", err)
+	}
+
+	result, err := store.Query(context.Background(), TraceQuery{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("store.Query() error = %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("summary count = %d, want 1", len(result.Items))
+	}
+	summary := result.Items[0]
+	if len(summary.Attempts) != 0 || summary.RequestHeaders != nil || summary.RequestParams != nil {
+		t.Fatalf("summary contains detail fields: %#v", summary)
+	}
+	if summary.Usage.InputTokens == nil || *summary.Usage.InputTokens != input {
+		t.Fatalf("summary usage input = %#v, want %d", summary.Usage.InputTokens, input)
+	}
+
+	detail, ok, err := store.Get(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("store.Get() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("store.Get() ok = false, want true")
+	}
+	if detail.RequestHeaders["X-Test"] != "present" || len(detail.Attempts) != 1 || detail.Attempts[0].ResponseBody != `{}` {
+		t.Fatalf("detail = %#v, want full metadata", detail)
+	}
+}
+
+func TestSQLiteTraceStoreQueryFiltersFailoverCounts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "ocswitch.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	defer store.Close()
+
+	baseTime := time.Now().UTC()
+	for id, attempts := range map[uint64]int{1: 1, 2: 2} {
+		if err := store.Add(context.Background(), RequestTrace{
+			ID:           id,
+			StartedAt:    baseTime.Add(time.Duration(id) * time.Second),
+			Protocol:     config.ProtocolOpenAIResponses,
+			Alias:        "chat",
+			Success:      true,
+			AttemptCount: attempts,
+		}); err != nil {
+			t.Fatalf("store.Add(%d) error = %v", id, err)
+		}
+	}
+
+	zero, err := store.Query(context.Background(), TraceQuery{Page: 1, PageSize: 10, FailoverCounts: []int{0}})
+	if err != nil {
+		t.Fatalf("store.Query(zero) error = %v", err)
+	}
+	if len(zero.Items) != 1 || zero.Items[0].ID != 1 {
+		t.Fatalf("zero failover items = %#v, want id=1", zero.Items)
+	}
+	one, err := store.Query(context.Background(), TraceQuery{Page: 1, PageSize: 10, FailoverCounts: []int{1}})
+	if err != nil {
+		t.Fatalf("store.Query(one) error = %v", err)
+	}
+	if len(one.Items) != 1 || one.Items[0].ID != 2 {
+		t.Fatalf("one failover items = %#v, want id=2", one.Items)
+	}
+}
+
 func TestSQLiteTraceStoreSeedsRequestCounterFromExistingMaxID(t *testing.T) {
 	t.Parallel()
 

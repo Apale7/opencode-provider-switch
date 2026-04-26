@@ -80,7 +80,7 @@ After launching the desktop app, you can:
 - manage providers with search, filtering, editing, and OpenCode import
 - manage aliases and target bindings
 - inspect business logs and network traces, including failover chains, status codes, TTFB, and request/response metadata
-- inspect token and usage diagnostics, including input/output, reasoning, cache, usage source/precision, and estimated cost
+- inspect token and usage diagnostics, including input/output, reasoning, cache, and usage source/precision
 - preview and apply `ocswitch opencode sync`
 - save desktop preferences including launch-at-login, tray behavior,
   notifications, theme, and language

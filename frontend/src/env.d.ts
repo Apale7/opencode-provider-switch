@@ -39,6 +39,7 @@ declare global {
           ProxySettings: () => Promise<import('./types').ProxySettingsView>
           RequestTraces: (limit: number) => Promise<import('./types').RequestTrace[]>
           TraceList: (input: import('./types').RequestTraceListInput) => Promise<import('./types').RequestTraceListResult>
+          TraceDetail: (id: number) => Promise<import('./types').RequestTrace>
           StartProxy: () => Promise<import('./types').ProxyStatusView>
           SaveProxySettings: (input: import('./types').ProxySettingsView) => Promise<import('./types').ProxySettingsSaveResult>
           StopProxy: () => Promise<import('./types').ProxyStatusView>

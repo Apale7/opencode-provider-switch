@@ -23,6 +23,7 @@ type RequestTraceStore interface {
 	Add(ctx context.Context, trace RequestTrace) error
 	List(ctx context.Context, limit int) ([]RequestTrace, error)
 	Query(ctx context.Context, query TraceQuery) (TraceQueryResult, error)
+	Get(ctx context.Context, id uint64) (RequestTrace, bool, error)
 	Close() error
 }
 
@@ -35,13 +36,13 @@ type TraceQuery struct {
 }
 
 type TraceQueryResult struct {
-	Items                  []RequestTrace
-	Total                  int
-	Page                   int
-	PageSize               int
-	AvailableAliases       []string
+	Items                   []RequestTrace
+	Total                   int
+	Page                    int
+	PageSize                int
+	AvailableAliases        []string
 	AvailableFailoverCounts []int
-	AvailableStatusCodes   []int
+	AvailableStatusCodes    []int
 }
 
 type TraceStore struct {
@@ -161,7 +162,7 @@ func (s *TraceStore) Query(ctx context.Context, query TraceQuery) (TraceQueryRes
 	filtered := make([]RequestTrace, 0, len(s.traces))
 	for _, trace := range s.traces {
 		if traceMatchesQuery(trace, query) {
-			filtered = append(filtered, cloneTrace(trace))
+			filtered = append(filtered, traceSummary(trace))
 		}
 	}
 	total := len(filtered)
@@ -184,8 +185,31 @@ func (s *TraceStore) Query(ctx context.Context, query TraceQuery) (TraceQueryRes
 	}, nil
 }
 
+func (s *TraceStore) Get(ctx context.Context, id uint64) (RequestTrace, bool, error) {
+	_ = ctx
+	if s == nil || id == 0 {
+		return RequestTrace{}, false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, trace := range s.traces {
+		if trace.ID == id {
+			return cloneTrace(trace), true, nil
+		}
+	}
+	return RequestTrace{}, false, nil
+}
+
 func (s *TraceStore) Close() error {
 	return nil
+}
+
+func traceSummary(trace RequestTrace) RequestTrace {
+	trace.RequestHeaders = nil
+	trace.RequestParams = nil
+	trace.Attempts = []TraceAttempt{}
+	trace.Usage = cloneTraceUsage(trace.Usage)
+	return trace
 }
 
 func cloneTrace(trace RequestTrace) RequestTrace {

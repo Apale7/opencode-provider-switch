@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -39,11 +40,18 @@ func NewSQLiteTraceStore(configPath string) (*SQLiteTraceStore, error) {
 		return nil, fmt.Errorf("mkdir trace db dir: %w", err)
 	}
 	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open trace db: %w", err)
+	}
+	db.SetMaxOpenConns(1)
 	store := &SQLiteTraceStore{path: dsn}
-	if err := store.withDB(context.Background(), func(db *sql.DB) error {
-		return store.init(context.Background(), db)
-	}); err != nil {
+	if err := store.init(context.Background(), db); err != nil {
+		_ = db.Close()
 		return nil, err
+	}
+	if err := db.Close(); err != nil {
+		return nil, fmt.Errorf("close initialized trace db: %w", err)
 	}
 	return store, nil
 }
@@ -174,15 +182,41 @@ ON CONFLICT(id) DO UPDATE SET
 }
 
 func (s *SQLiteTraceStore) List(ctx context.Context, limit int) ([]RequestTrace, error) {
-	query := TraceQuery{Page: 1, PageSize: limit}
-	if limit <= 0 {
-		query.PageSize = maxTracePageSize
+	if s == nil {
+		return nil, nil
 	}
-	result, err := s.Query(ctx, query)
+	if limit <= 0 {
+		limit = maxTracePageSize
+	}
+	items := []RequestTrace{}
+	err := s.withDB(ctx, func(db *sql.DB) error {
+		rows, err := db.QueryContext(ctx, `
+SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
+	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+	final_model, final_url, failover, attempt_count, request_headers_json,
+	request_params_json, usage_json, attempts_json
+FROM request_traces ORDER BY started_at DESC, id DESC LIMIT ?`, limit)
+		if err != nil {
+			return fmt.Errorf("list traces: %w", err)
+		}
+		defer rows.Close()
+		items = make([]RequestTrace, 0, limit)
+		for rows.Next() {
+			trace, err := scanSQLiteTrace(rows)
+			if err != nil {
+				return err
+			}
+			items = append(items, trace)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate traces: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	return result.Items, nil
+	return items, nil
 }
 
 func (s *SQLiteTraceStore) Query(ctx context.Context, query TraceQuery) (TraceQueryResult, error) {
@@ -206,8 +240,7 @@ func (s *SQLiteTraceStore) Query(ctx context.Context, query TraceQuery) (TraceQu
 		listSQL := `
 SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
 	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
-	final_model, final_url, failover, attempt_count, request_headers_json,
-	request_params_json, usage_json, attempts_json
+	final_model, final_url, failover, attempt_count, usage_json
 FROM request_traces`
 		if where != "" {
 			listSQL += " WHERE " + where
@@ -221,9 +254,9 @@ FROM request_traces`
 		defer rows.Close()
 		items := make([]RequestTrace, 0, query.PageSize)
 		for rows.Next() {
-			trace, err := scanSQLiteTrace(rows)
+			trace, err := scanSQLiteTraceSummary(rows)
 			if err != nil {
-				return err
+				return fmt.Errorf("scan trace summary: %w", err)
 			}
 			items = append(items, trace)
 		}
@@ -268,6 +301,37 @@ FROM request_traces`
 		return TraceQueryResult{}, err
 	}
 	return result, nil
+}
+
+func (s *SQLiteTraceStore) Get(ctx context.Context, id uint64) (RequestTrace, bool, error) {
+	if s == nil || id == 0 {
+		return RequestTrace{}, false, nil
+	}
+	var trace RequestTrace
+	err := s.withDB(ctx, func(db *sql.DB) error {
+		row := db.QueryRowContext(ctx, `
+SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
+	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+	final_model, final_url, failover, attempt_count, request_headers_json,
+	request_params_json, usage_json, attempts_json
+FROM request_traces WHERE id = ?`, id)
+		item, err := scanSQLiteTrace(row)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("scan trace detail: %w", err)
+		}
+		trace = item
+		return nil
+	})
+	if err != nil {
+		return RequestTrace{}, false, err
+	}
+	if trace.ID == 0 {
+		return RequestTrace{}, false, nil
+	}
+	return trace, true, nil
 }
 
 func (s *SQLiteTraceStore) Close() error {
@@ -336,12 +400,7 @@ func buildSQLiteTraceWhere(query TraceQuery) (string, []any) {
 		clauses = append(clauses, "alias IN ("+strings.Join(placeholders, ",")+")")
 	}
 	if len(query.FailoverCounts) > 0 {
-		placeholders := make([]string, 0, len(query.FailoverCounts))
-		for _, count := range query.FailoverCounts {
-			placeholders = append(placeholders, "?")
-			args = append(args, count+1)
-		}
-		clauses = append(clauses, "CASE WHEN attempt_count <= 1 THEN 1 ELSE attempt_count END IN ("+strings.Join(placeholders, ",")+")")
+		clauses, args = appendSQLiteFailoverWhere(query.FailoverCounts, clauses, args)
 	}
 	if len(query.StatusCodes) > 0 {
 		placeholders := make([]string, 0, len(query.StatusCodes))
@@ -352,6 +411,34 @@ func buildSQLiteTraceWhere(query TraceQuery) (string, []any) {
 		clauses = append(clauses, "status_code IN ("+strings.Join(placeholders, ",")+")")
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+func appendSQLiteFailoverWhere(counts []int, clauses []string, args []any) ([]string, []any) {
+	exactAttempts := []int{}
+	includeZero := false
+	for _, count := range counts {
+		if count == 0 {
+			includeZero = true
+			continue
+		}
+		exactAttempts = append(exactAttempts, count+1)
+	}
+	parts := []string{}
+	if includeZero {
+		parts = append(parts, "attempt_count <= 1")
+	}
+	if len(exactAttempts) > 0 {
+		placeholders := make([]string, 0, len(exactAttempts))
+		for _, attemptCount := range exactAttempts {
+			placeholders = append(placeholders, "?")
+			args = append(args, attemptCount)
+		}
+		parts = append(parts, "attempt_count IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if len(parts) > 0 {
+		clauses = append(clauses, "("+strings.Join(parts, " OR ")+")")
+	}
+	return clauses, args
 }
 
 func encodeTraceRow(trace RequestTrace) (traceRow, error) {
@@ -440,15 +527,15 @@ func marshalTraceJSON(value any) (string, error) {
 
 func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace, error) {
 	var (
-		trace       RequestTrace
-		startedAt   string
-		finishedAt  string
-		stream      int
-		success     int
-		failover    int
-		headersJSON string
-		paramsJSON  string
-		usageJSON   string
+		trace        RequestTrace
+		startedAt    string
+		finishedAt   string
+		stream       int
+		success      int
+		failover     int
+		headersJSON  string
+		paramsJSON   string
+		usageJSON    string
 		attemptsJSON string
 	)
 	err := scanner.Scan(
@@ -477,7 +564,7 @@ func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace
 		&attemptsJSON,
 	)
 	if err != nil {
-		return RequestTrace{}, fmt.Errorf("scan trace row: %w", err)
+		return RequestTrace{}, err
 	}
 	trace.StartedAt = parseSQLiteTime(startedAt)
 	trace.FinishedAt = parseSQLiteTime(finishedAt)
@@ -507,6 +594,55 @@ func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace
 	if trace.Attempts == nil {
 		trace.Attempts = []TraceAttempt{}
 	}
+	return trace, nil
+}
+
+func scanSQLiteTraceSummary(scanner interface{ Scan(dest ...any) error }) (RequestTrace, error) {
+	var (
+		trace      RequestTrace
+		startedAt  string
+		finishedAt string
+		stream     int
+		success    int
+		failover   int
+		usageJSON  string
+	)
+	err := scanner.Scan(
+		&trace.ID,
+		&startedAt,
+		&finishedAt,
+		&trace.DurationMs,
+		&trace.FirstByteMs,
+		&trace.InputTokens,
+		&trace.OutputTokens,
+		&trace.Protocol,
+		&trace.RawModel,
+		&trace.Alias,
+		&stream,
+		&success,
+		&trace.StatusCode,
+		&trace.Error,
+		&trace.FinalProvider,
+		&trace.FinalModel,
+		&trace.FinalURL,
+		&failover,
+		&trace.AttemptCount,
+		&usageJSON,
+	)
+	if err != nil {
+		return RequestTrace{}, err
+	}
+	trace.StartedAt = parseSQLiteTime(startedAt)
+	trace.FinishedAt = parseSQLiteTime(finishedAt)
+	trace.Stream = stream == 1
+	trace.Success = success == 1
+	trace.Failover = failover == 1
+	if usageJSON != "" {
+		if err := json.Unmarshal([]byte(usageJSON), &trace.Usage); err != nil {
+			return RequestTrace{}, fmt.Errorf("decode usage: %w", err)
+		}
+	}
+	trace.Attempts = []TraceAttempt{}
 	return trace, nil
 }
 
@@ -547,8 +683,5 @@ func (s *SQLiteTraceStore) withDB(ctx context.Context, fn func(*sql.DB) error) e
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	if err := s.init(ctx, db); err != nil {
-		return err
-	}
 	return fn(db)
 }

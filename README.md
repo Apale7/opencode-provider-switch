@@ -113,7 +113,7 @@ wails dev -tags desktop_wails
 - 管理 provider，包括搜索、筛选、编辑和从 OpenCode 导入
 - 管理 alias 和 target 绑定关系
 - 查看业务日志与网络详情，包括 failover 链路、状态码、TTFB、请求/响应元数据
-- 查看 token / usage 诊断信息，包括 input/output、reasoning、cache、usage source/precision 和 estimated cost
+- 查看 token / usage 诊断信息，包括 input/output、reasoning、cache、usage source/precision
 - 预览并应用 `ocswitch opencode sync`
 - 保存桌面偏好，包括开机启动、托盘行为、通知、主题和语言
 
