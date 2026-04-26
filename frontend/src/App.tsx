@@ -2730,7 +2730,6 @@ export default function App() {
 											<div className="trace-model-line">
 												<strong className="trace-model-name">{trace.finalProvider || trace.alias || `#${trace.id}`}</strong>
 												<span className={protocolBadgeClass(trace.protocol)}>{protocolLabel(trace.protocol)}</span>
-												{trace.finalModel ? <span className="trace-mini-tag">{trace.finalModel}</span> : null}
 											</div>
 											<span className="trace-table-muted">{trace.rawModel || '-'}</span>
 										</div>
