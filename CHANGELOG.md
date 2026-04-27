@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/Apale7/opencode-provider-switch/compare/v1.2.0...v1.2.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* **ci:** restore frontend embed placeholder ([893c2c6](https://github.com/Apale7/opencode-provider-switch/commit/893c2c6e8f96ad735c66465341409e7e9bd22391))
+
 ## [1.2.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.1.3...v1.2.0) (2026-04-27)
 
 
