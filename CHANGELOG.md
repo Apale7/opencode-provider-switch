@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.2.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.1.3...v1.2.0) (2026-04-27)
+
+
+### Features
+
+* add anthropic messages support ([28fd82c](https://github.com/Apale7/opencode-provider-switch/commit/28fd82c30b81a9426736a97bb2eff08c1fe2e974))
+* add configurable routing strategy ([8730a08](https://github.com/Apale7/opencode-provider-switch/commit/8730a08238472905bb133825bc267ade2894056b))
+* add opencode reconciliation diagnostics ([dd2808d](https://github.com/Apale7/opencode-provider-switch/commit/dd2808dbcc09b14889bbc2bd17e475816b5a8441))
+* add protocol-aware foundation ([5b99aa9](https://github.com/Apale7/opencode-provider-switch/commit/5b99aa934c69f36ee7a6cab947b3c61725c5b168))
+* **desktop:** improve alias binding and trace UX ([6d90449](https://github.com/Apale7/opencode-provider-switch/commit/6d90449f82172aa642a85fbcb49a7ba729a9c0df))
+* **desktop:** provider multi-baseURL ordering and alias target reorder ([0d0e2f9](https://github.com/Apale7/opencode-provider-switch/commit/0d0e2f9ecc7798d2a81c7d7ed4c3895e383e6fe1))
+* **logs:** enrich usage diagnostics and cost ([212919b](https://github.com/Apale7/opencode-provider-switch/commit/212919b45c8034609e2a0be87b87cbe33d44a8fd))
+* **logs:** refresh trace table layout ([eb78365](https://github.com/Apale7/opencode-provider-switch/commit/eb783658d6200242b1ba3e6ded39b2812a5959b7))
+* **protocol:** support openai-compatible ([600cbe7](https://github.com/Apale7/opencode-provider-switch/commit/600cbe79365e8649e34f45173648e3d3b7134e8e))
+
+
+### Bug Fixes
+
+* **desktop:** prevent responsive fallback and double scroll ([c93dd4e](https://github.com/Apale7/opencode-provider-switch/commit/c93dd4e5cfc839ddd3b0d01a851fd125bca442e1))
+* **desktop:** remove duplicate network model tag ([34a0fea](https://github.com/Apale7/opencode-provider-switch/commit/34a0fea607f8112548e638d66f326f295ba55c77))
+* **logs:** remove trace pricing lookups ([419793d](https://github.com/Apale7/opencode-provider-switch/commit/419793d4ede045fde672400629afd33b19742fb4))
+* **logs:** repair responsive trace layout ([8f6831d](https://github.com/Apale7/opencode-provider-switch/commit/8f6831d713ceddc15fe22d5f71789eee0621b3be))
+
 ## [1.1.3](https://github.com/Apale7/opencode-provider-switch/compare/v1.1.2...v1.1.3) (2026-04-20)
 
 
