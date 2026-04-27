@@ -1,0 +1,1 @@
+placeholder for Go embed before Wails builds frontend assets
