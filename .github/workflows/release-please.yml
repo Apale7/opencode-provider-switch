@@ -37,13 +37,22 @@ jobs:
             archive_name: ocswitch-desktop-windows-amd64.zip
             raw_name: ocswitch-desktop-windows-amd64.exe
             output: build/bin/ocswitch-desktop.exe
+            allow_failure: false
           - name: linux
             runs-on: ubuntu-22.04
             archive_name: ocswitch-desktop-linux-amd64.zip
             raw_name: ''
             output: build/bin/ocswitch-desktop
+            allow_failure: false
+          - name: macos
+            runs-on: macos-latest
+            archive_name: ocswitch-desktop-macos.zip
+            raw_name: ''
+            output: build/bin/ocswitch-desktop.app
+            allow_failure: true
 
     runs-on: ${{ matrix.runs-on }}
+    continue-on-error: ${{ matrix.allow_failure }}
 
     steps:
       - name: Checkout release tag

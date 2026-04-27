@@ -12,5 +12,6 @@
 7. Confirm `npm install` is sufficient for frontend build in CI.
 8. Confirm release assets are built from the released tag and uploaded in the same workflow run.
 9. Confirm each asset has a matching `.sha256` file.
-10. Confirm the generated release contains the Windows `.exe`, the Windows archive, and the Linux archive.
-11. Confirm tag format is `v*`.
+10. Confirm the generated release contains the Windows `.exe`, the Windows archive, the Linux archive, and the macOS archive when that optional build succeeds.
+11. Confirm the macOS build is configured as an allowed failure so it does not block Windows/Linux assets.
+12. Confirm tag format is `v*`.
