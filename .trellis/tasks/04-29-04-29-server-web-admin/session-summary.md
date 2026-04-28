@@ -1,0 +1,8 @@
+- Added `ocswitch server` command with server web admin mode.
+- Added `admin` config block with plaintext `admin.api_key`; first server start generates strong random token, saves it locally, and logs `Authorization: Bearer ...`.
+- Extracted shared `internal/webadmin` handler so desktop browser fallback and server mode reuse same GUI/API surface.
+- Server mode protects `/api/*` with Bearer auth, security headers, and disables direct `/api/opencode-sync/apply`.
+- Frontend now stores admin token in `sessionStorage`, shows token login on 401, hides desktop-only behavior controls in server shell, and adds server-safe Sync flow that generates OpenCode config JSON for copy instead of writing server-local OpenCode files.
+- Sync preview now includes generated config `content`; `copyOnly` avoids reading/modifying server-local OpenCode config.
+- Added tests for plaintext admin token bootstrap and Bearer auth.
+- Verified `rtk go test ./...` and `rtk npm run build`.
