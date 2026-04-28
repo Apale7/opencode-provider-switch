@@ -33,6 +33,14 @@ type TraceQuery struct {
 	Aliases        []string
 	FailoverCounts []int
 	StatusCodes    []int
+	StartedFrom    time.Time
+	StartedTo      time.Time
+}
+
+type TraceStats struct {
+	Success  int
+	Failover int
+	Failed   int
 }
 
 type TraceQueryResult struct {
@@ -43,6 +51,7 @@ type TraceQueryResult struct {
 	AvailableAliases        []string
 	AvailableFailoverCounts []int
 	AvailableStatusCodes    []int
+	Stats                   TraceStats
 }
 
 type TraceStore struct {
@@ -159,8 +168,14 @@ func (s *TraceStore) Query(ctx context.Context, query TraceQuery) (TraceQueryRes
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	filtered := make([]RequestTrace, 0, len(s.traces))
+	timeScoped := make([]RequestTrace, 0, len(s.traces))
 	for _, trace := range s.traces {
+		if traceMatchesTimeRange(trace, query) {
+			timeScoped = append(timeScoped, trace)
+		}
+	}
+	filtered := make([]RequestTrace, 0, len(s.traces))
+	for _, trace := range timeScoped {
 		if traceMatchesQuery(trace, query) {
 			filtered = append(filtered, traceSummary(trace))
 		}
@@ -179,9 +194,10 @@ func (s *TraceStore) Query(ctx context.Context, query TraceQuery) (TraceQueryRes
 		Total:                   total,
 		Page:                    query.Page,
 		PageSize:                query.PageSize,
-		AvailableAliases:        collectAvailableAliases(s.traces),
-		AvailableFailoverCounts: collectAvailableFailoverCounts(s.traces),
-		AvailableStatusCodes:    collectAvailableStatusCodes(s.traces),
+		AvailableAliases:        collectAvailableAliases(timeScoped),
+		AvailableFailoverCounts: collectAvailableFailoverCounts(timeScoped),
+		AvailableStatusCodes:    collectAvailableStatusCodes(timeScoped),
+		Stats:                   collectTraceStats(timeScoped),
 	}, nil
 }
 
@@ -465,6 +481,9 @@ func normalizeTraceInts(in []int, allowZero bool) []int {
 }
 
 func traceMatchesQuery(trace RequestTrace, query TraceQuery) bool {
+	if !traceMatchesTimeRange(trace, query) {
+		return false
+	}
 	if len(query.Aliases) > 0 && !containsTraceAlias(query.Aliases, trace.Alias) {
 		return false
 	}
@@ -472,6 +491,16 @@ func traceMatchesQuery(trace RequestTrace, query TraceQuery) bool {
 		return false
 	}
 	if len(query.StatusCodes) > 0 && !containsTraceInt(query.StatusCodes, trace.StatusCode) {
+		return false
+	}
+	return true
+}
+
+func traceMatchesTimeRange(trace RequestTrace, query TraceQuery) bool {
+	if !query.StartedFrom.IsZero() && trace.StartedAt.Before(query.StartedFrom) {
+		return false
+	}
+	if !query.StartedTo.IsZero() && trace.StartedAt.After(query.StartedTo) {
 		return false
 	}
 	return true
@@ -527,6 +556,21 @@ func collectAvailableAliases(traces []RequestTrace) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func collectTraceStats(traces []RequestTrace) TraceStats {
+	stats := TraceStats{}
+	for _, trace := range traces {
+		if trace.Success {
+			stats.Success++
+		} else {
+			stats.Failed++
+		}
+		if trace.Failover || traceFailoverCount(trace) > 0 {
+			stats.Failover++
+		}
+	}
+	return stats
 }
 
 func collectAvailableFailoverCounts(traces []RequestTrace) []int {

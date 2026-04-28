@@ -1292,6 +1292,8 @@ export namespace app {
 	    aliases?: string[];
 	    failoverCounts?: number[];
 	    statusCodes?: number[];
+	    startedFrom?: string;
+	    startedTo?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestTraceListInput(source);
@@ -1304,6 +1306,24 @@ export namespace app {
 	        this.aliases = source["aliases"];
 	        this.failoverCounts = source["failoverCounts"];
 	        this.statusCodes = source["statusCodes"];
+	        this.startedFrom = source["startedFrom"];
+	        this.startedTo = source["startedTo"];
+	    }
+	}
+	export class TraceStats {
+	    success: number;
+	    failover: number;
+	    failed: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TraceStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.failover = source["failover"];
+	        this.failed = source["failed"];
 	    }
 	}
 	export class RequestTraceListResult {
@@ -1314,6 +1334,7 @@ export namespace app {
 	    availableAliases?: string[];
 	    availableFailoverCounts?: number[];
 	    availableStatusCodes?: number[];
+	    stats: TraceStats;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestTraceListResult(source);
@@ -1328,6 +1349,7 @@ export namespace app {
 	        this.availableAliases = source["availableAliases"];
 	        this.availableFailoverCounts = source["availableFailoverCounts"];
 	        this.availableStatusCodes = source["availableStatusCodes"];
+	        this.stats = this.convertValues(source["stats"], TraceStats);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1502,6 +1524,7 @@ export namespace app {
 		    return a;
 		}
 	}
+	
 	
 	
 

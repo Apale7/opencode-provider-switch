@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/proxy"
 	"github.com/Apale7/opencode-provider-switch/internal/routing"
@@ -156,6 +157,8 @@ type RequestTraceListInput struct {
 	Aliases        []string `json:"aliases,omitempty"`
 	FailoverCounts []int    `json:"failoverCounts,omitempty"`
 	StatusCodes    []int    `json:"statusCodes,omitempty"`
+	StartedFrom    string   `json:"startedFrom,omitempty"`
+	StartedTo      string   `json:"startedTo,omitempty"`
 }
 
 type RequestTraceDetailInput struct {
@@ -170,6 +173,13 @@ type RequestTraceListResult struct {
 	AvailableAliases        []string       `json:"availableAliases,omitempty"`
 	AvailableFailoverCounts []int          `json:"availableFailoverCounts,omitempty"`
 	AvailableStatusCodes    []int          `json:"availableStatusCodes,omitempty"`
+	Stats                   TraceStats     `json:"stats"`
+}
+
+type TraceStats struct {
+	Success  int `json:"success"`
+	Failover int `json:"failover"`
+	Failed   int `json:"failed"`
 }
 
 type TraceAttempt struct {
@@ -284,7 +294,23 @@ func requestTraceListResultView(result proxy.TraceQueryResult) RequestTraceListR
 		AvailableAliases:        append([]string(nil), result.AvailableAliases...),
 		AvailableFailoverCounts: append([]int(nil), result.AvailableFailoverCounts...),
 		AvailableStatusCodes:    append([]int(nil), result.AvailableStatusCodes...),
+		Stats:                   traceStatsView(result.Stats),
 	}
+}
+
+func traceStatsView(stats proxy.TraceStats) TraceStats {
+	return TraceStats{Success: stats.Success, Failover: stats.Failover, Failed: stats.Failed}
+}
+
+func parseOptionalTimestamp(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed, nil
 }
 
 type ProviderView struct {

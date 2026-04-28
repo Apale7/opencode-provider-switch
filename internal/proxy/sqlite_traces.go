@@ -263,15 +263,34 @@ FROM request_traces`
 		if err := rows.Err(); err != nil {
 			return fmt.Errorf("iterate traces: %w", err)
 		}
-		aliases, err := s.listDistinctStrings(ctx, db, "alias", "alias <> ''", "alias ASC")
+		timeWhere, timeArgs := buildSQLiteTraceTimeWhere(query)
+		aliasWhere := "alias <> ''"
+		if timeWhere != "" {
+			aliasWhere += " AND " + timeWhere
+		}
+		aliases, err := s.listDistinctStrings(ctx, db, "alias", aliasWhere, "alias ASC", timeArgs...)
 		if err != nil {
 			return err
 		}
-		statusCodes, err := s.listDistinctInts(ctx, db, "status_code", "status_code > 0", "status_code ASC")
+		statusTimeArgs := append([]any(nil), timeArgs...)
+		statusWhere := "status_code > 0"
+		if timeWhere != "" {
+			statusWhere += " AND " + timeWhere
+		}
+		statusCodes, err := s.listDistinctInts(ctx, db, "status_code", statusWhere, "status_code ASC", statusTimeArgs...)
 		if err != nil {
 			return err
 		}
-		attemptCounts, err := s.listDistinctInts(ctx, db, "attempt_count", "attempt_count >= 0", "attempt_count ASC")
+		attemptTimeArgs := append([]any(nil), timeArgs...)
+		attemptWhere := "attempt_count >= 0"
+		if timeWhere != "" {
+			attemptWhere += " AND " + timeWhere
+		}
+		attemptCounts, err := s.listDistinctInts(ctx, db, "attempt_count", attemptWhere, "attempt_count ASC", attemptTimeArgs...)
+		if err != nil {
+			return err
+		}
+		stats, err := querySQLiteTraceStats(ctx, db, timeWhere, timeArgs)
 		if err != nil {
 			return err
 		}
@@ -294,6 +313,7 @@ FROM request_traces`
 			AvailableAliases:        aliases,
 			AvailableFailoverCounts: failoverCounts,
 			AvailableStatusCodes:    statusCodes,
+			Stats:                   stats,
 		}
 		return nil
 	})
@@ -338,13 +358,13 @@ func (s *SQLiteTraceStore) Close() error {
 	return nil
 }
 
-func (s *SQLiteTraceStore) listDistinctStrings(ctx context.Context, db *sql.DB, column string, where string, orderBy string) ([]string, error) {
+func (s *SQLiteTraceStore) listDistinctStrings(ctx context.Context, db *sql.DB, column string, where string, orderBy string, args ...any) ([]string, error) {
 	query := fmt.Sprintf("SELECT DISTINCT %s FROM request_traces", column)
 	if where != "" {
 		query += " WHERE " + where
 	}
 	query += " ORDER BY " + orderBy
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list distinct %s: %w", column, err)
 	}
@@ -363,13 +383,13 @@ func (s *SQLiteTraceStore) listDistinctStrings(ctx context.Context, db *sql.DB, 
 	return out, nil
 }
 
-func (s *SQLiteTraceStore) listDistinctInts(ctx context.Context, db *sql.DB, column string, where string, orderBy string) ([]int, error) {
+func (s *SQLiteTraceStore) listDistinctInts(ctx context.Context, db *sql.DB, column string, where string, orderBy string, args ...any) ([]int, error) {
 	query := fmt.Sprintf("SELECT DISTINCT %s FROM request_traces", column)
 	if where != "" {
 		query += " WHERE " + where
 	}
 	query += " ORDER BY " + orderBy
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list distinct %s: %w", column, err)
 	}
@@ -391,6 +411,7 @@ func (s *SQLiteTraceStore) listDistinctInts(ctx context.Context, db *sql.DB, col
 func buildSQLiteTraceWhere(query TraceQuery) (string, []any) {
 	clauses := []string{}
 	args := []any{}
+	clauses, args = appendSQLiteTraceTimeWhere(query, clauses, args)
 	if len(query.Aliases) > 0 {
 		placeholders := make([]string, 0, len(query.Aliases))
 		for _, alias := range query.Aliases {
@@ -411,6 +432,35 @@ func buildSQLiteTraceWhere(query TraceQuery) (string, []any) {
 		clauses = append(clauses, "status_code IN ("+strings.Join(placeholders, ",")+")")
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+func buildSQLiteTraceTimeWhere(query TraceQuery) (string, []any) {
+	clauses, args := appendSQLiteTraceTimeWhere(query, nil, nil)
+	return strings.Join(clauses, " AND "), args
+}
+
+func appendSQLiteTraceTimeWhere(query TraceQuery, clauses []string, args []any) ([]string, []any) {
+	if !query.StartedFrom.IsZero() {
+		clauses = append(clauses, "started_at >= ?")
+		args = append(args, formatSQLiteTime(query.StartedFrom))
+	}
+	if !query.StartedTo.IsZero() {
+		clauses = append(clauses, "started_at <= ?")
+		args = append(args, formatSQLiteTime(query.StartedTo))
+	}
+	return clauses, args
+}
+
+func querySQLiteTraceStats(ctx context.Context, db *sql.DB, where string, args []any) (TraceStats, error) {
+	query := "SELECT COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN failover = 1 OR attempt_count > 1 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) FROM request_traces"
+	if where != "" {
+		query += " WHERE " + where
+	}
+	stats := TraceStats{}
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&stats.Success, &stats.Failover, &stats.Failed); err != nil {
+		return TraceStats{}, fmt.Errorf("query trace stats: %w", err)
+	}
+	return stats, nil
 }
 
 func appendSQLiteFailoverWhere(counts []int, clauses []string, args []any) ([]string, []any) {

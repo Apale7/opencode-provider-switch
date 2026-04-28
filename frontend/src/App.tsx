@@ -52,20 +52,21 @@ import type {
   ProviderPingResult,
   ProviderRefreshModelsInput,
   ProviderSaveResult,
-  ProviderProtocol,
-  ProviderUpsertInput,
-  ProviderView,
-  RoutingStrategyDescriptor,
-  RoutingStrategyParamSpec,
-  ProxyStatusView,
-  ProxySettingsSaveResult,
-  ProxySettingsView,
-  RequestTrace,
-  RequestTraceListResult,
-  SyncInput,
-  SyncPreview,
-  SyncResult,
-  ThemePreference,
+	ProviderProtocol,
+	ProviderUpsertInput,
+	ProviderView,
+	RoutingStrategyDescriptor,
+	RoutingStrategyParamSpec,
+	ProxyStatusView,
+	ProxySettingsSaveResult,
+	ProxySettingsView,
+	RequestTrace,
+	RequestTraceListResult,
+	TraceStats,
+	SyncInput,
+	SyncPreview,
+	SyncResult,
+	ThemePreference,
 } from './types'
 
 type MetaState = {
@@ -102,7 +103,12 @@ type ResolvedTheme = 'light' | 'dark'
 type ModalKey = 'provider-import' | 'alias-target' | null
 type DetailMode = 'empty' | 'create' | 'edit'
 type ConfigImportMode = 'text' | 'file'
-type TraceFilterKey = 'all' | 'none'
+type TraceTimePreset = 'run' | 'today' | 'week' | 'custom'
+type TraceTimeFilterState = {
+	preset: TraceTimePreset
+	start: string
+	end: string
+}
 type ConfirmIntent =
   | { kind: 'delete-provider'; id: string }
   | { kind: 'delete-alias'; alias: string }
@@ -200,6 +206,18 @@ const emptyTargetForm: AliasTargetInput = {
 }
 
 const tracePageSize = 25
+
+const emptyTraceStats: TraceStats = {
+	success: 0,
+	failover: 0,
+	failed: 0,
+}
+
+const emptyTraceTimeFilter: TraceTimeFilterState = {
+	preset: 'run',
+	start: '',
+	end: '',
+}
 
 type TraceQueryState = {
 	page: number
@@ -580,6 +598,68 @@ function formatCompactDateTime(value?: string): string {
 	return `${month}-${day} ${hours}:${minutes}:${seconds}`
 }
 
+function dateToLocalDateTimeInput(date: Date): string {
+	const year = date.getFullYear()
+	const month = String(date.getMonth() + 1).padStart(2, '0')
+	const day = String(date.getDate()).padStart(2, '0')
+	const hours = String(date.getHours()).padStart(2, '0')
+	const minutes = String(date.getMinutes()).padStart(2, '0')
+	return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function localDateTimeInputToISO(value: string): string | undefined {
+	if (!value) {
+		return undefined
+	}
+	const date = new Date(value)
+	return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
+}
+
+function normalizeCustomTraceRange(start: string, end: string): { startedFrom?: string; startedTo?: string } {
+	const startedFrom = localDateTimeInputToISO(start)
+	const startedTo = localDateTimeInputToISO(end)
+	if (startedFrom && startedTo && new Date(startedFrom).getTime() > new Date(startedTo).getTime()) {
+		return { startedFrom: startedTo, startedTo: startedFrom }
+	}
+	return { startedFrom, startedTo }
+}
+
+function startOfToday(date: Date): Date {
+	const start = new Date(date)
+	start.setHours(0, 0, 0, 0)
+	return start
+}
+
+function startOfWeek(date: Date): Date {
+	const start = startOfToday(date)
+	const day = start.getDay()
+	start.setDate(start.getDate() - (day === 0 ? 6 : day - 1))
+	return start
+}
+
+function traceTimeRange(filter: TraceTimeFilterState, proxyStartedAt?: string): { startedFrom?: string; startedTo?: string } {
+	if (filter.preset === 'run') {
+		return proxyStartedAt ? { startedFrom: proxyStartedAt } : {}
+	}
+	if (filter.preset === 'today') {
+		return { startedFrom: startOfToday(new Date()).toISOString() }
+	}
+	if (filter.preset === 'week') {
+		return { startedFrom: startOfWeek(new Date()).toISOString() }
+	}
+	return normalizeCustomTraceRange(filter.start, filter.end)
+}
+
+function formatTraceRangeValue(range: { startedFrom?: string; startedTo?: string }): string {
+	if (!range.startedFrom && !range.startedTo) {
+		return i18n.t('trace.timeAll')
+	}
+	return i18n.t('trace.timeRangeValue', {
+		start: range.startedFrom ? formatDateTime(range.startedFrom) : i18n.t('trace.timeEarliest'),
+		end: range.startedTo ? formatDateTime(range.startedTo) : i18n.t('trace.timeNow'),
+	})
+}
+
 function formatDuration(value?: number): string {
   if (value == null) {
     return '-'
@@ -719,6 +799,137 @@ function TraceInfoPopover({ label, children }: { label: string; children: ReactN
 	)
 }
 
+function TraceMultiSelectFilter({
+	label,
+	allLabel,
+	selectedLabel,
+	clearLabel,
+	emptyLabel,
+	values,
+	selectedValues,
+	formatValue,
+	onToggle,
+	onClear,
+}: {
+	label: string
+	allLabel: string
+	selectedLabel: string
+	clearLabel: string
+	emptyLabel: string
+	values: number[]
+	selectedValues: number[]
+	formatValue: (value: number) => string
+	onToggle: (value: number, selected: boolean) => void
+	onClear: () => void
+}) {
+	return (
+		<div className="filter-group trace-select-filter">
+			<span className="filter-group-label">{label}</span>
+			<details className="filter-popover">
+				<summary className="filter-popover-trigger">
+					<span>{selectedValues.length > 0 ? selectedLabel : allLabel}</span>
+					<span className="filter-popover-caret" aria-hidden="true" />
+				</summary>
+				<div className="filter-popover-panel">
+					<div className="filter-popover-head">
+						<span className="filter-group-label">{label}</span>
+						<button type="button" className="filter-link-button" onClick={onClear} disabled={selectedValues.length === 0}>
+							{clearLabel}
+						</button>
+					</div>
+					<div className="filter-option-list">
+						{values.length > 0 ? values.map((value) => (
+							<label className="filter-option" key={value}>
+								<input
+									type="checkbox"
+									checked={selectedValues.includes(value)}
+									onChange={(event) => onToggle(value, event.target.checked)}
+								/>
+								<span>{formatValue(value)}</span>
+							</label>
+						)) : <span className="subtle small-text">{emptyLabel}</span>}
+					</div>
+				</div>
+			</details>
+		</div>
+	)
+}
+
+function TraceTimeFilterControls({
+	filter,
+	rangeLabel,
+	runDisabled,
+	onPreset,
+	onStart,
+	onEnd,
+	onEndNow,
+}: {
+	filter: TraceTimeFilterState
+	rangeLabel: string
+	runDisabled: boolean
+	onPreset: (preset: TraceTimePreset) => void
+	onStart: (value: string) => void
+	onEnd: (value: string) => void
+	onEndNow: () => void
+}) {
+	return (
+		<div className="filter-group trace-time-filter">
+			<div className="trace-filter-headline">
+				<span className="filter-group-label">{i18n.t('trace.timeFilter')}</span>
+				<span className="subtle small-text">{rangeLabel}</span>
+			</div>
+			<div className="trace-time-presets" role="group" aria-label={i18n.t('trace.timePresetGroup')}>
+				{(['run', 'today', 'week', 'custom'] as TraceTimePreset[]).map((preset) => (
+					<button
+						key={preset}
+						type="button"
+						className={filter.preset === preset ? 'filter-chip active' : 'filter-chip'}
+						disabled={preset === 'run' && runDisabled}
+						onClick={() => onPreset(preset)}
+					>
+						{i18n.t(`trace.timePreset.${preset}`)}
+					</button>
+				))}
+			</div>
+			{filter.preset === 'custom' ? (
+				<div className="trace-time-custom-grid">
+					<label>
+						<span>{i18n.t('trace.timeStart')}</span>
+						<input type="datetime-local" value={filter.start} onChange={(event) => onStart(event.target.value)} />
+					</label>
+					<label>
+						<span>{i18n.t('trace.timeEnd')}</span>
+						<div className="trace-time-end-row">
+							<input type="datetime-local" value={filter.end} onChange={(event) => onEnd(event.target.value)} />
+							<button type="button" className="trace-time-now-button" onClick={onEndNow}>{i18n.t('trace.timeNow')}</button>
+						</div>
+					</label>
+				</div>
+			) : null}
+			{filter.preset === 'run' && runDisabled ? <span className="subtle small-text">{i18n.t('trace.runUnavailable')}</span> : null}
+		</div>
+	)
+}
+
+function TraceStatsStrip({ stats }: { stats: TraceStats }) {
+	return (
+		<div className="trace-stats-strip" aria-label={i18n.t('trace.statsTitle')}>
+			<div className="trace-stat-card trace-stat-success">
+				<span className="stat-label">{i18n.t('trace.statsSuccess')}</span>
+				<strong>{stats.success.toLocaleString()}</strong>
+			</div>
+			<div className="trace-stat-card trace-stat-failover">
+				<span className="stat-label">{i18n.t('trace.statsFailover')}</span>
+				<strong>{stats.failover.toLocaleString()}</strong>
+			</div>
+			<div className="trace-stat-card trace-stat-failed">
+				<span className="stat-label">{i18n.t('trace.statsFailed')}</span>
+				<strong>{stats.failed.toLocaleString()}</strong>
+			</div>
+		</div>
+	)
+}
+
 function tracePrimaryText(trace: RequestTrace): string {
   if (trace.finalProvider && trace.finalModel) {
     return `${trace.finalProvider}/${trace.finalModel}`
@@ -824,8 +1035,10 @@ export default function App() {
   const [networkTraces, setNetworkTraces] = useState<RequestTrace[]>([])
   const [logTraceQuery, setLogTraceQuery] = useState<TraceQueryState>(emptyTraceQuery)
   const [networkTraceQuery, setNetworkTraceQuery] = useState<TraceQueryState>(emptyTraceQuery)
+  const [traceTimeFilter, setTraceTimeFilter] = useState<TraceTimeFilterState>(emptyTraceTimeFilter)
   const [logTraceTotal, setLogTraceTotal] = useState(0)
   const [networkTraceTotal, setNetworkTraceTotal] = useState(0)
+  const [traceStats, setTraceStats] = useState<TraceStats>(emptyTraceStats)
   const [logTraceLoaded, setLogTraceLoaded] = useState(false)
   const [networkTraceLoaded, setNetworkTraceLoaded] = useState(false)
   const [logTraceCatalog, setLogTraceCatalog] = useState<TraceCatalogState>(emptyTraceCatalog)
@@ -866,17 +1079,20 @@ export default function App() {
   const logTraceLoadingKeyRef = useRef<string | null>(null)
   const networkTraceLoadingKeyRef = useRef<string | null>(null)
 
-  const fetchTracePage = useCallback(async (query: TraceQueryState): Promise<RequestTraceListResult> => {
+  const fetchTracePage = useCallback(async (query: TraceQueryState, range: { startedFrom?: string; startedTo?: string }): Promise<RequestTraceListResult> => {
 	return queryRequestTraces({
 		page: query.page,
 		pageSize: tracePageSize,
 		aliases: query.aliases,
 		failoverCounts: query.failoverCounts,
 		statusCodes: query.statusCodes,
+		startedFrom: range.startedFrom,
+		startedTo: range.startedTo,
 	})
   }, [])
 
   const applyTracePageResult = useCallback((kind: TracePageKind, result: RequestTraceListResult) => {
+	setTraceStats(result.stats || emptyTraceStats)
 	if (kind === 'log') {
 		setLogTraces(result.items)
 		setLogTraceTotal(result.total)
@@ -900,11 +1116,12 @@ export default function App() {
 	setSelectedNetworkTraceId((current) => resolveSelectedTraceId(current, result.items))
   }, [])
 
-  const loadTraceQuery = useCallback(async (kind: TracePageKind, query: TraceQueryState) => {
+  const loadTraceQuery = useCallback(async (kind: TracePageKind, query: TraceQueryState, timeFilter: TraceTimeFilterState, proxyStartedAt?: string) => {
 	const requestRef = kind === 'log' ? logTraceRequestRef : networkTraceRequestRef
 	const loadingKeyRef = kind === 'log' ? logTraceLoadingKeyRef : networkTraceLoadingKeyRef
 	const setStatus = kind === 'log' ? setLogTraceStatus : setNetworkTraceStatus
-	const queryKey = traceQueryKey(query)
+	const range = traceTimeRange(timeFilter, proxyStartedAt)
+	const queryKey = [traceQueryKey(query), timeFilter.preset, range.startedFrom || '', range.startedTo || ''].join('|')
 	if (loadingKeyRef.current === queryKey) {
 		return
 	}
@@ -912,7 +1129,7 @@ export default function App() {
 	requestRef.current = requestId
 	loadingKeyRef.current = queryKey
 	try {
-		const result = await fetchTracePage(query)
+		const result = await fetchTracePage(query, range)
 		if (requestRef.current !== requestId) {
 			return
 		}
@@ -1022,6 +1239,9 @@ export default function App() {
   const logDetailOpen = selectedLogTraceId !== null && selectedLogTrace !== null
   const networkDetailOpen = selectedNetworkTraceId !== null && selectedNetworkTrace !== null
   const proxyRunning = overview?.proxy.running ?? false
+  const proxyStartedAt = overview?.proxy.startedAt
+  const traceTimeRangeValue = traceTimeRange(traceTimeFilter, proxyStartedAt)
+  const traceTimeRangeLabel = formatTraceRangeValue(traceTimeRangeValue)
   const logPageCount = tracePageCount(logTraceTotal, tracePageSize)
   const networkPageCount = tracePageCount(networkTraceTotal, tracePageSize)
   const stats = overview
@@ -1063,7 +1283,7 @@ export default function App() {
 		const kind = activeTab === 'log' ? 'log' : 'network'
 		const query = kind === 'log' ? logTraceQuery : networkTraceQuery
 		if (!cancelled) {
-			await loadTraceQuery(kind, query)
+			await loadTraceQuery(kind, query, traceTimeFilter, proxyStartedAt)
 		}
     }
     void tick()
@@ -1074,7 +1294,7 @@ export default function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [activeTab, loadTraceQuery, logTraceQuery, networkTraceQuery])
+  }, [activeTab, loadTraceQuery, logTraceQuery, networkTraceQuery, proxyStartedAt, traceTimeFilter])
 
   useEffect(() => {
     if (activeTab === 'providers' && providerDetailOpen) {
@@ -1713,10 +1933,39 @@ export default function App() {
 	}))
   }
 
-	function updateLogTraceQuery(update: (current: TraceQueryState) => TraceQueryState) {
+  function updateLogTraceQuery(update: (current: TraceQueryState) => TraceQueryState) {
 	setLogTraceQuery((current) => update(current))
 	setSelectedLogTraceId(null)
   }
+
+	function updateTraceTimeFilter(update: (current: TraceTimeFilterState) => TraceTimeFilterState) {
+		setTraceTimeFilter((current) => update(current))
+		setLogTraceQuery((current) => (current.page === 1 ? current : { ...current, page: 1 }))
+		setNetworkTraceQuery((current) => (current.page === 1 ? current : { ...current, page: 1 }))
+		setSelectedLogTraceId(null)
+		setSelectedNetworkTraceId(null)
+	}
+
+	function selectTraceTimePreset(preset: TraceTimePreset) {
+		updateTraceTimeFilter((current) => ({
+			...current,
+			preset,
+			start: preset === 'custom' && !current.start ? dateToLocalDateTimeInput(startOfToday(new Date())) : current.start,
+			end: preset === 'custom' && !current.end ? dateToLocalDateTimeInput(new Date()) : current.end,
+		}))
+	}
+
+	function setTraceTimeStart(value: string) {
+		updateTraceTimeFilter((current) => ({ ...current, preset: 'custom', start: value }))
+	}
+
+	function setTraceTimeEnd(value: string) {
+		updateTraceTimeFilter((current) => ({ ...current, preset: 'custom', end: value }))
+	}
+
+	function setTraceTimeEndNow() {
+		setTraceTimeEnd(dateToLocalDateTimeInput(new Date()))
+	}
 
 	function loadLogTracePage(page: number) {
 		const nextQuery = { ...logTraceQuery, page }
@@ -1737,6 +1986,18 @@ export default function App() {
 		updateLogTraceQuery((current) => ({ ...current, page: 1, aliases: [] }))
 	}
 
+	function setLogFailoverFilter(count: number, selected: boolean) {
+		updateLogTraceQuery((current) => ({
+			...current,
+			page: 1,
+			failoverCounts: selected ? toggleNumberFilter(current.failoverCounts, count) : current.failoverCounts.filter((item) => item !== count),
+		}))
+	}
+
+	function clearLogFailoverFilter() {
+		updateLogTraceQuery((current) => ({ ...current, page: 1, failoverCounts: [] }))
+	}
+
   function updateNetworkTraceQuery(update: (current: TraceQueryState) => TraceQueryState) {
 	setNetworkTraceQuery((current) => update(current))
 	setSelectedNetworkTraceId(null)
@@ -1745,6 +2006,18 @@ export default function App() {
 	function loadNetworkTracePage(page: number) {
 		const nextQuery = { ...networkTraceQuery, page }
 		updateNetworkTraceQuery(() => nextQuery)
+	}
+
+	function setNetworkStatusCodeFilter(code: number, selected: boolean) {
+		updateNetworkTraceQuery((current) => ({
+			...current,
+			page: 1,
+			statusCodes: selected ? toggleNumberFilter(current.statusCodes, code) : current.statusCodes.filter((item) => item !== code),
+		}))
+	}
+
+	function clearNetworkStatusCodeFilter() {
+		updateNetworkTraceQuery((current) => ({ ...current, page: 1, statusCodes: [] }))
 	}
 
   async function onUnbindTarget(alias: string, provider: string, model: string) {
@@ -2495,7 +2768,16 @@ export default function App() {
 	                  <span className="subtle list-status-text">{logTraceLoaded ? t('log.count', { count: logTraceTotal }) : t('messages.loading')}</span>
                 </div>
               </div>
-	              <div className="list-toolbar trace-toolbar">
+	              <div className="list-toolbar trace-toolbar trace-toolbar-grid">
+						<TraceTimeFilterControls
+							filter={traceTimeFilter}
+							rangeLabel={traceTimeRangeLabel}
+							runDisabled={!proxyStartedAt}
+							onPreset={selectTraceTimePreset}
+							onStart={setTraceTimeStart}
+							onEnd={setTraceTimeEnd}
+							onEndNow={setTraceTimeEndNow}
+						/>
 	                <div className="filter-group filter-group-alias">
 	                  <span className="filter-group-label" id={logAliasFilterId}>{t('log.aliasFilter')}</span>
 	                  <details className="filter-popover">
@@ -2525,22 +2807,20 @@ export default function App() {
 	                    </div>
 	                  </details>
 	                </div>
-	                <div className="filter-group">
-	                  <span className="filter-group-label">{t('log.failoverFilter')}</span>
-	                  <div className="filter-chip-grid">
-	                    {logTraceCatalog.failoverCounts.map((count) => (
-	                      <button
-	                        key={count}
-	                        type="button"
-	                        className={logTraceQuery.failoverCounts.includes(count) ? 'filter-chip active' : 'filter-chip'}
-	                        onClick={() => updateLogTraceQuery((current) => ({ ...current, page: 1, failoverCounts: toggleNumberFilter(current.failoverCounts, count) }))}
-	                      >
-	                        {t('log.failoverCountValue', { count })}
-	                      </button>
-	                    ))}
-	                  </div>
-	                </div>
+						<TraceMultiSelectFilter
+							label={t('log.failoverFilter')}
+							allLabel={t('log.failoverAll')}
+							selectedLabel={t('log.failoverSelectedCount', { count: logTraceQuery.failoverCounts.length })}
+							clearLabel={t('log.failoverClear')}
+							emptyLabel={t('log.failoverEmpty')}
+							values={logTraceCatalog.failoverCounts}
+							selectedValues={logTraceQuery.failoverCounts}
+							formatValue={(count) => t('log.failoverCountValue', { count })}
+							onToggle={setLogFailoverFilter}
+							onClear={clearLogFailoverFilter}
+						/>
 	              </div>
+						<TraceStatsStrip stats={traceStats} />
 	              <div className="scroll-list compact-list trace-scroll-list">
 	                {logTraceLoaded && logTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
@@ -2679,22 +2959,28 @@ export default function App() {
 	                  <span className="subtle list-status-text">{networkTraceLoaded ? t('network.count', { count: networkTraceTotal }) : t('messages.loading')}</span>
                 </div>
               </div>
-	              <div className="list-toolbar trace-toolbar">
-	                <div className="filter-group">
-	                  <span className="filter-group-label">{t('network.statusCodeFilter')}</span>
-	                  <div className="filter-chip-grid">
-	                    {networkTraceCatalog.statusCodes.map((code) => (
-	                      <button
-	                        key={code}
-	                        type="button"
-	                        className={networkTraceQuery.statusCodes.includes(code) ? 'filter-chip active' : 'filter-chip'}
-	                        onClick={() => updateNetworkTraceQuery((current) => ({ ...current, page: 1, statusCodes: toggleNumberFilter(current.statusCodes, code) }))}
-	                      >
-	                        {code}
-	                      </button>
-	                    ))}
-	                  </div>
-	                </div>
+	              <div className="list-toolbar trace-toolbar trace-toolbar-grid">
+						<TraceTimeFilterControls
+							filter={traceTimeFilter}
+							rangeLabel={traceTimeRangeLabel}
+							runDisabled={!proxyStartedAt}
+							onPreset={selectTraceTimePreset}
+							onStart={setTraceTimeStart}
+							onEnd={setTraceTimeEnd}
+							onEndNow={setTraceTimeEndNow}
+						/>
+						<TraceMultiSelectFilter
+							label={t('network.statusCodeFilter')}
+							allLabel={t('network.statusCodeAll')}
+							selectedLabel={t('network.statusCodeSelectedCount', { count: networkTraceQuery.statusCodes.length })}
+							clearLabel={t('network.statusCodeClear')}
+							emptyLabel={t('network.statusCodeEmpty')}
+							values={networkTraceCatalog.statusCodes}
+							selectedValues={networkTraceQuery.statusCodes}
+							formatValue={(code) => String(code)}
+							onToggle={setNetworkStatusCodeFilter}
+							onClear={clearNetworkStatusCodeFilter}
+						/>
 	              </div>
 	              <div className="scroll-list compact-list trace-scroll-list">
 	                {networkTraceLoaded && networkTraces.length === 0 ? (

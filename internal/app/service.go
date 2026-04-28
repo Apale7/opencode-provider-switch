@@ -335,12 +335,22 @@ func (s *Service) ListRequestTraces(ctx context.Context, limit int) ([]RequestTr
 }
 
 func (s *Service) QueryRequestTraces(ctx context.Context, in RequestTraceListInput) (RequestTraceListResult, error) {
+	startedFrom, err := parseOptionalTimestamp(in.StartedFrom)
+	if err != nil {
+		return RequestTraceListResult{}, fmt.Errorf("parse startedFrom: %w", err)
+	}
+	startedTo, err := parseOptionalTimestamp(in.StartedTo)
+	if err != nil {
+		return RequestTraceListResult{}, fmt.Errorf("parse startedTo: %w", err)
+	}
 	result, err := s.traces.Query(ctx, proxy.TraceQuery{
 		Page:           in.Page,
 		PageSize:       in.PageSize,
 		Aliases:        in.Aliases,
 		FailoverCounts: in.FailoverCounts,
 		StatusCodes:    in.StatusCodes,
+		StartedFrom:    startedFrom,
+		StartedTo:      startedTo,
 	})
 	if err != nil {
 		return RequestTraceListResult{}, err

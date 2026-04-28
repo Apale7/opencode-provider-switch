@@ -736,6 +736,56 @@ func TestSQLiteTraceStoreQueryFiltersFailoverCounts(t *testing.T) {
 	}
 }
 
+func TestSQLiteTraceStoreQueryFiltersTimeRangeAndReturnsStats(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "ocswitch.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	defer store.Close()
+
+	baseTime := time.Now().UTC().Add(-1 * time.Hour)
+	traces := []RequestTrace{
+		{ID: 1, StartedAt: baseTime, Protocol: config.ProtocolOpenAIResponses, Alias: "old", Success: true, StatusCode: http.StatusOK, AttemptCount: 1},
+		{ID: 2, StartedAt: baseTime.Add(10 * time.Minute), Protocol: config.ProtocolOpenAIResponses, Alias: "chat", Success: true, StatusCode: http.StatusOK, Failover: true, AttemptCount: 2},
+		{ID: 3, StartedAt: baseTime.Add(20 * time.Minute), Protocol: config.ProtocolOpenAIResponses, Alias: "chat", Success: false, StatusCode: http.StatusBadGateway, AttemptCount: 2},
+	}
+	for _, trace := range traces {
+		if err := store.Add(context.Background(), trace); err != nil {
+			t.Fatalf("store.Add(%d) error = %v", trace.ID, err)
+		}
+	}
+
+	result, err := store.Query(context.Background(), TraceQuery{
+		Page:        1,
+		PageSize:    10,
+		StartedFrom: baseTime.Add(5 * time.Minute),
+		StartedTo:   baseTime.Add(25 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("store.Query() error = %v", err)
+	}
+	if result.Total != 2 || len(result.Items) != 2 || result.Items[0].ID != 3 || result.Items[1].ID != 2 {
+		t.Fatalf("time-filtered items = total %d %#v, want ids 3,2", result.Total, result.Items)
+	}
+	if result.Stats.Success != 1 || result.Stats.Failover != 2 || result.Stats.Failed != 1 {
+		t.Fatalf("stats = %#v, want success=1 failover=2 failed=1", result.Stats)
+	}
+	if len(result.AvailableAliases) != 1 || result.AvailableAliases[0] != "chat" {
+		t.Fatalf("aliases = %#v, want chat only", result.AvailableAliases)
+	}
+	if len(result.AvailableStatusCodes) != 2 || result.AvailableStatusCodes[0] != http.StatusOK || result.AvailableStatusCodes[1] != http.StatusBadGateway {
+		t.Fatalf("status codes = %#v, want 200,502", result.AvailableStatusCodes)
+	}
+}
+
 func TestSQLiteTraceStoreSeedsRequestCounterFromExistingMaxID(t *testing.T) {
 	t.Parallel()
 

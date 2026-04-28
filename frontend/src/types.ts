@@ -153,6 +153,14 @@ export type RequestTraceListInput = {
   aliases?: string[]
   failoverCounts?: number[]
   statusCodes?: number[]
+  startedFrom?: string
+  startedTo?: string
+}
+
+export type TraceStats = {
+  success: number
+  failover: number
+  failed: number
 }
 
 export type RequestTraceDetailInput = {
@@ -167,6 +175,7 @@ export type RequestTraceListResult = {
   availableAliases?: string[]
   availableFailoverCounts?: number[]
   availableStatusCodes?: number[]
+  stats: TraceStats
 }
 
 export type Overview = {

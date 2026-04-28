@@ -830,6 +830,39 @@ func TestQueryRequestTracesReturnsRequestedPage(t *testing.T) {
 	}
 }
 
+func TestQueryRequestTracesAcceptsTimeRange(t *testing.T) {
+	svc := NewService(filepath.Join(t.TempDir(), "ocswitch.json"))
+	svc.traces = proxy.NewTraceStore(10)
+	baseTime := time.Now().UTC().Add(-1 * time.Hour)
+	for id := 1; id <= 3; id++ {
+		if err := svc.traces.Add(context.Background(), proxy.RequestTrace{
+			ID:        uint64(id),
+			StartedAt: baseTime.Add(time.Duration(id) * time.Minute),
+			Protocol:  config.ProtocolOpenAIResponses,
+			Alias:     "chat",
+			Success:   id != 2,
+		}); err != nil {
+			t.Fatalf("traces.Add(%d) error = %v", id, err)
+		}
+	}
+
+	result, err := svc.QueryRequestTraces(context.Background(), RequestTraceListInput{
+		Page:        1,
+		PageSize:    10,
+		StartedFrom: baseTime.Add(90 * time.Second).Format(time.RFC3339Nano),
+		StartedTo:   baseTime.Add(150 * time.Second).Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatalf("QueryRequestTraces() error = %v", err)
+	}
+	if result.Total != 1 || len(result.Items) != 1 || result.Items[0].ID != 2 {
+		t.Fatalf("items = total %d %#v, want id=2", result.Total, result.Items)
+	}
+	if result.Stats.Success != 0 || result.Stats.Failed != 1 {
+		t.Fatalf("stats = %#v, want failed only", result.Stats)
+	}
+}
+
 func containsWarning(warnings []string, want string) bool {
 	for _, warning := range warnings {
 		if strings.Contains(warning, want) {
