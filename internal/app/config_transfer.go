@@ -43,6 +43,12 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 	if imported.Server.APIKey == "" {
 		imported.Server.APIKey = config.DefaultLocalAPIKey
 	}
+	if imported.Admin.Host == "" {
+		imported.Admin.Host = "127.0.0.1"
+	}
+	if imported.Admin.Port == 0 {
+		imported.Admin.Port = 9983
+	}
 	if errs := imported.Validate(); len(errs) > 0 {
 		return ConfigImportResult{}, errs[0]
 	}
@@ -51,7 +57,11 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 	if err != nil {
 		return ConfigImportResult{}, err
 	}
+	if imported.Admin.APIKey == "" {
+		imported.Admin.APIKey = cfg.Admin.APIKey
+	}
 	cfg.Server = imported.Server
+	cfg.Admin = imported.Admin
 	cfg.Desktop = imported.Desktop
 	cfg.Providers = append([]config.Provider(nil), imported.Providers...)
 	cfg.Aliases = append([]config.Alias(nil), imported.Aliases...)
@@ -73,11 +83,13 @@ func marshalConfigContent(cfg *config.Config) (string, error) {
 	sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
 	snapshot := struct {
 		Server    config.Server     `json:"server"`
+		Admin     config.Admin      `json:"admin,omitempty"`
 		Desktop   config.Desktop    `json:"desktop,omitempty"`
 		Providers []config.Provider `json:"providers"`
 		Aliases   []config.Alias    `json:"aliases"`
 	}{
 		Server:    cfg.Server,
+		Admin:     cfg.Admin,
 		Desktop:   cfg.Desktop,
 		Providers: providers,
 		Aliases:   aliases,

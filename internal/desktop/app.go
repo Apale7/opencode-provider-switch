@@ -169,6 +169,13 @@ func (a *App) ImportConfig(in app.ConfigImportInput) (app.ConfigImportResult, er
 	return result, nil
 }
 
+func (a *App) ImportConfigHTTP(ctx context.Context, in app.ConfigImportInput) (app.ConfigImportResult, error) {
+	previous := a.ctx
+	a.ctx = ctx
+	defer func() { a.ctx = previous }()
+	return a.ImportConfig(in)
+}
+
 func (a *App) Providers() ([]app.ProviderView, error) {
 	return a.bindings.ListProviders(a.callContext())
 }
@@ -227,7 +234,7 @@ func (a *App) ReorderTargets(in app.AliasTargetReorderInput) (app.AliasView, err
 
 func (a *App) DoctorRun() (app.DoctorRunResult, error) {
 	report, err := a.bindings.RunDoctor(a.callContext())
-	return app.DoctorRunResult{Report: report, Error: errorString(err)}, nil
+	return app.DoctorRunResult{Report: report, Error: appErrorString(err)}, nil
 }
 
 func (a *App) ProxyStatus() (app.ProxyStatusView, error) {
@@ -315,4 +322,11 @@ func (a *App) Service() *app.Service {
 
 func (a *App) Bindings() *Bindings {
 	return a.bindings
+}
+
+func appErrorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

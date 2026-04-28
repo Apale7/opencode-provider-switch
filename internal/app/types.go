@@ -506,6 +506,7 @@ type SyncInput struct {
 	SetModel         string `json:"setModel,omitempty"`
 	SetSmallModel    string `json:"setSmallModel,omitempty"`
 	DryRun           bool   `json:"dryRun"`
+	CopyOnly         bool   `json:"copyOnly,omitempty"`
 	RuntimeBaseURL   string `json:"runtimeBaseUrl,omitempty"`
 	RuntimeDirectory string `json:"runtimeDirectory,omitempty"`
 }
@@ -515,6 +516,7 @@ type SyncPreview struct {
 	Protocols        []SyncedProviderView          `json:"protocols"`
 	SetModel         string                        `json:"setModel,omitempty"`
 	SetSmallModel    string                        `json:"setSmallModel,omitempty"`
+	Content          string                        `json:"content,omitempty"`
 	WouldChange      bool                          `json:"wouldChange"`
 	RuntimeBaseURL   string                        `json:"runtimeBaseUrl,omitempty"`
 	RuntimeDirectory string                        `json:"runtimeDirectory,omitempty"`
@@ -531,6 +533,7 @@ type SyncResult struct {
 	DryRun           bool                          `json:"dryRun"`
 	SetModel         string                        `json:"setModel,omitempty"`
 	SetSmallModel    string                        `json:"setSmallModel,omitempty"`
+	Content          string                        `json:"content,omitempty"`
 	RuntimeBaseURL   string                        `json:"runtimeBaseUrl,omitempty"`
 	RuntimeDirectory string                        `json:"runtimeDirectory,omitempty"`
 	FileSnapshot     OpenCodeFileSnapshot          `json:"fileSnapshot"`

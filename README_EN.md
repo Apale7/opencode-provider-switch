@@ -4,6 +4,8 @@ A tiny local proxy for [OpenCode](https://opencode.ai) that gives you **one
 stable model alias** routed to **multiple upstream providers** with
 **deterministic failover**.
 
+Release assets include a Linux amd64 server archive: `ocswitch-server-linux-amd64.zip`. The `ocswitch-server` binary is the same CLI entrypoint; run `./ocswitch-server server` to start the server web admin.
+
 - Expose one custom provider `ocswitch` to OpenCode.
 - Configure logical aliases (`ocswitch/gpt-5.4`, etc.).
 - Each alias has an ordered list of upstream `provider/model` targets.
@@ -14,7 +16,7 @@ stable model alias** routed to **multiple upstream providers** with
 - Once a stream has started, the upstream is locked for the rest of that
   request — no mid-stream splicing.
 
-Protocol: OpenAI Responses (`POST /v1/responses`) only. Streaming supported.
+Protocols: OpenAI Responses (`POST /v1/responses`), Anthropic Messages (`POST /v1/messages`), and OpenAI-compatible Chat Completions (`POST /v1/chat/completions`). Streaming supported.
 
 ## Install
 
@@ -92,6 +94,48 @@ If you already built the executable, you can run it directly:
 ```bash
 ./build/bin/ocswitch-desktop.exe
 ```
+
+## Server Web Admin
+
+`ocswitch` can also run as a server-side web admin. This mode reuses the same frontend as the desktop GUI, but omits desktop-only integrations such as tray, notifications, and launch-at-login.
+
+Start server mode:
+
+```bash
+ocswitch server
+```
+
+Default admin URL:
+
+```text
+http://127.0.0.1:9983
+```
+
+On first start, if `admin.api_key` is missing, `ocswitch server` generates a strong random admin token, stores it as plaintext in the local `ocswitch` config, and prints it once in the log:
+
+```text
+[ocswitch-server] admin API key generated and saved in config admin.api_key
+[ocswitch-server] Authorization: Bearer <token>
+```
+
+Paste that token into the browser login page. The frontend stores it only in `sessionStorage` for the current browser tab.
+
+You can override the admin listener:
+
+```bash
+ocswitch server --host 127.0.0.1 --port 9983
+```
+
+If you bind to `0.0.0.0` or another non-loopback address, protect the admin UI with a firewall, trusted network, or HTTPS reverse proxy. The admin token and upstream provider API keys live in the server-local config file; treat it as sensitive.
+
+Server-mode notes:
+
+- Admin API `/api/*` requires `Authorization: Bearer <admin.api_key>`.
+- Proxy API `/v1/*` still uses `server.api_key`; the default local value is `ocswitch-local`.
+- Admin token and proxy API key are separate credentials.
+- Server mode cannot edit the user's local OpenCode config file directly.
+- The `Sync` page generates OpenCode config JSON for one-click copy, so users can paste it into their own local OpenCode config.
+- Server mode continues using SQLite for request logs and network traces.
 
 ## Quick start
 
@@ -183,6 +227,7 @@ matching `--help` page. This README is the quick-start narrative, while CLI help
 is the authoritative local execution contract.
 
 - `ocswitch serve` — run the proxy
+- `ocswitch server [--host HOST] [--port PORT]` — run the server web admin
 - `ocswitch doctor` — validate config
 - `ocswitch provider {add,list,enable,disable,remove,import-opencode}`
 - `ocswitch alias {add,list,bind,unbind,remove}`
@@ -207,9 +252,20 @@ Responses include these debug headers once a concrete upstream attempt is being 
 - `X-OCSWITCH-Attempt`
 - `X-OCSWITCH-Failover-Count`
 
+## Security Notes
+
+- The proxy and admin listeners default to `127.0.0.1`.
+- Upstream provider credentials are stored in the local `ocswitch` config file.
+- Server-mode admin token is stored as plaintext in `admin.api_key` so it remains recoverable if forgotten.
+- Server-mode `/api/*` requires a Bearer token and sends baseline security headers.
+- When listening on a non-loopback host, use a firewall, trusted network, or HTTPS reverse proxy.
+- Multi-user accounts and RBAC are not implemented.
+
+Treat the local `ocswitch` config as a sensitive file.
+
 ## Scope
 
-Out of MVP: Anthropic native, multi-protocol routing, dashboard, billing,
-latency-based routing, and full OpenCode config takeover.
+Out of MVP: billing, prompt-type routing, full OpenCode config takeover,
+multi-user auth/RBAC, and mid-stream splicing across providers.
 See `.trellis/tasks/archive/2026-04/04-17-04-17-ops-mvp-design-review/prd.md`
 for the authoritative design notes.

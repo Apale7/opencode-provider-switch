@@ -11,7 +11,9 @@ English README: `README_EN.md`
 - 用可配置路由策略决定上游选择与临时跳过逻辑
 - 如果主上游在响应开始前失败，自动切到下一个上游
 
-当前实现只支持 OpenAI Responses 协议，也就是 `POST /v1/responses`，并且支持流式响应。
+发布版除桌面 GUI 外，也会提供 Linux amd64 服务器版压缩包：`ocswitch-server-linux-amd64.zip`。压缩包内的 `ocswitch-server` 实际是同一个 CLI 二进制，直接运行 `./ocswitch-server server` 即可启动服务器版 Web 管理后台。
+
+当前实现支持 OpenAI Responses、Anthropic Messages 和 OpenAI-compatible Chat Completions 协议，并支持流式响应。
 
 ## 适合什么场景
 
@@ -29,18 +31,18 @@ English README: `README_EN.md`
 - 支持可插拔路由策略，默认使用 `circuit-breaker`
 - 支持为路由策略配置参数，例如失败阈值、冷却时间和半开探测限制
 - 支持把 alias 同步到 OpenCode 的 `provider.ocswitch.models`
-- 支持本地代理 `POST /v1/responses`
+- 支持本地代理 `POST /v1/responses`、`POST /v1/messages` 和 `POST /v1/chat/completions`
 - 支持流式透传
 - 支持首字节前失败切换
 - 返回调试响应头，便于确认这次请求实际落到了哪个上游
+- 支持 SQLite 持久化请求日志/网络 trace
+- 支持桌面 GUI 和服务器版 Web 管理后台
 
 ## 不支持的内容
 
-- Anthropic 原生协议
-- 多协议路由
 - 自动按延迟、价格、提示词类型选路
 - 中途流式拼接切换
-- SQLite、管理后台、计费统计
+- 计费统计
 - 完整接管 OpenCode 所有配置层
 - 从 `auth.json` 自动导入 provider 定义
 
@@ -124,6 +126,48 @@ wails dev -tags desktop_wails
 ```bash
 ./build/bin/ocswitch-desktop.exe
 ```
+
+## 服务器版 Web 管理后台
+
+仓库也提供服务器运行模式，适合把 `ocswitch` 放在一台长期运行的机器上，通过浏览器管理 provider、alias、代理状态和日志。服务器版复用当前 GUI 的 Web 页面，但不包含系统托盘、通知、开机启动等桌面专属能力。
+
+启动服务器版：
+
+```bash
+ocswitch server
+```
+
+默认管理后台监听：
+
+```text
+http://127.0.0.1:9983
+```
+
+首次启动时，如果配置文件里还没有 `admin.api_key`，`ocswitch server` 会生成强随机管理 Token，明文写入本地 `ocswitch` 配置文件，并在日志里打印一次：
+
+```text
+[ocswitch-server] admin API key generated and saved in config admin.api_key
+[ocswitch-server] Authorization: Bearer <token>
+```
+
+打开浏览器后，在登录页粘贴这个 Token。前端只把 Token 保存在当前浏览器标签页的 `sessionStorage` 里，不会持久写入浏览器本地存储。
+
+也可以显式指定监听地址：
+
+```bash
+ocswitch server --host 127.0.0.1 --port 9983
+```
+
+如果监听 `0.0.0.0` 或其他非本机地址，请务必使用防火墙、内网访问控制或 HTTPS 反向代理保护管理后台。管理 Token 和上游 provider API key 都保存在服务器本地配置文件里，请把该文件当作敏感文件处理。
+
+服务器版注意事项：
+
+- 管理 API `/api/*` 需要 `Authorization: Bearer <admin.api_key>`
+- 代理 API `/v1/*` 仍使用 `server.api_key`，默认本地值是 `ocswitch-local`
+- 管理 Token 和代理 API Key 是两套凭据，不要混用
+- 服务器版不能直接修改用户本机的 OpenCode 配置文件
+- `Sync` 页面会生成 OpenCode 配置 JSON，用户需要一键复制后自行粘贴到本机 OpenCode 配置文件
+- server 模式继续使用 SQLite 保存请求日志和网络 trace
 
 ## 5 分钟快速上手
 
@@ -415,6 +459,13 @@ ocswitch doctor
 ocswitch serve
 ```
 
+启动服务器版 Web 管理后台：
+
+```bash
+ocswitch server
+ocswitch server --host 127.0.0.1 --port 9983
+```
+
 同步到 OpenCode：
 
 ```bash
@@ -467,6 +518,11 @@ ocswitch --config /path/to/config.json doctor
         "rateLimitCooldownMs": 15000
       }
     }
+  },
+  "admin": {
+    "host": "127.0.0.1",
+    "port": 9983,
+    "api_key": "server-admin-token"
   },
   "providers": [
     {
@@ -607,11 +663,24 @@ ocswitch-local
 
 OpenCode 在 `provider.ocswitch.options.apiKey` 里会使用这个值。直接手工请求本地代理时，也要带上这个 key。
 
+### 服务器版忘记管理 Token 怎么办？
+
+服务器版管理 Token 明文保存在 `ocswitch` 配置文件的 `admin.api_key` 字段。默认配置路径见“配置文件说明”。
+
+如果要轮换 Token，可以停止 `ocswitch server`，手动修改或删除 `admin.api_key`，再重新启动。字段为空时，服务器版会重新生成强随机 Token 并打印在日志里。
+
+### 服务器版如何配置本机 OpenCode？
+
+服务器版运行在服务器上，不能直接修改用户电脑上的 OpenCode 配置文件。因此请在 Web 管理后台打开 `Sync` 页面，点击生成配置，复制生成的 OpenCode 配置 JSON，然后粘贴到你本机的 OpenCode 配置文件中。
+
 ## 安全说明
 
 - 默认只监听 `127.0.0.1`
 - 上游凭据保存在本地 `ocswitch` 配置文件中
-- 本项目当前没有做多用户或远程网络安全保证
+- 服务器版管理 Token 明文保存在 `admin.api_key`，用于防止忘记 Token 后无法恢复
+- 服务器版 `/api/*` 要求 Bearer Token，并带基础安全响应头
+- 监听非本机地址时，应使用防火墙、可信内网或 HTTPS 反向代理
+- 本项目当前没有做多用户或 RBAC 权限模型
 
 所以请把本地配置文件当成敏感文件处理。
 

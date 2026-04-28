@@ -73,6 +73,14 @@
     "yes": "Yes",
     "no": "No"
   },
+  "auth": {
+    "title": "Server admin token",
+    "subtitle": "Enter the admin token printed by ocswitch server on first start or stored in admin.api_key in the server config.",
+    "tokenLabel": "Admin token",
+    "tokenPlaceholder": "Paste admin.api_key",
+    "saveToken": "Save for this tab",
+    "required": "Admin token required"
+  },
   "messages": {
     "refreshing": "Refreshing...",
     "fresh": "Fresh",
@@ -277,7 +285,12 @@
     "issuesTitle": "Issues",
     "noIssues": "No issues reported.",
     "debugTitle": "Raw doctor JSON",
-    "debugSummary": "Show doctor output"
+    "debugSummary": "Show doctor output",
+    "serverCopyHint": "Server mode cannot modify your local OpenCode config. Generate the config JSON here, copy it, then paste it into your local OpenCode config file.",
+    "generateConfig": "Generate config",
+    "generatedConfigTitle": "Generated OpenCode config",
+    "copyConfig": "Copy config",
+    "copyDone": "Config copied"
   },
   "trace": {
     "timeFilter": "Time range",
@@ -439,6 +452,8 @@
     "timeoutHint": "Saved values apply to the next proxy start.",
     "timeoutRunningHint": "The proxy is currently running. Saved values apply only after you restart it.",
     "saveTimeouts": "Save proxy timeouts",
+    "saveAppearance": "Apply appearance",
+    "serverAppearanceOnly": "Appearance is applied in this browser tab. Server mode does not persist desktop preferences.",
     "minimizeToTray": "Minimize to tray / close to background",
     "notifications": "Native notifications",
     "routing": {

@@ -1,0 +1,9 @@
+.git
+.trellis
+.opencode
+build
+frontend/node_modules
+frontend/dist
+frontend/wailsjs
+*.log
+*.tmp

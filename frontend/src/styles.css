@@ -498,6 +498,20 @@ dd {
   overflow: auto;
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 20% 20%, var(--accent-softer), transparent 30%),
+    var(--bg);
+}
+
+.auth-card {
+  width: min(100%, 460px);
+}
+
 .workspace > .tab-layout {
   width: 100%;
   min-height: 0;

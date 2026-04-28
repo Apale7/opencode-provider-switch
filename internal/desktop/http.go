@@ -2,11 +2,8 @@ package desktop
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -17,9 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	frontendassets "github.com/Apale7/opencode-provider-switch/frontend"
-	appcore "github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/webadmin"
 )
 
 type RunOptions struct {
@@ -28,17 +24,6 @@ type RunOptions struct {
 	ListenAddr   string
 	OpenBrowser  bool
 	ShutdownWait time.Duration
-}
-
-type apiEnvelope struct {
-	Data  any    `json:"data,omitempty"`
-	Error string `json:"error,omitempty"`
-}
-
-type metaView struct {
-	Version string `json:"version"`
-	Shell   string `json:"shell"`
-	URL     string `json:"url"`
 }
 
 func Run(opts RunOptions) error {
@@ -63,7 +48,13 @@ func Run(opts RunOptions) error {
 	defer listener.Close()
 
 	url := "http://" + listener.Addr().String()
-	handler, err := newHandler(instance, opts.Version, url)
+	handler, err := webadmin.NewHandler(webadmin.Options{
+		Version:          opts.Version,
+		Shell:            instance.shellName(),
+		BaseURL:          url,
+		Service:          instance.Bindings(),
+		SaveDesktopPrefs: instance.SaveDesktopPrefs,
+	})
 	if err != nil {
 		return err
 	}
@@ -99,418 +90,14 @@ func Run(opts RunOptions) error {
 }
 
 func newHandler(instance *App, version string, baseURL string) (http.Handler, error) {
-	assets, err := frontendassets.DistFS()
-	if err != nil {
-		return nil, fmt.Errorf("load web assets: %w", err)
-	}
-	api := http.NewServeMux()
-	b := instance.Bindings()
-
-	api.HandleFunc("/api/meta", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		writeJSON(w, http.StatusOK, apiEnvelope{Data: metaView{Version: version, Shell: instance.shellName(), URL: baseURL}})
+	return webadmin.NewHandler(webadmin.Options{
+		Version:          version,
+		Shell:            instance.shellName(),
+		BaseURL:          baseURL,
+		Service:          instance.Bindings(),
+		ImportConfig:     instance.ImportConfigHTTP,
+		SaveDesktopPrefs: instance.SaveDesktopPrefs,
 	})
-
-	api.HandleFunc("/api/overview", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		data, err := b.GetOverview(r.Context())
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/config/export", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		data, err := b.ExportConfig(r.Context())
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/config/import", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.ConfigImportInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := instance.ImportConfig(in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/providers", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			data, err := b.ListProviders(r.Context())
-			writeResult(w, data, err)
-		case http.MethodPost:
-			var in appcore.ProviderUpsertInput
-			if !decodeJSONBody(w, r, &in) {
-				return
-			}
-			data, err := b.UpsertProvider(r.Context(), in)
-			writeResult(w, data, err)
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
-		}
-	})
-
-	api.HandleFunc("/api/providers/import", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.ProviderImportInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.ImportProviders(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/providers/refresh-models", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.ProviderRefreshModelsInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.RefreshProviderModels(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/providers/ping", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.ProviderPingInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.PingProviderBaseURL(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/providers/state", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.ProviderStateInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.SetProviderDisabled(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/providers/delete", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var payload struct {
-			ID string `json:"id"`
-		}
-		if !decodeJSONBody(w, r, &payload) {
-			return
-		}
-		writeResult(w, map[string]bool{"ok": true}, b.RemoveProvider(r.Context(), payload.ID))
-	})
-
-	api.HandleFunc("/api/aliases", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			data, err := b.ListAliases(r.Context())
-			writeResult(w, data, err)
-		case http.MethodPost:
-			var in appcore.AliasUpsertInput
-			if !decodeJSONBody(w, r, &in) {
-				return
-			}
-			data, err := b.UpsertAlias(r.Context(), in)
-			writeResult(w, data, err)
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
-		}
-	})
-
-	api.HandleFunc("/api/aliases/delete", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var payload struct {
-			Alias string `json:"alias"`
-		}
-		if !decodeJSONBody(w, r, &payload) {
-			return
-		}
-		writeResult(w, map[string]bool{"ok": true}, b.RemoveAlias(r.Context(), payload.Alias))
-	})
-
-	api.HandleFunc("/api/aliases/bind", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.AliasTargetInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.BindAliasTarget(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/aliases/state", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.AliasTargetInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.SetAliasTargetDisabled(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/aliases/unbind", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.AliasTargetInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.UnbindAliasTarget(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/aliases/reorder-targets", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.AliasTargetReorderInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.ReorderAliasTargets(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/desktop-prefs", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			data, err := b.GetDesktopPrefs(r.Context())
-			writeResult(w, data, err)
-		case http.MethodPost:
-			var in appcore.DesktopPrefsInput
-			if !decodeJSONBody(w, r, &in) {
-				return
-			}
-			data, err := instance.SaveDesktopPrefs(r.Context(), in)
-			writeResult(w, data, err)
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
-		}
-	})
-
-	api.HandleFunc("/api/proxy/status", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		data, err := b.GetProxyStatus(r.Context())
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/proxy/settings", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			data, err := b.GetProxySettings(r.Context())
-			writeResult(w, data, err)
-		case http.MethodPost:
-			var in appcore.ProxySettingsInput
-			if !decodeJSONBody(w, r, &in) {
-				return
-			}
-			data, err := b.SaveProxySettings(r.Context(), in)
-			writeResult(w, data, err)
-		default:
-			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
-		}
-	})
-
-	api.HandleFunc("/api/proxy/traces", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		data, err := b.ListRequestTraces(r.Context(), 100)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/proxy/traces/query", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.RequestTraceListInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.QueryRequestTraces(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/proxy/traces/detail", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var payload appcore.RequestTraceDetailInput
-		if !decodeJSONBody(w, r, &payload) {
-			return
-		}
-		data, err := b.GetRequestTrace(r.Context(), payload.ID)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/proxy/start", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		data, err := b.StartProxy(r.Context())
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/proxy/stop", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-		data, err := b.StopProxy(ctx)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/doctor", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		data, err := b.RunDoctor(r.Context())
-		writeJSON(w, http.StatusOK, apiEnvelope{Data: appcore.DoctorRunResult{Report: data, Error: errorString(err)}})
-	})
-
-	api.HandleFunc("/api/opencode-sync/preview", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.SyncInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.PreviewOpenCodeSync(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	api.HandleFunc("/api/opencode-sync/apply", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		var in appcore.SyncInput
-		if !decodeJSONBody(w, r, &in) {
-			return
-		}
-		data, err := b.SyncOpenCode(r.Context(), in)
-		writeResult(w, data, err)
-	})
-
-	fileServer := http.FileServer(http.FS(assets))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			api.ServeHTTP(w, r)
-			return
-		}
-		serveSPA(w, r, assets, fileServer)
-	}), nil
-}
-
-func serveSPA(w http.ResponseWriter, r *http.Request, assets fs.FS, next http.Handler) {
-	path := strings.TrimPrefix(r.URL.Path, "/")
-	if path == "" {
-		path = "index.html"
-	}
-	if _, err := fs.Stat(assets, path); err == nil {
-		next.ServeHTTP(w, r)
-		return
-	}
-	r = r.Clone(r.Context())
-	r.URL.Path = "/index.html"
-	next.ServeHTTP(w, r)
-}
-
-func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
-	defer r.Body.Close()
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, apiEnvelope{Error: err.Error()})
-		return false
-	}
-	if len(strings.TrimSpace(string(body))) == 0 {
-		return true
-	}
-	if err := json.Unmarshal(body, dst); err != nil {
-		writeJSON(w, http.StatusBadRequest, apiEnvelope{Error: "invalid json: " + err.Error()})
-		return false
-	}
-	return true
-}
-
-func writeResult(w http.ResponseWriter, data any, err error) {
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, apiEnvelope{Error: err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, apiEnvelope{Data: data})
-}
-
-func writeMethodNotAllowed(w http.ResponseWriter, allowed ...string) {
-	if len(allowed) > 0 {
-		w.Header().Set("Allow", strings.Join(allowed, ", "))
-	}
-	writeJSON(w, http.StatusMethodNotAllowed, apiEnvelope{Error: "method not allowed"})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func errorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }
 
 func openBrowser(url string) error {

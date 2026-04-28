@@ -135,15 +135,30 @@ func (s *Service) RunDoctor(ctx context.Context) (DoctorReport, error) {
 }
 
 func (s *Service) PreviewOpenCodeSync(ctx context.Context, in SyncInput) (SyncPreview, error) {
+	return s.previewOpenCodeSync(ctx, in, "")
+}
+
+func (s *Service) PreviewOpenCodeSyncWithBaseURL(ctx context.Context, in SyncInput, publicBaseURL string) (SyncPreview, error) {
+	return s.previewOpenCodeSync(ctx, in, publicBaseURL)
+}
+
+func (s *Service) previewOpenCodeSync(ctx context.Context, in SyncInput, publicBaseURL string) (SyncPreview, error) {
 	prepared, err := s.prepareSync(ctx, in)
 	if err != nil {
 		return SyncPreview{}, err
+	}
+	if strings.TrimSpace(publicBaseURL) != "" && in.CopyOnly {
+		prepared, err = s.prepareSyncWithBaseURL(ctx, in, publicBaseURL)
+		if err != nil {
+			return SyncPreview{}, err
+		}
 	}
 	return SyncPreview{
 		TargetPath:       prepared.targetPath,
 		Protocols:        cloneSyncedProviders(prepared.protocols),
 		SetModel:         in.SetModel,
 		SetSmallModel:    in.SetSmallModel,
+		Content:          prepared.content,
 		WouldChange:      prepared.changed,
 		RuntimeBaseURL:   prepared.runtimeBaseURL,
 		RuntimeDirectory: prepared.runtimeDirectory,
@@ -166,6 +181,7 @@ func (s *Service) ApplyOpenCodeSync(ctx context.Context, in SyncInput) (SyncResu
 		DryRun:           in.DryRun,
 		SetModel:         in.SetModel,
 		SetSmallModel:    in.SetSmallModel,
+		Content:          prepared.content,
 		RuntimeBaseURL:   prepared.runtimeBaseURL,
 		RuntimeDirectory: prepared.runtimeDirectory,
 		FileSnapshot:     prepared.fileSnapshot,
@@ -405,6 +421,7 @@ type preparedSync struct {
 	runtimeDirectory string
 	protocols        []SyncedProviderView
 	raw              opencode.Raw
+	content          string
 	changed          bool
 	fileSnapshot     OpenCodeFileSnapshot
 	runtimeSnapshot  OpenCodeRuntimeSnapshot
@@ -413,6 +430,10 @@ type preparedSync struct {
 }
 
 func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, error) {
+	return s.prepareSyncWithBaseURL(ctx, in, "")
+}
+
+func (s *Service) prepareSyncWithBaseURL(ctx context.Context, in SyncInput, publicBaseURL string) (preparedSync, error) {
 	cfg, err := s.loadConfig()
 	if err != nil {
 		return preparedSync{}, err
@@ -424,13 +445,22 @@ func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, 
 	runtimeBaseURL := strings.TrimSpace(in.RuntimeBaseURL)
 	runtimeDirectory := strings.TrimSpace(in.RuntimeDirectory)
 	_, targetExisted := opencode.ResolveGlobalConfigPath()
-	if targetPath == "" {
+	if in.CopyOnly {
+		targetExisted = false
+		if targetPath == "" {
+			targetPath = "opencode.jsonc"
+		}
+	} else if targetPath == "" {
 		resolved, _ := opencode.ResolveGlobalConfigPath()
 		targetPath = resolved
 	}
-	raw, err := opencode.Load(targetPath)
-	if err != nil {
-		return preparedSync{}, err
+	raw := opencode.Raw{}
+	if !in.CopyOnly {
+		loaded, err := opencode.Load(targetPath)
+		if err != nil {
+			return preparedSync{}, err
+		}
+		raw = loaded
 	}
 	protocolAliases := make(map[string][]string, len(syncedProtocols()))
 	preparedProtocols := make([]SyncedProviderView, 0, len(syncedProtocols()))
@@ -457,6 +487,9 @@ func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, 
 	for _, prepared := range preparedProtocols {
 		protocol := prepared.Protocol
 		baseURL := proxyBaseURLForProtocol(cfg, protocol)
+		if strings.TrimSpace(publicBaseURL) != "" {
+			baseURL = publicProxyBaseURLForProtocol(publicBaseURL, protocol)
+		}
 		if opencode.EnsureOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, protocolAliases[protocol]) {
 			changed = true
 		}
@@ -474,6 +507,10 @@ func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, 
 	issues := reconcileFileSnapshot(cfg, fileSnapshotRaw)
 	issues = append(issues, reconcileRuntimeSnapshot(cfg, fileSnapshotRaw, runtimeSnapshotRaw)...)
 	issues = sortDoctorIssues(issues)
+	content, err := marshalOpenCodeRaw(raw)
+	if err != nil {
+		return preparedSync{}, err
+	}
 	return preparedSync{
 		targetPath:       targetPath,
 		targetExisted:    targetExisted,
@@ -481,6 +518,7 @@ func (s *Service) prepareSync(ctx context.Context, in SyncInput) (preparedSync, 
 		runtimeDirectory: runtimeSnapshotRaw.Directory,
 		protocols:        preparedProtocols,
 		raw:              raw,
+		content:          content,
 		changed:          changed,
 		fileSnapshot:     fileSnapshotView(fileSnapshotRaw, cfg),
 		runtimeSnapshot:  runtimeSnapshotView(runtimeSnapshotRaw),
@@ -717,12 +755,24 @@ func cloneSyncedProviders(in []SyncedProviderView) []SyncedProviderView {
 	return out
 }
 
+func marshalOpenCodeRaw(raw opencode.Raw) (string, error) {
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal opencode config: %w", err)
+	}
+	return string(append(data, '\n')), nil
+}
+
 func proxyBindAddress(cfg *config.Config) string {
 	return fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 }
 
 func proxyBaseURLForProtocol(cfg *config.Config, protocol string) string {
 	return fmt.Sprintf("http://%s:%d%s", cfg.Server.Host, cfg.Server.Port, config.ProtocolLocalBasePath(protocol))
+}
+
+func publicProxyBaseURLForProtocol(publicBaseURL string, protocol string) string {
+	return strings.TrimRight(strings.TrimSpace(publicBaseURL), "/") + config.ProtocolLocalBasePath(protocol)
 }
 
 func cloneHeaders(in map[string]string) map[string]string {

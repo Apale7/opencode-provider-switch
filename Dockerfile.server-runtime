@@ -1,0 +1,6 @@
+FROM scratch
+COPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY ocswitch-server /ocswitch-server
+EXPOSE 9982 9983
+ENTRYPOINT ["/ocswitch-server"]
+CMD ["server", "--host", "0.0.0.0"]

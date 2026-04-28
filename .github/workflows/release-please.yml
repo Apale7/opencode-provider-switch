@@ -50,6 +50,12 @@ jobs:
             raw_name: ''
             output: build/bin/ocswitch-desktop.app
             allow_failure: true
+          - name: linux-server
+            runs-on: ubuntu-22.04
+            archive_name: ocswitch-server-linux-amd64.zip
+            raw_name: ocswitch-server-linux-amd64
+            output: build/bin/ocswitch-server
+            allow_failure: false
 
     runs-on: ${{ matrix.runs-on }}
     continue-on-error: ${{ matrix.allow_failure }}
@@ -75,14 +81,31 @@ jobs:
         run: npm install
 
       - name: Install Wails CLI
+        if: matrix.name != 'linux-server'
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
       - name: Install Linux deps
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.name != 'linux-server'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev build-essential pkg-config
 
+      - name: Build frontend assets
+        if: matrix.name == 'linux-server'
+        working-directory: frontend
+        run: npm run build
+
       - name: Build desktop app
+        if: matrix.name != 'linux-server'
         run: wails build -tags desktop_wails
+
+      - name: Build server binary
+        if: matrix.name == 'linux-server'
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p build/bin
+          go build -trimpath -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.tag_name }}" -o build/bin/ocswitch-server ./cmd/ocswitch
 
       - name: Package release files
         shell: bash

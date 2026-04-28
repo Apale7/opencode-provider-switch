@@ -79,6 +79,14 @@ type Server struct {
 	Routing                 routing.Config `json:"routing,omitempty"`
 }
 
+// Admin holds the server-mode web administration listener and token.
+type Admin struct {
+	Host          string `json:"host,omitempty"`
+	Port          int    `json:"port,omitempty"`
+	APIKey        string `json:"api_key,omitempty"`
+	PublicBaseURL string `json:"public_base_url,omitempty"`
+}
+
 const (
 	DefaultConnectTimeoutMs        = 10_000
 	DefaultResponseHeaderTimeoutMs = 15_000
@@ -100,6 +108,7 @@ type Desktop struct {
 // Config is the on-disk ocswitch config.
 type Config struct {
 	Server    Server     `json:"server"`
+	Admin     Admin      `json:"admin,omitempty"`
 	Desktop   Desktop    `json:"desktop,omitempty"`
 	Providers []Provider `json:"providers"`
 	Aliases   []Alias    `json:"aliases"`
@@ -206,6 +215,10 @@ func Default() *Config {
 			StreamIdleTimeoutMs:     DefaultStreamIdleTimeoutMs,
 			Routing:                 routing.Config{Strategy: routing.DefaultStrategy},
 		},
+		Admin: Admin{
+			Host: "127.0.0.1",
+			Port: 9983,
+		},
 		Desktop:   Desktop{},
 		Providers: []Provider{},
 		Aliases:   []Alias{},
@@ -258,6 +271,7 @@ func Load(path string) (*Config, error) {
 	if c.Server.APIKey == "" {
 		c.Server.APIKey = DefaultLocalAPIKey
 	}
+	normalizeAdmin(&c.Admin)
 	normalizeServerTimeouts(&c.Server)
 	normalizeServerRouting(&c.Server)
 	c.path = path
@@ -291,10 +305,11 @@ func (c *Config) Save() error {
 		sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
 		snap := struct {
 			Server    Server     `json:"server"`
+			Admin     Admin      `json:"admin,omitempty"`
 			Desktop   Desktop    `json:"desktop,omitempty"`
 			Providers []Provider `json:"providers"`
 			Aliases   []Alias    `json:"aliases"`
-		}{c.Server, c.Desktop, providers, aliases}
+		}{c.Server, c.Admin, c.Desktop, providers, aliases}
 		data, err := json.MarshalIndent(snap, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal: %w", err)
@@ -633,6 +648,9 @@ func (c *Config) Validate() []error {
 	if c.Server.APIKey == DefaultLocalAPIKey && !isLoopbackHost(c.Server.Host) {
 		errs = append(errs, fmt.Errorf("server.api_key must not use the default value when listening on non-loopback host %q", c.Server.Host))
 	}
+	if c.Admin.Port < 0 || c.Admin.Port > 65535 {
+		errs = append(errs, fmt.Errorf("invalid admin port %d", c.Admin.Port))
+	}
 	if c.Server.ConnectTimeoutMs <= 0 {
 		errs = append(errs, fmt.Errorf("server.connect_timeout_ms must be greater than 0"))
 	}
@@ -652,6 +670,18 @@ func (c *Config) Validate() []error {
 		errs = append(errs, err)
 	}
 	return errs
+}
+
+func normalizeAdmin(admin *Admin) {
+	if admin == nil {
+		return
+	}
+	if strings.TrimSpace(admin.Host) == "" {
+		admin.Host = "127.0.0.1"
+	}
+	if admin.Port == 0 {
+		admin.Port = 9983
+	}
 }
 
 func normalizeServerTimeouts(server *Server) {

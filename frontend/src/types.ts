@@ -435,6 +435,7 @@ export type SyncInput = {
   setModel?: string
   setSmallModel?: string
   dryRun?: boolean
+  copyOnly?: boolean
   runtimeBaseUrl?: string
   runtimeDirectory?: string
 }
@@ -444,6 +445,7 @@ export type SyncPreview = {
   protocols: SyncedProviderView[]
   setModel?: string
   setSmallModel?: string
+  content?: string
   wouldChange: boolean
   runtimeBaseUrl?: string
   runtimeDirectory?: string
@@ -460,6 +462,7 @@ export type SyncResult = {
   dryRun: boolean
   setModel?: string
   setSmallModel?: string
+  content?: string
   runtimeBaseUrl?: string
   runtimeDirectory?: string
   fileSnapshot: OpenCodeFileSnapshot
@@ -472,4 +475,11 @@ export type MetaView = {
   version: string
   shell: string
   url?: string
+  capabilities?: ShellCapabilities
+}
+
+export type ShellCapabilities = {
+  desktopPrefs: boolean
+  openCodeDirectSync: boolean
+  proxyControl: boolean
 }

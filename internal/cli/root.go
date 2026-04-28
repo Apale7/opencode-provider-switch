@@ -58,6 +58,7 @@ prefer command-local --help over README summaries.`,
 	root.PersistentFlags().StringVar(&configPath, "config", "", fmt.Sprintf("path to %s config.json (default: $%s, else $XDG_CONFIG_HOME/%s/config.json, else ~/.config/%s/config.json)", config.AppName, config.ConfigEnvVar, config.ConfigDirName, config.ConfigDirName))
 
 	root.AddCommand(newServeCmd())
+	root.AddCommand(newServerCmd(version))
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newProviderCmd())
 	root.AddCommand(newAliasCmd())

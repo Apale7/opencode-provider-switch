@@ -36,14 +36,35 @@ type ApiEnvelope<T> = {
   error?: string
 }
 
+const adminTokenKey = 'ocswitch.adminToken'
+
+export function getAdminToken(): string {
+  return window.sessionStorage.getItem(adminTokenKey) || ''
+}
+
+export function setAdminToken(token: string): void {
+  const trimmed = token.trim()
+  if (trimmed) {
+    window.sessionStorage.setItem(adminTokenKey, trimmed)
+    return
+  }
+  window.sessionStorage.removeItem(adminTokenKey)
+}
+
 function isWails(): boolean {
   return typeof window.go?.desktop?.App !== 'undefined'
 }
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
+	const headers = new Headers(init?.headers)
+	headers.set('Content-Type', 'application/json')
+	const token = getAdminToken()
+	if (token) {
+		headers.set('Authorization', `Bearer ${token}`)
+	}
   const response = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers,
   })
   const payload = (await response.json()) as ApiEnvelope<T>
   if (!response.ok) {
@@ -63,7 +84,11 @@ function bridge() {
 export async function getMeta(): Promise<MetaView> {
   if (isWails()) {
     const data = await bridge().Meta()
-    return { version: data.version || 'dev', shell: data.shell || 'wails' }
+    return {
+      version: data.version || 'dev',
+      shell: data.shell || 'wails',
+      capabilities: { desktopPrefs: true, openCodeDirectSync: true, proxyControl: true },
+    }
   }
   return http<MetaView>('/api/meta')
 }

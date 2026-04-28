@@ -73,6 +73,14 @@
     "yes": "是",
     "no": "否"
   },
+  "auth": {
+    "title": "服务器管理 Token",
+    "subtitle": "请输入 ocswitch server 首次启动时打印的管理 Token，或服务器配置 admin.api_key 中保存的 Token。",
+    "tokenLabel": "管理 Token",
+    "tokenPlaceholder": "粘贴 admin.api_key",
+    "saveToken": "本标签页保存",
+    "required": "需要管理 Token"
+  },
   "messages": {
     "refreshing": "正在刷新...",
     "fresh": "已刷新",
@@ -277,7 +285,12 @@
     "issuesTitle": "问题列表",
     "noIssues": "未报告问题。",
     "debugTitle": "原始 Doctor JSON",
-    "debugSummary": "查看 Doctor 输出"
+    "debugSummary": "查看 Doctor 输出",
+    "serverCopyHint": "服务器模式不能直接修改用户本地 OpenCode 配置。请在此生成配置 JSON，复制后自行粘贴到本地 OpenCode 配置文件。",
+    "generateConfig": "生成配置",
+    "generatedConfigTitle": "生成的 OpenCode 配置",
+    "copyConfig": "复制配置",
+    "copyDone": "配置已复制"
   },
   "trace": {
     "timeFilter": "时间范围",
@@ -439,6 +452,8 @@
     "timeoutHint": "保存后会在下一次启动代理时生效。",
     "timeoutRunningHint": "代理当前正在运行，保存后的值要在重启代理后才会生效。",
     "saveTimeouts": "保存代理超时",
+    "saveAppearance": "应用外观",
+    "serverAppearanceOnly": "外观已应用到当前浏览器标签页。服务器模式不会持久化桌面偏好。",
     "minimizeToTray": "最小化到托盘 / 关闭时转入后台",
     "notifications": "系统通知",
     "routing": {

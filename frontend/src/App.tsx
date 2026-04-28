@@ -7,6 +7,7 @@ import {
   deleteProvider,
   exportConfig,
   getRequestTrace,
+  getAdminToken,
   getMeta,
   getOverview,
   getProxySettings,
@@ -21,6 +22,7 @@ import {
   reorderAliasTargets,
   runDoctor,
   saveAlias,
+  setAdminToken,
   saveDesktopPrefs,
   saveProxySettings,
   saveProvider,
@@ -73,6 +75,11 @@ type MetaState = {
   version: string
   shell: string
   url?: string
+  capabilities?: {
+    desktopPrefs: boolean
+    openCodeDirectSync: boolean
+    proxyControl: boolean
+  }
 }
 
 type ProviderFormState = {
@@ -559,6 +566,11 @@ function normalizeTab(hash: string): TabKey {
   return tabs.includes(value as TabKey) ? (value as TabKey) : 'overview'
 }
 
+function visibleTabsForMeta(meta: MetaState): TabKey[] {
+  void meta
+  return tabs
+}
+
 function resolveThemePreference(theme: ThemePreference, systemTheme: ResolvedTheme): ResolvedTheme {
   if (theme === 'light' || theme === 'dark') {
     return theme
@@ -1010,6 +1022,9 @@ function aliasMatches(alias: AliasView, query: string): boolean {
 export default function App() {
   const { t } = useTranslation()
   const [meta, setMeta] = useState<MetaState>({ version: 'dev', shell: 'loading' })
+  const [adminTokenInput, setAdminTokenInput] = useState(getAdminToken())
+  const [authStatus, setAuthStatus] = useState('')
+  const [authRequired, setAuthRequired] = useState(false)
   const [overview, setOverview] = useState<Overview | null>(null)
   const [providers, setProviders] = useState<ProviderView[]>([])
   const [aliases, setAliases] = useState<AliasView[]>([])
@@ -1168,9 +1183,15 @@ export default function App() {
       setProxySettings(proxySettingsData)
       setPrefsStatus(i18n.t('messages.fresh'))
       setProxySettingsStatus(i18n.t('messages.fresh'))
+      setAuthRequired(false)
     } catch (error) {
-      setPrefsStatus(formatError(error))
-      setProxySettingsStatus(formatError(error))
+      const message = formatError(error)
+      setPrefsStatus(message)
+      setProxySettingsStatus(message)
+      if (message.toLowerCase().includes('unauthorized')) {
+        setAuthRequired(true)
+        setAuthStatus(i18n.t('auth.required'))
+      }
     } finally {
       setLoading(false)
     }
@@ -1244,6 +1265,10 @@ export default function App() {
   const traceTimeRangeLabel = formatTraceRangeValue(traceTimeRangeValue)
   const logPageCount = tracePageCount(logTraceTotal, tracePageSize)
   const networkPageCount = tracePageCount(networkTraceTotal, tracePageSize)
+  const desktopPrefsAvailable = meta.capabilities?.desktopPrefs ?? meta.shell !== 'server'
+  const openCodeDirectSyncAvailable = meta.capabilities?.openCodeDirectSync ?? meta.shell !== 'server'
+  const visibleTabs = visibleTabsForMeta(meta)
+  const syncGeneratedContent = typeof syncOutput === 'string' ? '' : syncOutput?.content || ''
   const stats = overview
     ? [
         ['overview.providers', String(overview.providerCount)],
@@ -1415,6 +1440,13 @@ export default function App() {
 
   function selectTab(tab: TabKey) {
     window.location.hash = tab
+  }
+
+  async function onSaveAdminToken(event: FormEvent) {
+    event.preventDefault()
+    setAdminToken(adminTokenInput)
+    setAuthStatus(i18n.t('messages.refreshing'))
+    await refreshAll({ syncDesktopPrefs: true })
   }
 
   function resetProviderForm() {
@@ -1644,6 +1676,10 @@ export default function App() {
     event.preventDefault()
     setPrefsStatus(i18n.t('messages.saving'))
     try {
+      if (!desktopPrefsAvailable) {
+        setPrefsStatus(i18n.t('settings.serverAppearanceOnly'))
+        return
+      }
       const saved = await saveDesktopPrefs(prefs)
       setPrefs(saved.prefs)
       await refreshAll()
@@ -1712,7 +1748,7 @@ export default function App() {
   async function onPreviewSync() {
     setSyncStatus(i18n.t('messages.previewing'))
     try {
-      const result = await previewSync(syncInput)
+      const result = await previewSync({ ...syncInput, copyOnly: !openCodeDirectSyncAvailable })
       setSyncOutput(result)
       setSyncStatus(result.wouldChange ? i18n.t('messages.previewChanges') : i18n.t('messages.previewNoChanges'))
     } catch (error) {
@@ -1724,6 +1760,10 @@ export default function App() {
 
   async function onApplySync(event: FormEvent) {
     event.preventDefault()
+    if (!openCodeDirectSyncAvailable) {
+      await onPreviewSync()
+      return
+    }
     setSyncStatus(i18n.t('messages.applying'))
     try {
       const result = await applySync(syncInput)
@@ -2169,6 +2209,15 @@ export default function App() {
     }
   }
 
+  async function onCopyText(value: string, message: string) {
+    try {
+      await window.navigator.clipboard.writeText(value)
+      setSyncStatus(message)
+    } catch (error) {
+      setSyncStatus(formatError(error))
+    }
+  }
+
   async function onConfirmAction() {
     const intent = confirmIntent
     if (!intent) {
@@ -2223,6 +2272,39 @@ export default function App() {
   const networkDetailTitleId = useId()
   const confirmTitleId = useId()
 
+  if (authRequired) {
+    return (
+      <main className="auth-shell">
+        <section className="panel auth-card">
+          <div className="panel-header">
+            <div>
+              <h3>{t('auth.title')}</h3>
+              <p className="subtle">{t('auth.subtitle')}</p>
+            </div>
+          </div>
+          <form className="stack" onSubmit={(event) => void onSaveAdminToken(event)}>
+            <label>
+              <span>{t('auth.tokenLabel')}</span>
+              <input
+                type="password"
+                value={adminTokenInput}
+                onChange={(event) => setAdminTokenInput(event.target.value)}
+                placeholder={t('auth.tokenPlaceholder')}
+                autoFocus
+              />
+            </label>
+            {authStatus ? <p className="subtle settings-status">{authStatus}</p> : null}
+            <div className="toolbar">
+              <button type="submit" className="primary">
+                {t('auth.saveToken')}
+              </button>
+            </div>
+          </form>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -2247,7 +2329,7 @@ export default function App() {
         </div>
 
         <nav className="nav-list" aria-label="Primary">
-          {tabs.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab}
               type="button"
@@ -2647,15 +2729,18 @@ export default function App() {
                 <span className="subtle">{syncStatus}</span>
               </div>
               <form className="stack" onSubmit={(event) => void onApplySync(event)}>
-                <label>
-                  <span>{t('sync.targetPath')}</span>
-                  <input
-                    type="text"
-                    value={syncInput.target || ''}
-                    onChange={(event) => setSyncInput((current) => ({ ...current, target: event.target.value }))}
-                    placeholder={t('sync.placeholderTargetPath')}
-                  />
-                </label>
+                {!openCodeDirectSyncAvailable ? <p className="subtle tone-warning">{t('sync.serverCopyHint')}</p> : null}
+                {openCodeDirectSyncAvailable ? (
+                  <label>
+                    <span>{t('sync.targetPath')}</span>
+                    <input
+                      type="text"
+                      value={syncInput.target || ''}
+                      onChange={(event) => setSyncInput((current) => ({ ...current, target: event.target.value }))}
+                      placeholder={t('sync.placeholderTargetPath')}
+                    />
+                  </label>
+                ) : null}
                 <label>
                   <span>{t('sync.model')}</span>
                   <input
@@ -2678,11 +2763,13 @@ export default function App() {
                 </label>
                 <div className="toolbar">
                   <button type="button" onClick={() => void onPreviewSync()}>
-                    {t('actions.preview')}
+                    {openCodeDirectSyncAvailable ? t('actions.preview') : t('sync.generateConfig')}
                   </button>
-                  <button type="submit" className="primary">
-                    {t('actions.apply')}
-                  </button>
+                  {openCodeDirectSyncAvailable ? (
+                    <button type="submit" className="primary">
+                      {t('actions.apply')}
+                    </button>
+                  ) : null}
                 </div>
               </form>
             </article>
@@ -2698,6 +2785,17 @@ export default function App() {
               ) : syncOutput ? (
                 <div className="stack-blocks">
                   {renderReconciliationSummary(syncOutput.summary)}
+                  {!openCodeDirectSyncAvailable && syncGeneratedContent ? (
+                    <div className="stack">
+                      <div className="toolbar">
+                        <strong>{t('sync.generatedConfigTitle')}</strong>
+                        <button type="button" onClick={() => void onCopyText(syncGeneratedContent, i18n.t('sync.copyDone'))}>
+                          {t('sync.copyConfig')}
+                        </button>
+                      </div>
+                      <pre className="details">{syncGeneratedContent}</pre>
+                    </div>
+                  ) : null}
                   <div className="issue-card">
                     <div className="issue-card-head">
                       <span className={`badge status-badge ${syncOutputChanged(syncOutput) ? 'live' : 'idle'}`}>
@@ -3136,53 +3234,55 @@ export default function App() {
                   </div>
                 </section>
 
-                <section className="subpanel">
-                  <div className="subpanel-header">
-                    <h4>{t('settings.behaviorTitle')}</h4>
-                  </div>
-                  <div className="stack">
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={prefs.launchAtLogin}
-                        onChange={(event) =>
-                          setPrefs((current) => ({ ...current, launchAtLogin: event.target.checked }))
-                        }
-                      />
-                      <span>{t('settings.launchAtLogin')}</span>
-                    </label>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={prefs.autoStartProxy}
-                        onChange={(event) =>
-                          setPrefs((current) => ({ ...current, autoStartProxy: event.target.checked }))
-                        }
-                      />
-                      <span>{t('settings.autoStartProxy')}</span>
-                    </label>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={prefs.minimizeToTray}
-                        onChange={(event) =>
-                          setPrefs((current) => ({ ...current, minimizeToTray: event.target.checked }))
-                        }
-                      />
-                      <span>{t('settings.minimizeToTray')}</span>
-                    </label>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={prefs.notifications}
-                        onChange={(event) =>
-                          setPrefs((current) => ({ ...current, notifications: event.target.checked }))
-                        }
-                      />
-                      <span>{t('settings.notifications')}</span>
-                    </label>
-                  </div>
-                </section>
+                {desktopPrefsAvailable ? (
+                  <section className="subpanel">
+                    <div className="subpanel-header">
+                      <h4>{t('settings.behaviorTitle')}</h4>
+                    </div>
+                    <div className="stack">
+                      <label className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={prefs.launchAtLogin}
+                          onChange={(event) =>
+                            setPrefs((current) => ({ ...current, launchAtLogin: event.target.checked }))
+                          }
+                        />
+                        <span>{t('settings.launchAtLogin')}</span>
+                      </label>
+                      <label className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={prefs.autoStartProxy}
+                          onChange={(event) =>
+                            setPrefs((current) => ({ ...current, autoStartProxy: event.target.checked }))
+                          }
+                        />
+                        <span>{t('settings.autoStartProxy')}</span>
+                      </label>
+                      <label className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={prefs.minimizeToTray}
+                          onChange={(event) =>
+                            setPrefs((current) => ({ ...current, minimizeToTray: event.target.checked }))
+                          }
+                        />
+                        <span>{t('settings.minimizeToTray')}</span>
+                      </label>
+                      <label className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={prefs.notifications}
+                          onChange={(event) =>
+                            setPrefs((current) => ({ ...current, notifications: event.target.checked }))
+                          }
+                        />
+                        <span>{t('settings.notifications')}</span>
+                      </label>
+                    </div>
+                  </section>
+                ) : null}
 
                 <section className="subpanel">
                   <div className="subpanel-header">
@@ -3250,7 +3350,7 @@ export default function App() {
 
                 <div className="toolbar">
                   <button type="submit" className="primary">
-                    {t('actions.save')}
+                    {desktopPrefsAvailable ? t('actions.save') : t('settings.saveAppearance')}
                   </button>
                 </div>
               </form>

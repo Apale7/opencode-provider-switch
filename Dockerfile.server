@@ -1,0 +1,21 @@
+FROM node:20-bookworm AS frontend
+WORKDIR /src/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend ./
+RUN npm run build
+
+FROM golang:1.25-bookworm AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . ./
+COPY --from=frontend /src/frontend/dist ./frontend/dist
+ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+RUN go build -trimpath -ldflags "-s -w" -o /out/ocswitch-server ./cmd/ocswitch
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=builder /out/ocswitch-server /usr/local/bin/ocswitch-server
+EXPOSE 9982 9983
+ENTRYPOINT ["/usr/local/bin/ocswitch-server"]
+CMD ["server", "--host", "0.0.0.0"]
