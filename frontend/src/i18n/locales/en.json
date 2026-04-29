@@ -159,6 +159,8 @@
     "baseUrlStrategyLatency": "Prefer lower latency",
     "baseUrlStrategyOrderedHint": "Requests use the listed order. If one base URL is unavailable, the next one is tried.",
     "baseUrlStrategyLatencyHint": "Requests prefer the lowest-latency base URL. If one is unavailable, the remaining URLs are tried by ping latency order.",
+    "pingSourceDesktop": "Ping runs from the desktop app and measures this machine's path to the upstream.",
+    "pingSourceServer": "Ping runs from ocswitch server and measures the server's path to the upstream.",
     "moveUp": "Move up",
     "moveDown": "Move down",
     "moveUpShort": "Up",

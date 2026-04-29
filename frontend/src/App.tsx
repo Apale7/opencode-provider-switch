@@ -1267,6 +1267,7 @@ export default function App() {
   const networkPageCount = tracePageCount(networkTraceTotal, tracePageSize)
   const desktopPrefsAvailable = meta.capabilities?.desktopPrefs ?? meta.shell !== 'server'
   const openCodeDirectSyncAvailable = meta.capabilities?.openCodeDirectSync ?? meta.shell !== 'server'
+  const providerPingSource = meta.shell === 'server' ? t('providers.pingSourceServer') : t('providers.pingSourceDesktop')
   const visibleTabs = visibleTabsForMeta(meta)
   const syncGeneratedContent = typeof syncOutput === 'string' ? '' : syncOutput?.content || ''
   const stats = overview
@@ -3669,6 +3670,7 @@ export default function App() {
                           </label>
                         </div>
                         <p className="subtle">{t(providerForm.baseUrlStrategy === 'latency' ? 'providers.baseUrlStrategyLatencyHint' : 'providers.baseUrlStrategyOrderedHint')}</p>
+                        <p className="subtle">{providerPingSource}</p>
                         {providerForm.baseUrls.map((baseUrl, index) => {
                           const normalizedBaseUrl = baseUrl.trim()
                           const pingResult = normalizedBaseUrl ? providerBaseUrlPings[normalizedBaseUrl] : undefined

@@ -159,6 +159,8 @@
     "baseUrlStrategyLatency": "优先低延迟地址",
     "baseUrlStrategyOrderedHint": "请求按当前列表顺序使用 Base URL；当前地址不可用时，再依次尝试后续地址。",
     "baseUrlStrategyLatencyHint": "请求优先选择延迟最低的 Base URL；若不可用，则按 ping 延迟从低到高继续尝试。",
+    "pingSourceDesktop": "Ping 由当前桌面应用发起，用于评估本机到上游的连通性。",
+    "pingSourceServer": "Ping 由 ocswitch server 发起，用于评估服务器到上游的连通性。",
     "moveUp": "上移",
     "moveDown": "下移",
     "moveUpShort": "上移",
