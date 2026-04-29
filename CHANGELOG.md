@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.2.1...v1.3.0) (2026-04-29)
+
+
+### Features
+
+* add server web admin mode ([b1e43c6](https://github.com/Apale7/opencode-provider-switch/commit/b1e43c686c75d72f243427e9b8513c4b40a81403))
+* add trace time filters and stats ([b86f453](https://github.com/Apale7/opencode-provider-switch/commit/b86f453f104d23d3eeff768a326ca4495741f4a9))
+
+
+### Bug Fixes
+
+* **ui:** default language to English ([8b2a263](https://github.com/Apale7/opencode-provider-switch/commit/8b2a26327f1717d33a21d11cf4da3b71ca912dc8))
+* **webadmin:** clarify provider ping origin ([32e475b](https://github.com/Apale7/opencode-provider-switch/commit/32e475b147bbca5ed8d0f80538401e1e19859ada))
+
 ## [1.2.1](https://github.com/Apale7/opencode-provider-switch/compare/v1.2.0...v1.2.1) (2026-04-27)
 
 
