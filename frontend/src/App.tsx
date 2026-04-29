@@ -131,7 +131,7 @@ const emptyPrefs: DesktopPrefsView = {
   minimizeToTray: false,
   notifications: false,
   theme: 'system',
-  language: 'system',
+  language: 'en-US',
 }
 
 const emptyProxySettings: ProxySettingsView = {

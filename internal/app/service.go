@@ -681,10 +681,10 @@ func normalizeThemePreference(value string) string {
 func normalizeLanguagePreference(value string) string {
 	trimmed := strings.TrimSpace(value)
 	switch trimmed {
-	case "en-US", "zh-CN":
+	case "system", "en-US", "zh-CN":
 		return trimmed
 	default:
-		return "system"
+		return "en-US"
 	}
 }
 

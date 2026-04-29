@@ -62,8 +62,38 @@ func TestSaveDesktopPrefsNormalizesUnknownThemeAndLanguage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveDesktopPrefs() error = %v", err)
 	}
-	if prefs.Theme != "system" || prefs.Language != "system" {
+	if prefs.Theme != "system" || prefs.Language != "en-US" {
 		t.Fatalf("normalized prefs = %#v", prefs)
+	}
+}
+
+func TestGetDesktopPrefsDefaultsLanguageToEnglish(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	prefs, err := svc.GetDesktopPrefs(context.Background())
+	if err != nil {
+		t.Fatalf("GetDesktopPrefs() error = %v", err)
+	}
+	if prefs.Language != "en-US" {
+		t.Fatalf("default language = %q, want en-US", prefs.Language)
+	}
+}
+
+func TestSaveDesktopPrefsPreservesSystemLanguage(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	prefs, err := svc.SaveDesktopPrefs(context.Background(), DesktopPrefsInput{Language: "system"})
+	if err != nil {
+		t.Fatalf("SaveDesktopPrefs() error = %v", err)
+	}
+	if prefs.Language != "system" {
+		t.Fatalf("saved language = %q, want system", prefs.Language)
 	}
 }
 
