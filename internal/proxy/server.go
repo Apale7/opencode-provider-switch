@@ -52,13 +52,18 @@ type protocolErrorWriter func(http.ResponseWriter, int, string, string)
 
 // Server is the local ocswitch HTTP proxy.
 type Server struct {
-	cfg                 *config.Config
-	client              *http.Client
+	runtime             atomic.Pointer[serverRuntime]
 	logger              *log.Logger
 	traces              RequestTraceStore
 	store               routing.StateStore
-	policy              routing.Strategy
 	baseURLLatencyCache *providerBaseURLLatencyCache
+}
+
+type serverRuntime struct {
+	cfg       *config.Config
+	client    *http.Client
+	transport *http.Transport
+	policy    routing.Strategy
 }
 
 type providerBaseURLLatencySample struct {
@@ -75,6 +80,34 @@ type providerBaseURLLatencyCache struct {
 
 func newProviderBaseURLLatencyCache(ttl time.Duration) *providerBaseURLLatencyCache {
 	return &providerBaseURLLatencyCache{items: map[string]providerBaseURLLatencySample{}, ttl: ttl}
+}
+
+func newServerRuntime(cfg *config.Config, store routing.StateStore) *serverRuntime {
+	firstByteTimeout := timeoutDuration(cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
+	responseHeaderTimeout := timeoutDuration(cfg.Server.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs)
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   timeoutDuration(cfg.Server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   timeoutDuration(cfg.Server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: minDuration(responseHeaderTimeout, firstByteTimeout),
+		DisableCompression:    false,
+		ForceAttemptHTTP2:     true,
+	}
+	return &serverRuntime{
+		cfg:       cfg,
+		transport: transport,
+		client: &http.Client{
+			Transport: transport,
+			Timeout:   0,
+		},
+		policy: routing.MustBuild(cfg.Server.Routing, routing.Dependencies{Store: store}),
+	}
 }
 
 func providerBaseURLCacheKey(providerID, baseURL string) string {
@@ -117,35 +150,39 @@ func New(cfg *config.Config, stores ...RequestTraceStore) *Server {
 		traces = NewTraceStore(defaultTraceLimit)
 	}
 	store := routing.NewMemoryStateStore()
-	policy := routing.MustBuild(cfg.Server.Routing, routing.Dependencies{Store: store})
-	firstByteTimeout := timeoutDuration(cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
-	responseHeaderTimeout := timeoutDuration(cfg.Server.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs)
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   timeoutDuration(cfg.Server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   timeoutDuration(cfg.Server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
-		ExpectContinueTimeout: 1 * time.Second,
-		ResponseHeaderTimeout: minDuration(responseHeaderTimeout, firstByteTimeout),
-		DisableCompression:    false,
-		ForceAttemptHTTP2:     true,
-	}
-	return &Server{
-		cfg: cfg,
-		client: &http.Client{
-			Transport: transport,
-			Timeout:   0,
-		},
+	s := &Server{
 		logger:              log.New(log.Writer(), "[ocswitch] ", log.LstdFlags|log.Lmicroseconds),
 		traces:              traces,
 		store:               store,
-		policy:              policy,
 		baseURLLatencyCache: newProviderBaseURLLatencyCache(60 * time.Second),
 	}
+	s.runtime.Store(newServerRuntime(cfg, store))
+	return s
+}
+
+// ReloadConfig applies hot-reloadable proxy settings to new requests. Existing
+// in-flight requests continue using the runtime snapshot captured at request start.
+func (s *Server) ReloadConfig(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is required")
+	}
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return errs[0]
+	}
+	next := newServerRuntime(cfg, s.store)
+	previous := s.runtime.Swap(next)
+	if previous != nil && previous.transport != nil {
+		previous.transport.CloseIdleConnections()
+	}
+	return nil
+}
+
+func (s *Server) currentRuntime() *serverRuntime {
+	state := s.runtime.Load()
+	if state == nil {
+		panic("proxy runtime is not initialized")
+	}
+	return state
 }
 
 func (s *Server) orderedProviderBaseURLs(ctx context.Context, provider *config.Provider) []string {
@@ -212,7 +249,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // ListenAndServeWithReady starts the HTTP listener until ctx is cancelled and
 // reports whether the listening socket was bound successfully.
 func (s *Server) ListenAndServeWithReady(ctx context.Context, ready chan<- error) error {
-	addr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.Port)
+	state := s.currentRuntime()
+	addr := fmt.Sprintf("%s:%d", state.cfg.Server.Host, state.cfg.Server.Port)
 	mux := http.NewServeMux()
 	mux.HandleFunc(config.ProtocolLocalRequestPath(config.ProtocolOpenAIResponses), s.handleResponses)
 	mux.HandleFunc(config.ProtocolLocalRequestPath(config.ProtocolAnthropicMessages), s.handleMessages)
@@ -233,7 +271,7 @@ func (s *Server) ListenAndServeWithReady(ctx context.Context, ready chan<- error
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       timeoutDuration(s.cfg.Server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
+		ReadTimeout:       timeoutDuration(state.cfg.Server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
 	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(listener) }()
@@ -253,12 +291,13 @@ func (s *Server) ListenAndServeWithReady(ctx context.Context, ready chan<- error
 // handleModels exposes a minimal /v1/models listing of alias names. OpenCode
 // does not rely on this, but clients sometimes probe it for connectivity.
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	if !s.authorize(r) {
+	state := s.currentRuntime()
+	if !s.authorize(state, r) {
 		writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", "unauthorized")
 		return
 	}
 	data := []map[string]any{}
-	for _, aliasName := range s.cfg.AvailableAliasNames() {
+	for _, aliasName := range state.cfg.AvailableAliasNames() {
 		data = append(data, map[string]any{
 			"id":       aliasName,
 			"object":   "model",
@@ -270,8 +309,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 // authorize enforces the static local api key when one is configured.
-func (s *Server) authorize(r *http.Request) bool {
-	expected := s.cfg.Server.APIKey
+func (s *Server) authorize(state *serverRuntime, r *http.Request) bool {
+	expected := state.cfg.Server.APIKey
 	if expected == "" {
 		return true
 	}
@@ -301,6 +340,7 @@ func (s *Server) handleCompletions(w http.ResponseWriter, r *http.Request) {
 
 // handleProtocolRequest is the main alias→failover proxy entry.
 func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r *http.Request) {
+	state := s.currentRuntime()
 	protocol = config.NormalizeProviderProtocol(protocol)
 	writeProtocolError := protocolErrorWriterFor(protocol)
 	reqID := atomic.AddUint64(&reqCounter, 1)
@@ -309,7 +349,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		writeProtocolError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
-	if !s.authorize(r) {
+	if !s.authorize(state, r) {
 		writeProtocolError(w, http.StatusUnauthorized, "invalid_api_key", "unauthorized")
 		return
 	}
@@ -361,7 +401,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		}
 	}()
 	s.logger.Printf("req=%d incoming model=%q alias=%q stream=%v", reqID, rawModel, aliasName, payload["stream"])
-	alias := s.cfg.FindAlias(aliasName)
+	alias := state.cfg.FindAlias(aliasName)
 	if alias == nil {
 		s.logger.Printf("req=%d alias lookup failed for model=%q alias=%q", reqID, rawModel, aliasName)
 		trace.Error = fmt.Sprintf("alias %q not found", aliasName)
@@ -379,7 +419,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
 		return
 	}
-	targets := s.cfg.AvailableTargets(*alias)
+	targets := state.cfg.AvailableTargets(*alias)
 	if len(targets) == 0 {
 		s.logger.Printf("req=%d alias=%q has no available targets", reqID, aliasName)
 		trace.Error = fmt.Sprintf("alias %q has no available targets", aliasName)
@@ -391,14 +431,14 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 	var lastRetryable *upstreamFailure
 	candidates := make([]routing.Candidate, 0, len(targets))
 	for index, t := range targets {
-		provider := s.cfg.FindProvider(t.Provider)
+		provider := state.cfg.FindProvider(t.Provider)
 		baseURL := ""
 		if provider != nil {
 			baseURL = provider.BaseURL
 		}
 		candidates = append(candidates, routing.Candidate{Index: index, ProviderID: t.Provider, Provider: t.Provider, Protocol: protocol, Model: t.Model, BaseURL: baseURL})
 	}
-	session := s.policy.NewSession(routing.SessionInput{Now: startedAt, RequestID: reqID, Protocol: protocol, Alias: aliasName, Candidates: candidates})
+	session := state.policy.NewSession(routing.SessionInput{Now: startedAt, RequestID: reqID, Protocol: protocol, Alias: aliasName, Candidates: candidates})
 	attempt := 0
 	for {
 		decision, ok := session.Next()
@@ -424,7 +464,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 			failoverCount++
 			continue
 		}
-		p := s.cfg.FindProvider(t.Provider)
+		p := state.cfg.FindProvider(t.Provider)
 		if p == nil || !p.IsEnabled() || !config.ProtocolsMatch(protocol, p.Protocol) {
 			s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt, t.Provider)
 			attemptTrace.Skipped = true
@@ -457,7 +497,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 			return
 		}
 
-		handled, success, retryable, upstreamErr, failure := s.tryProviderBaseURLs(r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
+		handled, success, retryable, upstreamErr, failure := s.tryProviderBaseURLs(state, r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
 		attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 		trace.Attempts = append(trace.Attempts, attemptTrace)
 		trace.FinalProvider = p.ID
@@ -524,6 +564,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 }
 
 func (s *Server) tryProviderBaseURLs(
+	state *serverRuntime,
 	ctx context.Context,
 	protocol string,
 	w http.ResponseWriter,
@@ -549,7 +590,7 @@ func (s *Server) tryProviderBaseURLs(
 		if attemptTrace != nil {
 			attemptTrace.URL = strings.TrimRight(baseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
 		}
-		handled, success, retryable, err, failure = s.tryOnce(ctx, protocol, w, clientReq, &providerCopy, target, body, aliasName, attempt, failoverCount, attemptTrace, trace)
+		handled, success, retryable, err, failure = s.tryOnce(state, ctx, protocol, w, clientReq, &providerCopy, target, body, aliasName, attempt, failoverCount, attemptTrace, trace)
 		if handled || success || !retryable {
 			if success {
 				s.baseURLLatencyCache.put(provider.ID, baseURL, &opencode.ProviderBaseURLProbe{BaseURL: baseURL, Reachable: true, LatencyMs: attemptTrace.FirstByteMs, StatusCode: attemptTrace.StatusCode})
@@ -571,6 +612,7 @@ func (s *Server) tryProviderBaseURLs(
 // handled=true means a downstream response has already been started or completed.
 // retryable=true means failure happened before any bytes flushed downstream.
 func (s *Server) tryOnce(
+	state *serverRuntime,
 	ctx context.Context,
 	protocol string,
 	w http.ResponseWriter,
@@ -606,8 +648,8 @@ func (s *Server) tryOnce(
 	}
 
 	startedAt := time.Now()
-	firstByteTimeout := timeoutDuration(s.cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
-	resp, err := s.client.Do(upReq)
+	firstByteTimeout := timeoutDuration(state.cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
+	resp, err := state.client.Do(upReq)
 	if err != nil {
 		if attemptTrace != nil {
 			attemptTrace.Retryable = true
@@ -689,7 +731,7 @@ func (s *Server) tryOnce(
 	}
 
 	isEventStream := false
-	streamIdleTimeout := timeoutDuration(s.cfg.Server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
+	streamIdleTimeout := timeoutDuration(state.cfg.Server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
 	if mediaType, _, parseErr := mime.ParseMediaType(resp.Header.Get("Content-Type")); parseErr == nil {
 		isEventStream = mediaType == "text/event-stream"
 	}

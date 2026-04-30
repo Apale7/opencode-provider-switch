@@ -1195,9 +1195,10 @@ func TestNewUsesConfiguredTimeouts(t *testing.T) {
 		StreamIdleTimeoutMs:     70000,
 	}})
 
-	transport, ok := srv.client.Transport.(*http.Transport)
+	runtime := srv.currentRuntime()
+	transport, ok := runtime.client.Transport.(*http.Transport)
 	if !ok {
-		t.Fatalf("transport type = %T", srv.client.Transport)
+		t.Fatalf("transport type = %T", runtime.client.Transport)
 	}
 	if transport.ResponseHeaderTimeout != 21*time.Second {
 		t.Fatalf("ResponseHeaderTimeout = %s, want 21s", transport.ResponseHeaderTimeout)

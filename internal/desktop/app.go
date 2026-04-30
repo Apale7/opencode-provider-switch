@@ -249,6 +249,10 @@ func (a *App) TraceList(in app.RequestTraceListInput) (app.RequestTraceListResul
 	return a.bindings.QueryRequestTraces(a.callContext(), in)
 }
 
+func (a *App) ProviderHealth(in app.ProviderHealthInput) (app.ProviderHealthResult, error) {
+	return a.bindings.QueryProviderHealth(a.callContext(), in)
+}
+
 func (a *App) TraceDetail(id uint64) (app.RequestTrace, error) {
 	return a.bindings.GetRequestTrace(a.callContext(), id)
 }

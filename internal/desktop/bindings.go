@@ -109,6 +109,10 @@ func (b *Bindings) QueryRequestTraces(ctx context.Context, in app.RequestTraceLi
 	return b.service.QueryRequestTraces(ctx, in)
 }
 
+func (b *Bindings) QueryProviderHealth(ctx context.Context, in app.ProviderHealthInput) (app.ProviderHealthResult, error) {
+	return b.service.QueryProviderHealth(ctx, in)
+}
+
 func (b *Bindings) GetRequestTrace(ctx context.Context, id uint64) (app.RequestTrace, error) {
 	return b.service.GetRequestTrace(ctx, id)
 }
@@ -217,6 +221,10 @@ func (b *Bindings) RequestTraces(limit int) ([]app.RequestTrace, error) {
 
 func (b *Bindings) TraceList(in app.RequestTraceListInput) (app.RequestTraceListResult, error) {
 	return b.QueryRequestTraces(context.Background(), in)
+}
+
+func (b *Bindings) ProviderHealth(in app.ProviderHealthInput) (app.ProviderHealthResult, error) {
+	return b.QueryProviderHealth(context.Background(), in)
 }
 
 func (b *Bindings) TraceDetail(id uint64) (app.RequestTrace, error) {

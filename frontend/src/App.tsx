@@ -15,6 +15,7 @@ import {
   importProviders,
   listAliases,
   listProviders,
+  queryProviderHealth,
   queryRequestTraces,
   refreshProviderModels,
   previewSync,
@@ -49,6 +50,9 @@ import type {
   Overview,
   ProviderImportInput,
   ProviderImportResult,
+  ProviderHealthResult,
+  ProviderHealthSummary,
+  ProviderHealthView,
   ProviderBaseURLStrategy,
   ProviderPingInput,
   ProviderPingResult,
@@ -104,7 +108,7 @@ type AliasFormState = {
   disabled: boolean
 }
 
-type TabKey = 'overview' | 'providers' | 'aliases' | 'log' | 'network' | 'sync' | 'settings'
+type TabKey = 'overview' | 'providers' | 'aliases' | 'log' | 'network' | 'health' | 'sync' | 'settings'
 type FilterState = 'all' | 'enabled' | 'disabled'
 type ResolvedTheme = 'light' | 'dark'
 type ModalKey = 'provider-import' | 'alias-target' | null
@@ -121,7 +125,7 @@ type ConfirmIntent =
   | { kind: 'delete-alias'; alias: string }
   | { kind: 'unbind-target'; alias: string; provider: string; model: string }
 
-const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'sync', 'settings']
+const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'health', 'sync', 'settings']
 const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switch'
 const protocolOptions: ProviderProtocol[] = ['openai-responses', 'anthropic-messages', 'openai-compatible']
 
@@ -220,6 +224,33 @@ const emptyTraceStats: TraceStats = {
 	failed: 0,
 }
 
+const emptyProviderHealthSummary: ProviderHealthSummary = {
+	requestCount: 0,
+	attemptCount: 0,
+	success: 0,
+	failed: 0,
+	failover: 0,
+	retryableFailures: 0,
+	rateLimited: 0,
+	upstream5xx: 0,
+	timeouts: 0,
+	transportErrors: 0,
+	streamErrors: 0,
+	inputTokens: 0,
+	outputTokens: 0,
+	totalTokens: 0,
+	sampledProviders: 0,
+	lowSampleProviders: 0,
+}
+
+const emptyProviderHealth: ProviderHealthResult = {
+	summary: emptyProviderHealthSummary,
+	providers: [],
+	availableAliases: [],
+	availableProviders: [],
+	warnings: [],
+}
+
 const emptyTraceTimeFilter: TraceTimeFilterState = {
 	preset: 'run',
 	start: '',
@@ -231,6 +262,11 @@ type TraceQueryState = {
 	aliases: string[]
 	failoverCounts: number[]
 	statusCodes: number[]
+}
+
+type ProviderHealthQueryState = {
+	aliases: string[]
+	providers: string[]
 }
 
 type TraceCatalogState = {
@@ -246,6 +282,11 @@ const emptyTraceQuery: TraceQueryState = {
 	aliases: [],
 	failoverCounts: [],
 	statusCodes: [],
+}
+
+const emptyProviderHealthQuery: ProviderHealthQueryState = {
+	aliases: [],
+	providers: [],
 }
 
 const emptyTraceCatalog: TraceCatalogState = {
@@ -706,8 +747,51 @@ function formatUsageText(value?: number | string): string {
   return value
 }
 
+function formatPercent(value?: number): string {
+	if (value == null || Number.isNaN(value)) {
+		return '-'
+	}
+	return `${Math.round(value * 100)}%`
+}
+
+function formatHealthRole(role: string): string {
+	return i18n.t(`health.role.${role}`, { defaultValue: role || '-' })
+}
+
+function formatHealthSampleLevel(level: string): string {
+	return i18n.t(`health.sample.${level}`, { defaultValue: level || '-' })
+}
+
+function healthSampleBadgeClass(level: string): string {
+	return level === 'ok' ? 'live' : level === 'low' ? 'warn' : 'idle'
+}
+
+function providerHealthFailureText(provider: ProviderHealthView): string {
+	return [
+		provider.rateLimited > 0 ? i18n.t('health.failure429', { count: provider.rateLimited }) : '',
+		provider.upstream5xx > 0 ? i18n.t('health.failure5xx', { count: provider.upstream5xx }) : '',
+		provider.timeouts > 0 ? i18n.t('health.failureTimeout', { count: provider.timeouts }) : '',
+		provider.transportErrors > 0 ? i18n.t('health.failureTransport', { count: provider.transportErrors }) : '',
+	]
+		.filter(Boolean)
+		.join(' · ') || '-'
+}
+
+function providerHealthPrimaryAlias(provider: ProviderHealthView): string {
+	const first = provider.aliases?.[0]
+	if (!first) {
+		return '-'
+	}
+	const extra = provider.aliases && provider.aliases.length > 1 ? ` +${provider.aliases.length - 1}` : ''
+	return `${first.alias} #${first.targetIndex + 1}${extra}`
+}
+
 function isProviderProtocol(value?: string): value is ProviderProtocol {
   return value === 'openai-responses' || value === 'anthropic-messages' || value === 'openai-compatible'
+}
+
+function providerHealthProtocol(provider: ProviderHealthView): ProviderProtocol | null {
+	return isProviderProtocol(provider.protocol) ? provider.protocol : null
 }
 
 function usageSourceLabel(source?: string): string {
@@ -858,6 +942,60 @@ function TraceMultiSelectFilter({
 									onChange={(event) => onToggle(value, event.target.checked)}
 								/>
 								<span>{formatValue(value)}</span>
+							</label>
+						)) : <span className="subtle small-text">{emptyLabel}</span>}
+					</div>
+				</div>
+			</details>
+		</div>
+	)
+}
+
+function TraceStringMultiSelectFilter({
+	label,
+	allLabel,
+	selectedLabel,
+	clearLabel,
+	emptyLabel,
+	values,
+	selectedValues,
+	onToggle,
+	onClear,
+}: {
+	label: string
+	allLabel: string
+	selectedLabel: string
+	clearLabel: string
+	emptyLabel: string
+	values: string[]
+	selectedValues: string[]
+	onToggle: (value: string, selected: boolean) => void
+	onClear: () => void
+}) {
+	return (
+		<div className="filter-group trace-select-filter">
+			<span className="filter-group-label">{label}</span>
+			<details className="filter-popover">
+				<summary className="filter-popover-trigger">
+					<span>{selectedValues.length > 0 ? selectedLabel : allLabel}</span>
+					<span className="filter-popover-caret" aria-hidden="true" />
+				</summary>
+				<div className="filter-popover-panel">
+					<div className="filter-popover-head">
+						<span className="filter-group-label">{label}</span>
+						<button type="button" className="filter-link-button" onClick={onClear} disabled={selectedValues.length === 0}>
+							{clearLabel}
+						</button>
+					</div>
+					<div className="filter-option-list">
+						{values.length > 0 ? values.map((value) => (
+							<label className="filter-option" key={value}>
+								<input
+									type="checkbox"
+									checked={selectedValues.includes(value)}
+									onChange={(event) => onToggle(value, event.target.checked)}
+								/>
+								<span>{value}</span>
 							</label>
 						)) : <span className="subtle small-text">{emptyLabel}</span>}
 					</div>
@@ -1054,6 +1192,10 @@ export default function App() {
   const [logTraceTotal, setLogTraceTotal] = useState(0)
   const [networkTraceTotal, setNetworkTraceTotal] = useState(0)
   const [traceStats, setTraceStats] = useState<TraceStats>(emptyTraceStats)
+  const [providerHealth, setProviderHealth] = useState<ProviderHealthResult>(emptyProviderHealth)
+  const [providerHealthQuery, setProviderHealthQuery] = useState<ProviderHealthQueryState>(emptyProviderHealthQuery)
+  const [providerHealthLoaded, setProviderHealthLoaded] = useState(false)
+  const [providerHealthStatus, setProviderHealthStatus] = useState('')
   const [logTraceLoaded, setLogTraceLoaded] = useState(false)
   const [networkTraceLoaded, setNetworkTraceLoaded] = useState(false)
   const [logTraceCatalog, setLogTraceCatalog] = useState<TraceCatalogState>(emptyTraceCatalog)
@@ -1091,8 +1233,10 @@ export default function App() {
   const networkDetailRef = useRef<HTMLDivElement | null>(null)
   const logTraceRequestRef = useRef(0)
   const networkTraceRequestRef = useRef(0)
+  const providerHealthRequestRef = useRef(0)
   const logTraceLoadingKeyRef = useRef<string | null>(null)
   const networkTraceLoadingKeyRef = useRef<string | null>(null)
+  const providerHealthLoadingKeyRef = useRef<string | null>(null)
 
   const fetchTracePage = useCallback(async (query: TraceQueryState, range: { startedFrom?: string; startedTo?: string }): Promise<RequestTraceListResult> => {
 	return queryRequestTraces({
@@ -1160,6 +1304,39 @@ export default function App() {
 		}
 	}
   }, [applyTracePageResult, fetchTracePage])
+
+  const loadProviderHealth = useCallback(async (query: ProviderHealthQueryState, timeFilter: TraceTimeFilterState, proxyStartedAt?: string) => {
+	const range = traceTimeRange(timeFilter, proxyStartedAt)
+	const queryKey = [query.aliases.join('\u0000'), query.providers.join('\u0000'), timeFilter.preset, range.startedFrom || '', range.startedTo || ''].join('|')
+	if (providerHealthLoadingKeyRef.current === queryKey) {
+		return
+	}
+	const requestId = providerHealthRequestRef.current + 1
+	providerHealthRequestRef.current = requestId
+	providerHealthLoadingKeyRef.current = queryKey
+	try {
+		const result = await queryProviderHealth({
+			aliases: query.aliases,
+			providers: query.providers,
+			startedFrom: range.startedFrom,
+			startedTo: range.startedTo,
+		})
+		if (providerHealthRequestRef.current !== requestId) {
+			return
+		}
+		setProviderHealth({ ...emptyProviderHealth, ...result, summary: result.summary || emptyProviderHealthSummary })
+		setProviderHealthLoaded(true)
+		setProviderHealthStatus(i18n.t('messages.fresh'))
+	} catch (error) {
+		if (providerHealthRequestRef.current === requestId) {
+			setProviderHealthStatus(formatError(error))
+		}
+	} finally {
+		if (providerHealthLoadingKeyRef.current === queryKey) {
+			providerHealthLoadingKeyRef.current = null
+		}
+	}
+  }, [])
 
   const refreshAll = useCallback(async (options?: { syncDesktopPrefs?: boolean }) => {
     const syncDesktopPrefs = options?.syncDesktopPrefs ?? false
@@ -1265,6 +1442,8 @@ export default function App() {
   const traceTimeRangeLabel = formatTraceRangeValue(traceTimeRangeValue)
   const logPageCount = tracePageCount(logTraceTotal, tracePageSize)
   const networkPageCount = tracePageCount(networkTraceTotal, tracePageSize)
+  const providerHealthAliasOptions = providerHealth.availableAliases || []
+  const providerHealthProviderOptions = providerHealth.availableProviders || []
   const desktopPrefsAvailable = meta.capabilities?.desktopPrefs ?? meta.shell !== 'server'
   const openCodeDirectSyncAvailable = meta.capabilities?.openCodeDirectSync ?? meta.shell !== 'server'
   const providerPingSource = meta.shell === 'server' ? t('providers.pingSourceServer') : t('providers.pingSourceDesktop')
@@ -1321,6 +1500,26 @@ export default function App() {
       window.clearInterval(timer)
     }
   }, [activeTab, loadTraceQuery, logTraceQuery, networkTraceQuery, proxyStartedAt, traceTimeFilter])
+
+  useEffect(() => {
+	if (activeTab !== 'health') {
+		return
+	}
+	let cancelled = false
+	const tick = async () => {
+		if (!cancelled) {
+			await loadProviderHealth(providerHealthQuery, traceTimeFilter, proxyStartedAt)
+		}
+	}
+	void tick()
+	const timer = window.setInterval(() => {
+		void tick()
+	}, 5000)
+	return () => {
+		cancelled = true
+		window.clearInterval(timer)
+	}
+  }, [activeTab, loadProviderHealth, providerHealthQuery, proxyStartedAt, traceTimeFilter])
 
   useEffect(() => {
     if (activeTab === 'providers' && providerDetailOpen) {
@@ -2059,6 +2258,36 @@ export default function App() {
 
 	function clearNetworkStatusCodeFilter() {
 		updateNetworkTraceQuery((current) => ({ ...current, page: 1, statusCodes: [] }))
+	}
+
+	function updateProviderHealthQuery(update: (current: ProviderHealthQueryState) => ProviderHealthQueryState) {
+		setProviderHealthQuery((current) => update(current))
+	}
+
+	function setProviderHealthAliasFilter(alias: string, selected: boolean) {
+		updateProviderHealthQuery((current) => ({
+			...current,
+			aliases: selected
+				? [...current.aliases, alias].sort((left, right) => left.localeCompare(right))
+				: current.aliases.filter((item) => item !== alias),
+		}))
+	}
+
+	function clearProviderHealthAliasFilter() {
+		updateProviderHealthQuery((current) => ({ ...current, aliases: [] }))
+	}
+
+	function setProviderHealthProviderFilter(provider: string, selected: boolean) {
+		updateProviderHealthQuery((current) => ({
+			...current,
+			providers: selected
+				? [...current.providers, provider].sort((left, right) => left.localeCompare(right))
+				: current.providers.filter((item) => item !== provider),
+		}))
+	}
+
+	function clearProviderHealthProviderFilter() {
+		updateProviderHealthQuery((current) => ({ ...current, providers: [] }))
 	}
 
   async function onUnbindTarget(alias: string, provider: string, model: string) {
@@ -3056,6 +3285,7 @@ export default function App() {
                 </div>
                 <div className="list-header-actions">
 	                  <span className="subtle list-status-text">{networkTraceLoaded ? t('network.count', { count: networkTraceTotal }) : t('messages.loading')}</span>
+                  <button type="button" onClick={() => selectTab('health')}>{t('health.openFromNetwork')}</button>
                 </div>
               </div>
 	              <div className="list-toolbar trace-toolbar trace-toolbar-grid">
@@ -3168,6 +3398,168 @@ export default function App() {
 	                  {t('network.nextPage')}
 	                </button>
 	              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {activeTab === 'health' ? (
+          <section className="tab-layout health-layout">
+            <article className="panel panel-full">
+              <div className="panel-header">
+                <div>
+                  <h3>{t('health.title')}</h3>
+                  <p className="subtle">{providerHealthStatus || t('health.subtitle')}</p>
+                </div>
+                <div className="list-header-actions">
+                  <span className="subtle list-status-text">{providerHealthLoaded ? t('health.count', { count: providerHealth.providers.length }) : t('messages.loading')}</span>
+                  <button type="button" onClick={() => void loadProviderHealth(providerHealthQuery, traceTimeFilter, proxyStartedAt)}>
+                    {t('actions.refresh')}
+                  </button>
+                </div>
+              </div>
+              <div className="list-toolbar trace-toolbar trace-toolbar-grid health-toolbar-grid">
+                <TraceTimeFilterControls
+                  filter={traceTimeFilter}
+                  rangeLabel={traceTimeRangeLabel}
+                  runDisabled={!proxyStartedAt}
+                  onPreset={selectTraceTimePreset}
+                  onStart={setTraceTimeStart}
+                  onEnd={setTraceTimeEnd}
+                  onEndNow={setTraceTimeEndNow}
+                />
+                <TraceStringMultiSelectFilter
+                  label={t('health.aliasFilter')}
+                  allLabel={t('health.aliasAll')}
+                  selectedLabel={t('health.aliasSelectedCount', { count: providerHealthQuery.aliases.length })}
+                  clearLabel={t('health.aliasClear')}
+                  emptyLabel={t('health.aliasEmpty')}
+                  values={providerHealthAliasOptions}
+                  selectedValues={providerHealthQuery.aliases}
+                  onToggle={setProviderHealthAliasFilter}
+                  onClear={clearProviderHealthAliasFilter}
+                />
+                <TraceStringMultiSelectFilter
+                  label={t('health.providerFilter')}
+                  allLabel={t('health.providerAll')}
+                  selectedLabel={t('health.providerSelectedCount', { count: providerHealthQuery.providers.length })}
+                  clearLabel={t('health.providerClear')}
+                  emptyLabel={t('health.providerEmpty')}
+                  values={providerHealthProviderOptions}
+                  selectedValues={providerHealthQuery.providers}
+                  onToggle={setProviderHealthProviderFilter}
+                  onClear={clearProviderHealthProviderFilter}
+                />
+              </div>
+            </article>
+
+            <article className="panel panel-full health-warning-panel">
+              <div className="issue-card health-warning-card">
+                <div className="issue-card-head">
+                  <span className="badge warn">{t('health.biasBadge')}</span>
+                  <strong>{t('health.biasTitle')}</strong>
+                </div>
+                <p className="subtle">{t('health.biasDescription')}</p>
+              </div>
+            </article>
+
+            <section className="health-summary-grid panel-full" aria-label={t('health.summaryTitle')}>
+              <div className="trace-stat-card trace-stat-success">
+                <span className="stat-label">{t('health.summaryRequests')}</span>
+                <strong>{providerHealth.summary.requestCount.toLocaleString()}</strong>
+              </div>
+              <div className="trace-stat-card">
+                <span className="stat-label">{t('health.summaryAttempts')}</span>
+                <strong>{providerHealth.summary.attemptCount.toLocaleString()}</strong>
+              </div>
+              <div className="trace-stat-card trace-stat-failover">
+                <span className="stat-label">{t('health.summaryFailover')}</span>
+                <strong>{providerHealth.summary.failover.toLocaleString()}</strong>
+              </div>
+              <div className="trace-stat-card trace-stat-failed">
+                <span className="stat-label">{t('health.summaryRetryable')}</span>
+                <strong>{providerHealth.summary.retryableFailures.toLocaleString()}</strong>
+              </div>
+              <div className="trace-stat-card">
+                <span className="stat-label">{t('health.summaryP95Ttfb')}</span>
+                <strong>{formatCompactDuration(providerHealth.summary.firstByteP95Ms)}</strong>
+              </div>
+              <div className="trace-stat-card">
+                <span className="stat-label">{t('health.summaryTokens')}</span>
+                <strong>{formatTokenCount(providerHealth.summary.totalTokens)}</strong>
+              </div>
+            </section>
+
+            <article className="panel panel-full health-table-panel">
+              <div className="panel-header compact-header">
+                <div>
+                  <h3>{t('health.tableTitle')}</h3>
+                  <p className="subtle">{t('health.tableSubtitle')}</p>
+                </div>
+              </div>
+              <div className="scroll-list compact-list trace-scroll-list health-scroll-list">
+                {providerHealthLoaded && providerHealth.providers.length === 0 ? (
+                  <article className="empty-card compact-empty">
+                    <h4>{t('health.empty')}</h4>
+                    <p className="subtle">{t('health.emptyHint')}</p>
+                  </article>
+                ) : null}
+                {providerHealth.providers.length > 0 ? (
+                  <div className="trace-table health-table" role="table" aria-label={t('health.tableTitle')}>
+                    <div className="trace-table-header" role="row">
+                      <span className="trace-table-head" role="columnheader">{t('health.tableProvider')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.tableTraffic')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.tableReliability')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.tableLatency')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.tableFailures')}</span>
+                      <span className="trace-table-head trace-table-head-end" role="columnheader">{t('health.tableTokens')}</span>
+                    </div>
+                    <div className="trace-table-body">
+                      {providerHealth.providers.map((provider) => {
+                        const protocol = providerHealthProtocol(provider)
+                        return (
+                          <article className="trace-table-row health-table-row" role="row" key={provider.provider}>
+                            <div className="trace-table-cell" role="cell" data-label={t('health.tableProvider')}>
+                              <div className="trace-model-cell">
+                                <div className="trace-model-line">
+                                  <strong className="trace-model-name">{provider.name || provider.provider}</strong>
+                                  {protocol ? <span className={protocolBadgeClass(protocol)}>{protocolLabel(protocol)}</span> : null}
+                                  {provider.disabled ? <span className="badge idle">{t('status.disabled')}</span> : null}
+                                </div>
+                                <span className="trace-table-muted trace-mono">{provider.provider}</span>
+                              </div>
+                            </div>
+                            <div className="trace-table-cell" role="cell" data-label={t('health.tableTraffic')}>
+                              <div className="trace-table-metric health-metric-stack">
+                                <span className="trace-mono">{t('health.attemptsValue', { attempts: provider.attemptCount, requests: provider.requestCount })}</span>
+                                <span className={`badge ${healthSampleBadgeClass(provider.sampleLevel)}`}>{formatHealthSampleLevel(provider.sampleLevel)}</span>
+                                <span className="trace-table-muted">{formatHealthRole(provider.role)} · {providerHealthPrimaryAlias(provider)}</span>
+                              </div>
+                            </div>
+                            <div className="trace-table-cell" role="cell" data-label={t('health.tableReliability')}>
+                              <div className="trace-table-metric health-metric-stack">
+                                <span className="trace-mono">{formatPercent(provider.observedSuccessRate)} / {formatPercent(provider.retryableFailureRate)}</span>
+                                <span className="trace-table-muted">{t('health.successRetryableHint')}</span>
+                              </div>
+                            </div>
+                            <div className="trace-table-cell" role="cell" data-label={t('health.tableLatency')}>
+                              <span className="trace-mono">{formatCompactDuration(provider.firstByteP50Ms)} / {formatCompactDuration(provider.firstByteP95Ms)}</span>
+                            </div>
+                            <div className="trace-table-cell" role="cell" data-label={t('health.tableFailures')}>
+                              <span className="trace-table-ellipsis">{providerHealthFailureText(provider)}</span>
+                            </div>
+                            <div className="trace-table-cell trace-status-cell" role="cell" data-label={t('health.tableTokens')}>
+                              <div className="trace-status-stack">
+                                <span className="trace-mono">{formatTokenCount(provider.totalTokens)}</span>
+                                <span className="trace-table-muted">{t('health.finalSuccessValue', { count: provider.finalSuccess })}</span>
+                              </div>
+                            </div>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </article>
           </section>
         ) : null}

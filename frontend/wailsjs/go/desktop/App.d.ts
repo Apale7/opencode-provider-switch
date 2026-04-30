@@ -26,6 +26,8 @@ export function ExportConfig():Promise<app.ConfigExportView>;
 
 export function ImportConfig(arg1:app.ConfigImportInput):Promise<app.ConfigImportResult>;
 
+export function ImportConfigHTTP(arg1:context.Context,arg2:app.ConfigImportInput):Promise<app.ConfigImportResult>;
+
 export function ImportProviders(arg1:app.ProviderImportInput):Promise<app.ProviderImportResult>;
 
 export function Meta():Promise<Record<string, string>>;
@@ -37,6 +39,8 @@ export function Overview():Promise<app.Overview>;
 export function PingProviderBaseURL(arg1:app.ProviderPingInput):Promise<app.ProviderPingResult>;
 
 export function PreviewSync(arg1:app.SyncInput):Promise<app.SyncPreview>;
+
+export function ProviderHealth(arg1:app.ProviderHealthInput):Promise<app.ProviderHealthResult>;
 
 export function Providers():Promise<Array<app.ProviderView>>;
 

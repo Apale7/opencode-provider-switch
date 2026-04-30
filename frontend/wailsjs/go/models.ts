@@ -709,6 +709,234 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class ProviderHealthAlias {
+	    alias: string;
+	    model?: string;
+	    role: string;
+	    targetIndex: number;
+	    attempts: number;
+	    success: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderHealthAlias(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.alias = source["alias"];
+	        this.model = source["model"];
+	        this.role = source["role"];
+	        this.targetIndex = source["targetIndex"];
+	        this.attempts = source["attempts"];
+	        this.success = source["success"];
+	    }
+	}
+	export class ProviderHealthInput {
+	    aliases?: string[];
+	    providers?: string[];
+	    startedFrom?: string;
+	    startedTo?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderHealthInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.aliases = source["aliases"];
+	        this.providers = source["providers"];
+	        this.startedFrom = source["startedFrom"];
+	        this.startedTo = source["startedTo"];
+	    }
+	}
+	export class ProviderHealthView {
+	    provider: string;
+	    name?: string;
+	    protocol?: string;
+	    role: string;
+	    configured: boolean;
+	    disabled?: boolean;
+	    sampleLevel: string;
+	    requestCount: number;
+	    attemptCount: number;
+	    primaryAttempts: number;
+	    backupAttempts: number;
+	    success: number;
+	    finalSuccess: number;
+	    terminalFailures: number;
+	    retryableFailures: number;
+	    skipped: number;
+	    rateLimited: number;
+	    upstream5xx: number;
+	    upstream4xx: number;
+	    timeouts: number;
+	    transportErrors: number;
+	    streamErrors: number;
+	    emptyResponses: number;
+	    otherFailures: number;
+	    failoverInvolved: number;
+	    inputTokens: number;
+	    outputTokens: number;
+	    totalTokens: number;
+	    firstByteP50Ms?: number;
+	    firstByteP95Ms?: number;
+	    durationP50Ms?: number;
+	    durationP95Ms?: number;
+	    observedSuccessRate: number;
+	    retryableFailureRate: number;
+	    aliases?: ProviderHealthAlias[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderHealthView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.name = source["name"];
+	        this.protocol = source["protocol"];
+	        this.role = source["role"];
+	        this.configured = source["configured"];
+	        this.disabled = source["disabled"];
+	        this.sampleLevel = source["sampleLevel"];
+	        this.requestCount = source["requestCount"];
+	        this.attemptCount = source["attemptCount"];
+	        this.primaryAttempts = source["primaryAttempts"];
+	        this.backupAttempts = source["backupAttempts"];
+	        this.success = source["success"];
+	        this.finalSuccess = source["finalSuccess"];
+	        this.terminalFailures = source["terminalFailures"];
+	        this.retryableFailures = source["retryableFailures"];
+	        this.skipped = source["skipped"];
+	        this.rateLimited = source["rateLimited"];
+	        this.upstream5xx = source["upstream5xx"];
+	        this.upstream4xx = source["upstream4xx"];
+	        this.timeouts = source["timeouts"];
+	        this.transportErrors = source["transportErrors"];
+	        this.streamErrors = source["streamErrors"];
+	        this.emptyResponses = source["emptyResponses"];
+	        this.otherFailures = source["otherFailures"];
+	        this.failoverInvolved = source["failoverInvolved"];
+	        this.inputTokens = source["inputTokens"];
+	        this.outputTokens = source["outputTokens"];
+	        this.totalTokens = source["totalTokens"];
+	        this.firstByteP50Ms = source["firstByteP50Ms"];
+	        this.firstByteP95Ms = source["firstByteP95Ms"];
+	        this.durationP50Ms = source["durationP50Ms"];
+	        this.durationP95Ms = source["durationP95Ms"];
+	        this.observedSuccessRate = source["observedSuccessRate"];
+	        this.retryableFailureRate = source["retryableFailureRate"];
+	        this.aliases = this.convertValues(source["aliases"], ProviderHealthAlias);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProviderHealthSummary {
+	    requestCount: number;
+	    attemptCount: number;
+	    success: number;
+	    failed: number;
+	    failover: number;
+	    retryableFailures: number;
+	    rateLimited: number;
+	    upstream5xx: number;
+	    timeouts: number;
+	    transportErrors: number;
+	    streamErrors: number;
+	    inputTokens: number;
+	    outputTokens: number;
+	    totalTokens: number;
+	    firstByteP50Ms?: number;
+	    firstByteP95Ms?: number;
+	    durationP50Ms?: number;
+	    durationP95Ms?: number;
+	    sampledProviders: number;
+	    lowSampleProviders: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderHealthSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.requestCount = source["requestCount"];
+	        this.attemptCount = source["attemptCount"];
+	        this.success = source["success"];
+	        this.failed = source["failed"];
+	        this.failover = source["failover"];
+	        this.retryableFailures = source["retryableFailures"];
+	        this.rateLimited = source["rateLimited"];
+	        this.upstream5xx = source["upstream5xx"];
+	        this.timeouts = source["timeouts"];
+	        this.transportErrors = source["transportErrors"];
+	        this.streamErrors = source["streamErrors"];
+	        this.inputTokens = source["inputTokens"];
+	        this.outputTokens = source["outputTokens"];
+	        this.totalTokens = source["totalTokens"];
+	        this.firstByteP50Ms = source["firstByteP50Ms"];
+	        this.firstByteP95Ms = source["firstByteP95Ms"];
+	        this.durationP50Ms = source["durationP50Ms"];
+	        this.durationP95Ms = source["durationP95Ms"];
+	        this.sampledProviders = source["sampledProviders"];
+	        this.lowSampleProviders = source["lowSampleProviders"];
+	    }
+	}
+	export class ProviderHealthResult {
+	    summary: ProviderHealthSummary;
+	    providers: ProviderHealthView[];
+	    availableAliases?: string[];
+	    availableProviders?: string[];
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderHealthResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.summary = this.convertValues(source["summary"], ProviderHealthSummary);
+	        this.providers = this.convertValues(source["providers"], ProviderHealthView);
+	        this.availableAliases = source["availableAliases"];
+	        this.availableProviders = source["availableProviders"];
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class ProviderImportInput {
 	    sourcePath?: string;
 	    overwrite: boolean;
@@ -1389,6 +1617,7 @@ export namespace app {
 	    setModel?: string;
 	    setSmallModel?: string;
 	    dryRun: boolean;
+	    copyOnly?: boolean;
 	    runtimeBaseUrl?: string;
 	    runtimeDirectory?: string;
 	
@@ -1402,6 +1631,7 @@ export namespace app {
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
 	        this.dryRun = source["dryRun"];
+	        this.copyOnly = source["copyOnly"];
 	        this.runtimeBaseUrl = source["runtimeBaseUrl"];
 	        this.runtimeDirectory = source["runtimeDirectory"];
 	    }
@@ -1427,6 +1657,7 @@ export namespace app {
 	    protocols: SyncedProviderView[];
 	    setModel?: string;
 	    setSmallModel?: string;
+	    content?: string;
 	    wouldChange: boolean;
 	    runtimeBaseUrl?: string;
 	    runtimeDirectory?: string;
@@ -1445,6 +1676,7 @@ export namespace app {
 	        this.protocols = this.convertValues(source["protocols"], SyncedProviderView);
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
+	        this.content = source["content"];
 	        this.wouldChange = source["wouldChange"];
 	        this.runtimeBaseUrl = source["runtimeBaseUrl"];
 	        this.runtimeDirectory = source["runtimeDirectory"];
@@ -1479,6 +1711,7 @@ export namespace app {
 	    dryRun: boolean;
 	    setModel?: string;
 	    setSmallModel?: string;
+	    content?: string;
 	    runtimeBaseUrl?: string;
 	    runtimeDirectory?: string;
 	    fileSnapshot: OpenCodeFileSnapshot;
@@ -1498,6 +1731,7 @@ export namespace app {
 	        this.dryRun = source["dryRun"];
 	        this.setModel = source["setModel"];
 	        this.setSmallModel = source["setSmallModel"];
+	        this.content = source["content"];
 	        this.runtimeBaseUrl = source["runtimeBaseUrl"];
 	        this.runtimeDirectory = source["runtimeDirectory"];
 	        this.fileSnapshot = this.convertValues(source["fileSnapshot"], OpenCodeFileSnapshot);

@@ -46,6 +46,10 @@ export function ImportConfig(arg1) {
   return window['go']['desktop']['App']['ImportConfig'](arg1);
 }
 
+export function ImportConfigHTTP(arg1, arg2) {
+  return window['go']['desktop']['App']['ImportConfigHTTP'](arg1, arg2);
+}
+
 export function ImportProviders(arg1) {
   return window['go']['desktop']['App']['ImportProviders'](arg1);
 }
@@ -68,6 +72,10 @@ export function PingProviderBaseURL(arg1) {
 
 export function PreviewSync(arg1) {
   return window['go']['desktop']['App']['PreviewSync'](arg1);
+}
+
+export function ProviderHealth(arg1) {
+  return window['go']['desktop']['App']['ProviderHealth'](arg1);
 }
 
 export function Providers() {

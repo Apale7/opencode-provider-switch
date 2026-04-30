@@ -39,6 +39,7 @@ type Service interface {
 	SaveProxySettings(context.Context, appcore.ProxySettingsInput) (appcore.ProxySettingsSaveResult, error)
 	ListRequestTraces(context.Context, int) ([]appcore.RequestTrace, error)
 	QueryRequestTraces(context.Context, appcore.RequestTraceListInput) (appcore.RequestTraceListResult, error)
+	QueryProviderHealth(context.Context, appcore.ProviderHealthInput) (appcore.ProviderHealthResult, error)
 	GetRequestTrace(context.Context, uint64) (appcore.RequestTrace, error)
 	StartProxy(context.Context) (appcore.ProxyStatusView, error)
 	StopProxy(context.Context) (appcore.ProxyStatusView, error)
@@ -394,6 +395,19 @@ func NewHandler(opts Options) (http.Handler, error) {
 			return
 		}
 		data, err := b.GetRequestTrace(r.Context(), payload.ID)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/proxy/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.ProviderHealthInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.QueryProviderHealth(r.Context(), in)
 		writeResult(w, data, err)
 	})
 

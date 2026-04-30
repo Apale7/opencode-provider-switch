@@ -23,6 +23,7 @@ type RequestTraceStore interface {
 	Add(ctx context.Context, trace RequestTrace) error
 	List(ctx context.Context, limit int) ([]RequestTrace, error)
 	Query(ctx context.Context, query TraceQuery) (TraceQueryResult, error)
+	QueryAll(ctx context.Context, query TraceQuery) ([]RequestTrace, error)
 	Get(ctx context.Context, id uint64) (RequestTrace, bool, error)
 	Close() error
 }
@@ -199,6 +200,23 @@ func (s *TraceStore) Query(ctx context.Context, query TraceQuery) (TraceQueryRes
 		AvailableStatusCodes:    collectAvailableStatusCodes(timeScoped),
 		Stats:                   collectTraceStats(timeScoped),
 	}, nil
+}
+
+func (s *TraceStore) QueryAll(ctx context.Context, query TraceQuery) ([]RequestTrace, error) {
+	_ = ctx
+	query = normalizeTraceQuery(query)
+	if s == nil {
+		return nil, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]RequestTrace, 0, len(s.traces))
+	for _, trace := range s.traces {
+		if traceMatchesQuery(trace, query) {
+			out = append(out, cloneTrace(trace))
+		}
+	}
+	return out, nil
 }
 
 func (s *TraceStore) Get(ctx context.Context, id uint64) (RequestTrace, bool, error) {

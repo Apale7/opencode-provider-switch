@@ -323,6 +323,48 @@ FROM request_traces`
 	return result, nil
 }
 
+func (s *SQLiteTraceStore) QueryAll(ctx context.Context, query TraceQuery) ([]RequestTrace, error) {
+	if s == nil {
+		return nil, nil
+	}
+	query = normalizeTraceQuery(query)
+	items := []RequestTrace{}
+	err := s.withDB(ctx, func(db *sql.DB) error {
+		where, args := buildSQLiteTraceWhere(query)
+		listSQL := `
+SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
+	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+	final_model, final_url, failover, attempt_count, request_headers_json,
+	request_params_json, usage_json, attempts_json
+FROM request_traces`
+		if where != "" {
+			listSQL += " WHERE " + where
+		}
+		listSQL += " ORDER BY started_at DESC, id DESC"
+		rows, err := db.QueryContext(ctx, listSQL, args...)
+		if err != nil {
+			return fmt.Errorf("query all traces: %w", err)
+		}
+		defer rows.Close()
+		items = []RequestTrace{}
+		for rows.Next() {
+			trace, err := scanSQLiteTrace(rows)
+			if err != nil {
+				return err
+			}
+			items = append(items, trace)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate all traces: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (s *SQLiteTraceStore) Get(ctx context.Context, id uint64) (RequestTrace, bool, error) {
 	if s == nil || id == 0 {
 		return RequestTrace{}, false, nil

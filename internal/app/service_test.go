@@ -893,6 +893,104 @@ func TestQueryRequestTracesAcceptsTimeRange(t *testing.T) {
 	}
 }
 
+func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Providers = []config.Provider{
+		{ID: "primary", Name: "Primary", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://primary.example/v1", APIKey: "sk-primary"},
+		{ID: "backup", Name: "Backup", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://backup.example/v1", APIKey: "sk-backup"},
+	}
+	cfg.Aliases = []config.Alias{
+		{Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true, Targets: []config.Target{
+			{Provider: "primary", Model: "model-a", Enabled: true},
+			{Provider: "backup", Model: "model-b", Enabled: true},
+		}},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	svc.traces = proxy.NewTraceStore(10)
+	startedAt := time.Now().UTC()
+	traces := []proxy.RequestTrace{
+		{
+			ID:            1,
+			StartedAt:     startedAt,
+			Protocol:      config.ProtocolOpenAIResponses,
+			Alias:         "chat",
+			Success:       true,
+			StatusCode:    http.StatusOK,
+			FinalProvider: "primary",
+			InputTokens:   10,
+			OutputTokens:  20,
+			FirstByteMs:   30,
+			DurationMs:    100,
+			AttemptCount:  1,
+			Attempts:      []proxy.TraceAttempt{{Attempt: 1, Provider: "primary", Model: "model-a", Success: true, StatusCode: http.StatusOK, Result: "success", FirstByteMs: 30, DurationMs: 100}},
+		},
+		{
+			ID:            2,
+			StartedAt:     startedAt.Add(time.Second),
+			Protocol:      config.ProtocolOpenAIResponses,
+			Alias:         "chat",
+			Success:       true,
+			StatusCode:    http.StatusOK,
+			FinalProvider: "backup",
+			InputTokens:   5,
+			OutputTokens:  7,
+			FirstByteMs:   40,
+			DurationMs:    170,
+			Failover:      true,
+			AttemptCount:  2,
+			Attempts: []proxy.TraceAttempt{
+				{Attempt: 1, Provider: "primary", Model: "model-a", Retryable: true, StatusCode: http.StatusInternalServerError, Result: "retryable_failure", DurationMs: 50},
+				{Attempt: 2, Provider: "backup", Model: "model-b", Success: true, StatusCode: http.StatusOK, Result: "success", FirstByteMs: 40, DurationMs: 120},
+			},
+		},
+	}
+	for _, trace := range traces {
+		if err := svc.traces.Add(context.Background(), trace); err != nil {
+			t.Fatalf("traces.Add(%d) error = %v", trace.ID, err)
+		}
+	}
+
+	result, err := svc.QueryProviderHealth(context.Background(), ProviderHealthInput{})
+	if err != nil {
+		t.Fatalf("QueryProviderHealth() error = %v", err)
+	}
+	if result.Summary.RequestCount != 2 || result.Summary.AttemptCount != 3 || result.Summary.Failover != 1 || result.Summary.RetryableFailures != 1 {
+		t.Fatalf("summary = %#v", result.Summary)
+	}
+	primary := providerHealthByID(result.Providers, "primary")
+	if primary == nil {
+		t.Fatal("primary health missing")
+	}
+	if primary.Role != "primary" || primary.AttemptCount != 2 || primary.Success != 1 || primary.RetryableFailures != 1 || primary.Upstream5xx != 1 || primary.PrimaryAttempts != 2 {
+		t.Fatalf("primary = %#v", primary)
+	}
+	backup := providerHealthByID(result.Providers, "backup")
+	if backup == nil {
+		t.Fatal("backup health missing")
+	}
+	if backup.Role != "backup" || backup.AttemptCount != 1 || backup.Success != 1 || backup.FinalSuccess != 1 || backup.BackupAttempts != 1 || backup.TotalTokens != 12 {
+		t.Fatalf("backup = %#v", backup)
+	}
+
+	filtered, err := svc.QueryProviderHealth(context.Background(), ProviderHealthInput{Providers: []string{"backup"}})
+	if err != nil {
+		t.Fatalf("QueryProviderHealth(filtered) error = %v", err)
+	}
+	if len(filtered.Providers) != 1 || filtered.Providers[0].Provider != "backup" || filtered.Summary.RequestCount != 1 || filtered.Summary.AttemptCount != 1 {
+		t.Fatalf("filtered = %#v", filtered)
+	}
+}
+
 func containsWarning(warnings []string, want string) bool {
 	for _, warning := range warnings {
 		if strings.Contains(warning, want) {
@@ -909,6 +1007,15 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func providerHealthByID(items []ProviderHealthView, id string) *ProviderHealthView {
+	for index := range items {
+		if items[index].Provider == id {
+			return &items[index]
+		}
+	}
+	return nil
 }
 
 func assertDoctorIssueCodes(t *testing.T, issues []DoctorIssue, wantCodes ...string) {

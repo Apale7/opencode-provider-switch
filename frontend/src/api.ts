@@ -13,6 +13,8 @@ import type {
   Overview,
   ProviderImportInput,
   ProviderImportResult,
+  ProviderHealthInput,
+  ProviderHealthResult,
   ProviderPingInput,
   ProviderPingResult,
   ProviderRefreshModelsInput,
@@ -247,6 +249,13 @@ export function getRequestTrace(id: number): Promise<RequestTrace> {
 		return bridge().TraceDetail(id)
 	}
 	return http<RequestTrace>('/api/proxy/traces/detail', { method: 'POST', body: JSON.stringify({ id }) })
+}
+
+export function queryProviderHealth(input: ProviderHealthInput): Promise<ProviderHealthResult> {
+	if (isWails()) {
+		return bridge().ProviderHealth(input)
+	}
+	return http<ProviderHealthResult>('/api/proxy/health', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function startProxy(): Promise<ProxyStatusView> {

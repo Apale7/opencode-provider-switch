@@ -298,6 +298,10 @@ func (s appService) QueryRequestTraces(ctx context.Context, in app.RequestTraceL
 	return s.service.QueryRequestTraces(ctx, in)
 }
 
+func (s appService) QueryProviderHealth(ctx context.Context, in app.ProviderHealthInput) (app.ProviderHealthResult, error) {
+	return s.service.QueryProviderHealth(ctx, in)
+}
+
 func (s appService) GetRequestTrace(ctx context.Context, id uint64) (app.RequestTrace, error) {
 	return s.service.GetRequestTrace(ctx, id)
 }

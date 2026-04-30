@@ -178,6 +178,91 @@ export type RequestTraceListResult = {
   stats: TraceStats
 }
 
+export type ProviderHealthInput = {
+  aliases?: string[]
+  providers?: string[]
+  startedFrom?: string
+  startedTo?: string
+}
+
+export type ProviderHealthSummary = {
+  requestCount: number
+  attemptCount: number
+  success: number
+  failed: number
+  failover: number
+  retryableFailures: number
+  rateLimited: number
+  upstream5xx: number
+  timeouts: number
+  transportErrors: number
+  streamErrors: number
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  firstByteP50Ms?: number
+  firstByteP95Ms?: number
+  durationP50Ms?: number
+  durationP95Ms?: number
+  sampledProviders: number
+  lowSampleProviders: number
+}
+
+export type ProviderHealthAlias = {
+  alias: string
+  model?: string
+  role: string
+  targetIndex: number
+  attempts: number
+  success: number
+}
+
+export type ProviderHealthView = {
+  provider: string
+  name?: string
+  protocol?: ProviderProtocol
+  role: string
+  configured: boolean
+  disabled?: boolean
+  sampleLevel: string
+  requestCount: number
+  attemptCount: number
+  primaryAttempts: number
+  backupAttempts: number
+  success: number
+  finalSuccess: number
+  terminalFailures: number
+  retryableFailures: number
+  skipped: number
+  rateLimited: number
+  upstream5xx: number
+  upstream4xx: number
+  timeouts: number
+  transportErrors: number
+  streamErrors: number
+  emptyResponses: number
+  otherFailures: number
+  failoverInvolved: number
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  firstByteP50Ms?: number
+  firstByteP95Ms?: number
+  durationP50Ms?: number
+  durationP95Ms?: number
+  observedSuccessRate: number
+  retryableFailureRate: number
+  aliases?: ProviderHealthAlias[]
+}
+
+export type ProviderHealthResult = {
+  summary: ProviderHealthSummary
+  providers: ProviderHealthView[]
+  availableAliases?: string[]
+  availableProviders?: string[]
+  warnings?: string[]
+}
+
 export type Overview = {
   configPath: string
   providerCount: number
