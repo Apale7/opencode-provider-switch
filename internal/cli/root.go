@@ -9,10 +9,22 @@ import (
 
 	"github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/tui"
 )
 
 // configPath is populated from the global --config flag.
 var configPath string
+
+var isInteractiveTerminal = func() bool {
+	stdin, err := os.Stdin.Stat()
+	if err != nil || stdin.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	stdout, err := os.Stdout.Stat()
+	return err == nil && stdout.Mode()&os.ModeCharDevice != 0
+}
+
+var runTUI = tui.Run
 
 // loadCfg opens the active ocswitch config, with the selected path.
 func loadCfg() (*config.Config, error) {
@@ -54,6 +66,13 @@ prefer command-local --help over README summaries.`,
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		Version:       version,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !isInteractiveTerminal() {
+				printNonInteractiveRootHelp(cmd)
+				return nil
+			}
+			return runTUI(configPath)
+		},
 	}
 	root.PersistentFlags().StringVar(&configPath, "config", "", fmt.Sprintf("path to %s config.json (default: $%s, else $XDG_CONFIG_HOME/%s/config.json, else ~/.config/%s/config.json)", config.AppName, config.ConfigEnvVar, config.ConfigDirName, config.ConfigDirName))
 
@@ -64,6 +83,16 @@ prefer command-local --help over README summaries.`,
 	root.AddCommand(newAliasCmd())
 	root.AddCommand(newOpencodeCmd())
 	return root
+}
+
+func printNonInteractiveRootHelp(cmd *cobra.Command) {
+	fmt.Fprintln(cmd.OutOrStdout(), "ocswitch config UI requires an interactive terminal.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Use explicit commands in scripts, for example:")
+	fmt.Fprintln(cmd.OutOrStdout(), "  ocswitch provider list")
+	fmt.Fprintln(cmd.OutOrStdout(), "  ocswitch alias list")
+	fmt.Fprintln(cmd.OutOrStdout(), "  ocswitch doctor")
+	fmt.Fprintln(cmd.OutOrStdout(), "  ocswitch opencode sync --dry-run")
+	fmt.Fprintln(cmd.OutOrStdout(), "Run ocswitch --help for full command help.")
 }
 
 // fail prints to stderr and exits 1.

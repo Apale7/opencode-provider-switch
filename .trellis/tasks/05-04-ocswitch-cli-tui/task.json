@@ -1,0 +1,86 @@
+{
+  "id": "ocswitch-cli-tui",
+  "name": "ocswitch-cli-tui",
+  "title": "Add BubbleTea TUI for CLI configuration",
+  "description": "Add a BubbleTea-based interactive TUI that opens when ocswitch is run without subcommands, guiding users through local provider, alias, proxy, doctor, and OpenCode sync configuration.",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "cli-tui",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-05-04",
+  "completedAt": "2026-05-04",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "cmd/ocswitch/main.go",
+    "internal/cli/root.go",
+    "internal/cli/provider.go",
+    "internal/cli/alias.go",
+    "internal/cli/opencode.go",
+    "internal/cli/doctor.go",
+    "internal/app/service.go",
+    "internal/app/manage.go",
+    "internal/app/types.go",
+    "internal/config/config.go",
+    "internal/tui/i18n.go",
+    "internal/tui/i18n_test.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go",
+    "go.mod"
+  ],
+  "notes": "Implemented MVP BubbleTea TUI: interactive bare ocswitch launches TUI, non-interactive bare command prints short help, existing subcommands remain unchanged, TUI supports overview/provider/alias/doctor/sync/language core flows, and language persists via desktop.language.",
+  "meta": {
+    "plannedDependency": "github.com/charmbracelet/bubbletea",
+    "entryBehavior": "interactive no-subcommand opens TUI; non-interactive no-subcommand prints concise help and exits; explicit subcommands keep current Cobra behavior",
+    "explicitTUICommand": false,
+    "languageBehavior": "default English; TUI language can be changed in TUI and persists to config",
+    "mvpScope": "core overview/provider/alias/doctor/sync functionality first",
+    "confirmationRequiredBeforeImplementation": false,
+    "tests": [
+      "go test ./..."
+    ],
+    "acceptance": [
+      "interactive no-subcommand launches BubbleTea TUI",
+      "non-interactive no-subcommand prints concise help without waiting for input",
+      "explicit subcommands do not launch TUI",
+      "TUI language defaults to English and persists zh-CN selection",
+      "provider and alias core TUI forms reuse app service persistence"
+    ]
+  }
+}

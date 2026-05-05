@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -917,6 +918,86 @@ func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 		if !strings.Contains(flag.Usage, want) {
 			t.Fatalf("config flag usage missing %q: %s", want, flag.Usage)
 		}
+	}
+}
+
+func TestRootBareCommandNonInteractivePrintsShortHelp(t *testing.T) {
+	originalInteractive := isInteractiveTerminal
+	originalRunTUI := runTUI
+	originalConfigPath := configPath
+	t.Cleanup(func() {
+		isInteractiveTerminal = originalInteractive
+		runTUI = originalRunTUI
+		configPath = originalConfigPath
+	})
+	configPath = ""
+	isInteractiveTerminal = func() bool { return false }
+	runTUI = func(string) error { return errors.New("should not launch TUI") }
+
+	cmd := NewRootCmd("test")
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	output := stdout.String()
+	for _, want := range []string{"requires an interactive terminal", "ocswitch provider list", "ocswitch --help"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q\n%s", want, output)
+		}
+	}
+}
+
+func TestRootBareCommandInteractiveLaunchesTUIWithConfig(t *testing.T) {
+	originalInteractive := isInteractiveTerminal
+	originalRunTUI := runTUI
+	originalConfigPath := configPath
+	t.Cleanup(func() {
+		isInteractiveTerminal = originalInteractive
+		runTUI = originalRunTUI
+		configPath = originalConfigPath
+	})
+	configPath = ""
+	isInteractiveTerminal = func() bool { return true }
+	var gotPath string
+	runTUI = func(path string) error {
+		gotPath = path
+		return nil
+	}
+
+	cmd := NewRootCmd("test")
+	cmd.SetArgs([]string{"--config", "custom.json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if gotPath != "custom.json" {
+		t.Fatalf("runTUI path = %q, want custom.json", gotPath)
+	}
+}
+
+func TestRootExplicitSubcommandDoesNotLaunchTUI(t *testing.T) {
+	originalInteractive := isInteractiveTerminal
+	originalRunTUI := runTUI
+	originalConfigPath := configPath
+	t.Cleanup(func() {
+		isInteractiveTerminal = originalInteractive
+		runTUI = originalRunTUI
+		configPath = originalConfigPath
+	})
+	configPath = ""
+	isInteractiveTerminal = func() bool { return true }
+	runTUI = func(string) error { return errors.New("should not launch TUI") }
+
+	cmd := NewRootCmd("test")
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"provider", "list"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.Contains(stdout.String(), "requires an interactive terminal") {
+		t.Fatalf("subcommand output included bare-root help: %s", stdout.String())
 	}
 }
 
