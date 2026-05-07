@@ -314,7 +314,10 @@
     "statsTitle": "Stats for current time range",
     "statsSuccess": "Success",
     "statsFailover": "Failover",
-    "statsFailed": "Failed"
+    "statsFailed": "Failed",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "pageStatus": "Page {{page}} / {{total}}"
   },
   "log": {
     "title": "Request log",

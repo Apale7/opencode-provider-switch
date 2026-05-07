@@ -1,4 +1,4 @@
-import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   applySync,
@@ -216,7 +216,8 @@ const emptyTargetForm: AliasTargetInput = {
   disabled: false,
 }
 
-const tracePageSize = 25
+const defaultTracePageSize = 25
+const maxTracePageSize = 100
 
 const emptyTraceStats: TraceStats = {
 	success: 0,
@@ -259,6 +260,7 @@ const emptyTraceTimeFilter: TraceTimeFilterState = {
 
 type TraceQueryState = {
 	page: number
+	pageSize: number
 	aliases: string[]
 	failoverCounts: number[]
 	statusCodes: number[]
@@ -279,6 +281,7 @@ type TracePageKind = 'log' | 'network'
 
 const emptyTraceQuery: TraceQueryState = {
 	page: 1,
+	pageSize: defaultTracePageSize,
 	aliases: [],
 	failoverCounts: [],
 	statusCodes: [],
@@ -296,7 +299,7 @@ const emptyTraceCatalog: TraceCatalogState = {
 }
 
 function traceQueryKey(query: TraceQueryState): string {
-	return [query.page, query.aliases.join('\u0000'), query.failoverCounts.join(','), query.statusCodes.join(',')].join('|')
+	return [query.page, query.pageSize, query.aliases.join('\u0000'), query.failoverCounts.join(','), query.statusCodes.join(',')].join('|')
 }
 
 function resolveDraftAliasProtocol(
@@ -321,6 +324,43 @@ function selectedTraceModel(providerId: string, providers: ProviderView[]): stri
 
 function tracePageCount(total: number, pageSize: number): number {
 	return Math.max(1, Math.ceil(total / pageSize))
+}
+
+function preserveTracePage(currentPage: number, currentPageSize: number, nextPageSize: number, total: number): number {
+	const safeCurrentPage = Math.max(1, currentPage)
+	const safeCurrentPageSize = Math.max(1, currentPageSize)
+	const safeNextPageSize = Math.max(1, nextPageSize)
+	const offset = (safeCurrentPage - 1) * safeCurrentPageSize
+	return Math.min(Math.max(1, Math.floor(offset / safeNextPageSize) + 1), tracePageCount(total, safeNextPageSize))
+}
+
+function measureTraceTablePageSize(list: HTMLElement | null, maxPageSize?: number): number | null {
+	if (!list) {
+		return null
+	}
+	const header = list.querySelector<HTMLElement>('.trace-table-header')
+	const rows = Array.from(list.querySelectorAll<HTMLElement>('.trace-table-row'))
+	if (rows.length === 0) {
+		return null
+	}
+	const rowHeights = rows.map((row) => row.getBoundingClientRect().height).filter((height) => height > 0)
+	if (rowHeights.length === 0) {
+		return null
+	}
+	const rowHeight = rowHeights.reduce((total, height) => total + height, 0) / rowHeights.length
+	if (rowHeight <= 0) {
+		return null
+	}
+	const listHeight = list.getBoundingClientRect().height
+	if (listHeight <= 0) {
+		return null
+	}
+	const availableHeight = listHeight - (header?.getBoundingClientRect().height ?? 0)
+	if (availableHeight <= 0) {
+		return 1
+	}
+	const pageSize = Math.max(1, Math.floor(availableHeight / rowHeight))
+	return typeof maxPageSize === 'number' ? Math.min(pageSize, maxPageSize) : pageSize
 }
 
 function toggleNumberFilter(values: number[], value: number): number[] {
@@ -1196,6 +1236,8 @@ export default function App() {
   const [providerHealthQuery, setProviderHealthQuery] = useState<ProviderHealthQueryState>(emptyProviderHealthQuery)
   const [providerHealthLoaded, setProviderHealthLoaded] = useState(false)
   const [providerHealthStatus, setProviderHealthStatus] = useState('')
+  const [healthPage, setHealthPage] = useState(1)
+  const [healthPageSize, setHealthPageSize] = useState(defaultTracePageSize)
   const [logTraceLoaded, setLogTraceLoaded] = useState(false)
   const [networkTraceLoaded, setNetworkTraceLoaded] = useState(false)
   const [logTraceCatalog, setLogTraceCatalog] = useState<TraceCatalogState>(emptyTraceCatalog)
@@ -1231,6 +1273,9 @@ export default function App() {
   const aliasDetailRef = useRef<HTMLDivElement | null>(null)
   const logDetailRef = useRef<HTMLDivElement | null>(null)
   const networkDetailRef = useRef<HTMLDivElement | null>(null)
+  const logTraceListRef = useRef<HTMLDivElement | null>(null)
+  const networkTraceListRef = useRef<HTMLDivElement | null>(null)
+  const healthTraceListRef = useRef<HTMLDivElement | null>(null)
   const logTraceRequestRef = useRef(0)
   const networkTraceRequestRef = useRef(0)
   const providerHealthRequestRef = useRef(0)
@@ -1241,7 +1286,7 @@ export default function App() {
   const fetchTracePage = useCallback(async (query: TraceQueryState, range: { startedFrom?: string; startedTo?: string }): Promise<RequestTraceListResult> => {
 	return queryRequestTraces({
 		page: query.page,
-		pageSize: tracePageSize,
+		pageSize: Math.max(1, Math.min(query.pageSize, maxTracePageSize)),
 		aliases: query.aliases,
 		failoverCounts: query.failoverCounts,
 		statusCodes: query.statusCodes,
@@ -1440,8 +1485,11 @@ export default function App() {
   const proxyStartedAt = overview?.proxy.startedAt
   const traceTimeRangeValue = traceTimeRange(traceTimeFilter, proxyStartedAt)
   const traceTimeRangeLabel = formatTraceRangeValue(traceTimeRangeValue)
-  const logPageCount = tracePageCount(logTraceTotal, tracePageSize)
-  const networkPageCount = tracePageCount(networkTraceTotal, tracePageSize)
+  const logPageCount = tracePageCount(logTraceTotal, logTraceQuery.pageSize)
+  const networkPageCount = tracePageCount(networkTraceTotal, networkTraceQuery.pageSize)
+  const healthPageCount = tracePageCount(providerHealth.providers.length, healthPageSize)
+  const visibleHealthPage = Math.min(healthPage, healthPageCount)
+  const visibleHealthProviders = providerHealth.providers.slice((visibleHealthPage - 1) * healthPageSize, visibleHealthPage * healthPageSize)
   const providerHealthAliasOptions = providerHealth.availableAliases || []
   const providerHealthProviderOptions = providerHealth.availableProviders || []
   const desktopPrefsAvailable = meta.capabilities?.desktopPrefs ?? meta.shell !== 'server'
@@ -1520,6 +1568,88 @@ export default function App() {
 		window.clearInterval(timer)
 	}
   }, [activeTab, loadProviderHealth, providerHealthQuery, proxyStartedAt, traceTimeFilter])
+
+	useEffect(() => {
+		setHealthPage((current) => Math.min(current, healthPageCount))
+	}, [healthPageCount])
+
+	useLayoutEffect(() => {
+		if (activeTab !== 'log') {
+			return
+		}
+		const syncPageSize = () => {
+			const nextPageSize = measureTraceTablePageSize(logTraceListRef.current, maxTracePageSize)
+			if (!nextPageSize) {
+				return
+			}
+			setLogTraceQuery((current) => {
+				if (current.pageSize === nextPageSize) {
+					return current
+				}
+				return {
+					...current,
+					page: preserveTracePage(current.page, current.pageSize, nextPageSize, logTraceTotal),
+					pageSize: nextPageSize,
+				}
+			})
+		}
+		syncPageSize()
+		window.addEventListener('resize', syncPageSize)
+		return () => {
+			window.removeEventListener('resize', syncPageSize)
+		}
+	}, [activeTab, logTraceQuery.page, logTraceQuery.pageSize, logTraceTotal, logTraces])
+
+	useLayoutEffect(() => {
+		if (activeTab !== 'network') {
+			return
+		}
+		const syncPageSize = () => {
+			const nextPageSize = measureTraceTablePageSize(networkTraceListRef.current, maxTracePageSize)
+			if (!nextPageSize) {
+				return
+			}
+			setNetworkTraceQuery((current) => {
+				if (current.pageSize === nextPageSize) {
+					return current
+				}
+				return {
+					...current,
+					page: preserveTracePage(current.page, current.pageSize, nextPageSize, networkTraceTotal),
+					pageSize: nextPageSize,
+				}
+			})
+		}
+		syncPageSize()
+		window.addEventListener('resize', syncPageSize)
+		return () => {
+			window.removeEventListener('resize', syncPageSize)
+		}
+	}, [activeTab, networkTraceQuery.page, networkTraceQuery.pageSize, networkTraceTotal, networkTraces])
+
+	useLayoutEffect(() => {
+		if (activeTab !== 'health') {
+			return
+		}
+		const syncPageSize = () => {
+			const nextPageSize = measureTraceTablePageSize(healthTraceListRef.current)
+			if (!nextPageSize) {
+				return
+			}
+			setHealthPageSize((currentPageSize) => {
+				if (currentPageSize === nextPageSize) {
+					return currentPageSize
+				}
+				setHealthPage((currentPage) => preserveTracePage(currentPage, currentPageSize, nextPageSize, providerHealth.providers.length))
+				return nextPageSize
+			})
+		}
+		syncPageSize()
+		window.addEventListener('resize', syncPageSize)
+		return () => {
+			window.removeEventListener('resize', syncPageSize)
+		}
+	}, [activeTab, healthPage, healthPageSize, providerHealth.providers])
 
   useEffect(() => {
     if (activeTab === 'providers' && providerDetailOpen) {
@@ -2182,6 +2312,7 @@ export default function App() {
 		setTraceTimeFilter((current) => update(current))
 		setLogTraceQuery((current) => (current.page === 1 ? current : { ...current, page: 1 }))
 		setNetworkTraceQuery((current) => (current.page === 1 ? current : { ...current, page: 1 }))
+		setHealthPage(1)
 		setSelectedLogTraceId(null)
 		setSelectedNetworkTraceId(null)
 	}
@@ -2271,10 +2402,12 @@ export default function App() {
 				? [...current.aliases, alias].sort((left, right) => left.localeCompare(right))
 				: current.aliases.filter((item) => item !== alias),
 		}))
+		setHealthPage(1)
 	}
 
 	function clearProviderHealthAliasFilter() {
 		updateProviderHealthQuery((current) => ({ ...current, aliases: [] }))
+		setHealthPage(1)
 	}
 
 	function setProviderHealthProviderFilter(provider: string, selected: boolean) {
@@ -2284,10 +2417,12 @@ export default function App() {
 				? [...current.providers, provider].sort((left, right) => left.localeCompare(right))
 				: current.providers.filter((item) => item !== provider),
 		}))
+		setHealthPage(1)
 	}
 
 	function clearProviderHealthProviderFilter() {
 		updateProviderHealthQuery((current) => ({ ...current, providers: [] }))
+		setHealthPage(1)
 	}
 
   async function onUnbindTarget(alias: string, provider: string, model: string) {
@@ -3149,7 +3284,7 @@ export default function App() {
 						/>
 	              </div>
 						<TraceStatsStrip stats={traceStats} />
-	              <div className="scroll-list compact-list trace-scroll-list">
+	              <div className="scroll-list compact-list trace-scroll-list" ref={logTraceListRef}>
 	                {logTraceLoaded && logTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('log.empty')}</h4>
@@ -3264,11 +3399,11 @@ export default function App() {
               </div>
 	              <div className="list-pagination">
 	                <button type="button" disabled={logTraceQuery.page <= 1} onClick={() => loadLogTracePage(logTraceQuery.page - 1)}>
-	                  {t('log.prevPage')}
+	                  {t('trace.prevPage')}
 	                </button>
-	                <span className="subtle">{t('log.pageStatus', { page: logTraceQuery.page, total: logPageCount })}</span>
+	                <span className="subtle">{t('trace.pageStatus', { page: logTraceQuery.page, total: logPageCount })}</span>
 	                <button type="button" disabled={logTraceQuery.page >= logPageCount} onClick={() => loadLogTracePage(logTraceQuery.page + 1)}>
-	                  {t('log.nextPage')}
+	                  {t('trace.nextPage')}
 	                </button>
 	              </div>
             </article>
@@ -3311,7 +3446,7 @@ export default function App() {
 							onClear={clearNetworkStatusCodeFilter}
 						/>
 	              </div>
-	              <div className="scroll-list compact-list trace-scroll-list">
+	              <div className="scroll-list compact-list trace-scroll-list" ref={networkTraceListRef}>
 	                {networkTraceLoaded && networkTraces.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('network.empty')}</h4>
@@ -3391,11 +3526,11 @@ export default function App() {
               </div>
 	              <div className="list-pagination">
 	                <button type="button" disabled={networkTraceQuery.page <= 1} onClick={() => loadNetworkTracePage(networkTraceQuery.page - 1)}>
-	                  {t('network.prevPage')}
+	                  {t('trace.prevPage')}
 	                </button>
-	                <span className="subtle">{t('network.pageStatus', { page: networkTraceQuery.page, total: networkPageCount })}</span>
+	                <span className="subtle">{t('trace.pageStatus', { page: networkTraceQuery.page, total: networkPageCount })}</span>
 	                <button type="button" disabled={networkTraceQuery.page >= networkPageCount} onClick={() => loadNetworkTracePage(networkTraceQuery.page + 1)}>
-	                  {t('network.nextPage')}
+	                  {t('trace.nextPage')}
 	                </button>
 	              </div>
             </article>
@@ -3454,11 +3589,13 @@ export default function App() {
 
             <article className="panel panel-full health-warning-panel">
               <div className="issue-card health-warning-card">
-                <div className="issue-card-head">
+                <div className="issue-card-head health-warning-head">
                   <span className="badge warn">{t('health.biasBadge')}</span>
                   <strong>{t('health.biasTitle')}</strong>
+                  <TraceInfoPopover label={t('health.biasTitle')}>
+                    <span className="subtle small-text">{t('health.biasDescription')}</span>
+                  </TraceInfoPopover>
                 </div>
-                <p className="subtle">{t('health.biasDescription')}</p>
               </div>
             </article>
 
@@ -3496,7 +3633,7 @@ export default function App() {
                   <p className="subtle">{t('health.tableSubtitle')}</p>
                 </div>
               </div>
-              <div className="scroll-list compact-list trace-scroll-list health-scroll-list">
+              <div className="scroll-list compact-list trace-scroll-list health-scroll-list" ref={healthTraceListRef}>
                 {providerHealthLoaded && providerHealth.providers.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('health.empty')}</h4>
@@ -3514,7 +3651,7 @@ export default function App() {
                       <span className="trace-table-head trace-table-head-end" role="columnheader">{t('health.tableTokens')}</span>
                     </div>
                     <div className="trace-table-body">
-                      {providerHealth.providers.map((provider) => {
+                      {visibleHealthProviders.map((provider) => {
                         const protocol = providerHealthProtocol(provider)
                         return (
                           <article className="trace-table-row health-table-row" role="row" key={provider.provider}>
@@ -3559,6 +3696,15 @@ export default function App() {
                     </div>
                   </div>
                 ) : null}
+              </div>
+              <div className="list-pagination">
+                <button type="button" disabled={visibleHealthPage <= 1} onClick={() => setHealthPage(visibleHealthPage - 1)}>
+                  {t('trace.prevPage')}
+                </button>
+                <span className="subtle">{t('trace.pageStatus', { page: visibleHealthPage, total: healthPageCount })}</span>
+                <button type="button" disabled={visibleHealthPage >= healthPageCount} onClick={() => setHealthPage(visibleHealthPage + 1)}>
+                  {t('trace.nextPage')}
+                </button>
               </div>
             </article>
           </section>

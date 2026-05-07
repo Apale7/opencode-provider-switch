@@ -517,6 +517,7 @@ dd {
 }
 
 .workspace > .tab-layout {
+  flex: 1 1 auto;
   width: 100%;
   min-height: 0;
 }
@@ -532,6 +533,19 @@ dd {
 .trace-panel {
   width: 100%;
   min-width: 0;
+}
+
+.trace-tab-layout {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+  min-height: 0;
+}
+
+.trace-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
 .overview-layout {
@@ -878,12 +892,16 @@ html[data-theme='dark'] button.ghost-danger:hover {
 }
 
 .trace-scroll-list {
-  width: 100%;
-  min-width: 0;
-  max-height: none;
-  padding-right: 0;
-  overflow-x: auto;
-  overflow-y: auto;
+	flex: 1 1 auto;
+	width: 100%;
+	min-width: 0;
+	min-height: 0;
+	max-height: none;
+	padding-right: 0;
+	align-items: start;
+	align-content: start;
+	overflow-x: auto;
+	overflow-y: hidden;
 }
 
 .trace-table {
@@ -891,6 +909,8 @@ html[data-theme='dark'] button.ghost-danger:hover {
 	gap: 0;
 	width: 100%;
 	min-width: var(--trace-table-min-width, 100%);
+	align-self: start;
+	align-content: start;
 	--trace-table-gap: clamp(0.45rem, 0.7vw, 0.85rem);
 	background: #fff;
 }
@@ -947,6 +967,7 @@ html[data-theme='dark'] button.ghost-danger:hover {
 	grid-template-columns: minmax(0, 1fr);
 	width: 100%;
 	min-width: 0;
+	align-content: start;
 }
 
 .trace-table-row {
@@ -1102,6 +1123,12 @@ html[data-theme='dark'] button.ghost-danger:hover {
 	display: inline-flex;
 	align-items: center;
 	flex-shrink: 0;
+	z-index: 1;
+}
+
+.trace-info-popover:hover,
+.trace-info-popover:focus-within {
+	z-index: 60;
 }
 
 .trace-info-trigger {
@@ -1153,7 +1180,7 @@ html[data-theme='dark'] button.ghost-danger:hover {
 	pointer-events: none;
 	transform: translateY(-4px);
 	transition: opacity 140ms ease, transform 140ms ease;
-	z-index: 5;
+	z-index: 60;
 }
 
 .trace-info-popover:hover .trace-info-card,
@@ -2012,12 +2039,24 @@ input[type='file']::file-selector-button {
 
 .trace-toolbar {
 	align-items: stretch;
+	gap: 0.7rem;
+}
+
+.trace-toolbar .filter-group {
+	gap: 0.35rem;
+	padding: 0.7rem 0.85rem;
+}
+
+.trace-toolbar .filter-group input,
+.trace-toolbar .filter-group select {
+	min-height: 40px;
 }
 
 .trace-toolbar-grid {
 	display: grid;
 	grid-template-columns: minmax(20rem, 1.7fr) repeat(auto-fit, minmax(14rem, 1fr));
 	align-items: stretch;
+	gap: 0.7rem;
 }
 
 .trace-time-filter,
@@ -2030,7 +2069,7 @@ input[type='file']::file-selector-button {
 	display: flex;
 	align-items: flex-start;
 	justify-content: space-between;
-	gap: 0.75rem;
+	gap: 0.55rem;
 }
 
 .trace-filter-headline .small-text {
@@ -2041,13 +2080,13 @@ input[type='file']::file-selector-button {
 .trace-time-presets {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.45rem;
+	gap: 0.35rem;
 }
 
 .trace-time-custom-grid {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 0.65rem;
+	gap: 0.5rem;
 }
 
 .trace-time-custom-grid label > span {
@@ -2115,6 +2154,10 @@ input[type='file']::file-selector-button {
 
 .health-layout {
 	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto auto auto minmax(0, 1fr);
+	gap: 0.72rem;
+	align-content: stretch;
+	min-height: 0;
 }
 
 .health-toolbar-grid {
@@ -2124,27 +2167,49 @@ input[type='file']::file-selector-button {
 .health-summary-grid {
 	display: grid;
 	grid-template-columns: repeat(6, minmax(0, 1fr));
-	gap: 0.75rem;
+	gap: 0.65rem;
 }
 
 .health-warning-panel {
+	position: relative;
+	z-index: 20;
 	padding: 0;
 	border: 0;
 	background: transparent;
 	box-shadow: none;
+	overflow: visible;
 }
 
 .health-warning-card {
+	padding: 0.78rem 0.9rem;
 	border-color: color-mix(in srgb, var(--warning) 36%, var(--border));
 	background: linear-gradient(135deg, var(--warning-soft), var(--panel));
 }
 
+.health-warning-head {
+	align-items: center;
+	margin-bottom: 0;
+}
+
+.health-warning-head .trace-info-popover {
+	margin-left: auto;
+}
+
 .health-table-panel {
+	display: flex;
+	flex-direction: column;
 	min-width: 0;
+	min-height: 0;
 }
 
 .health-scroll-list {
+	flex: 1 1 auto;
+	min-height: 0;
 	max-height: none;
+}
+
+.health-summary-grid .trace-stat-card {
+	padding: 0.82rem 0.9rem;
 }
 
 .health-table .trace-table-header,
@@ -2231,8 +2296,8 @@ input[type='file']::file-selector-button {
 	justify-content: space-between;
 	gap: 0.7rem;
 	width: 100%;
-	min-height: 42px;
-	padding: 0.62rem 0.82rem;
+	min-height: 40px;
+	padding: 0.54rem 0.76rem;
 	border: 1px solid var(--border);
 	border-radius: 14px;
 	background: var(--panel-strong);
@@ -2348,8 +2413,8 @@ input[type='file']::file-selector-button {
 }
 
 .filter-chip {
-	min-height: 36px;
-	padding: 0.45rem 0.8rem;
+	min-height: 34px;
+	padding: 0.36rem 0.72rem;
 	border-radius: 999px;
 	background: var(--panel-muted);
 	box-shadow: none;
@@ -2404,7 +2469,7 @@ input[type='file']::file-selector-button {
 	align-items: center;
 	justify-content: space-between;
 	gap: 0.75rem;
-	padding-top: 0.75rem;
+	padding-top: 0.55rem;
 }
 
 .issue-card {
