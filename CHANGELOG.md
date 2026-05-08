@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.3.0...v1.4.0) (2026-05-08)
+
+
+### Features
+
+* add interactive CLI TUI ([18c68b5](https://github.com/Apale7/opencode-provider-switch/commit/18c68b5c9777d6236a2472b4a106da1634ebc649))
+* add provider health analytics ([b9a0b32](https://github.com/Apale7/opencode-provider-switch/commit/b9a0b3210e08d194749faad0c6f471ec3b03da07))
+* **health:** expose provider cache metrics ([af4f79e](https://github.com/Apale7/opencode-provider-switch/commit/af4f79e72e33e7f0884b3fe54fca1c81bfa7653d))
+* **ui:** show health cache metrics ([4bce968](https://github.com/Apale7/opencode-provider-switch/commit/4bce968cec437bd9db0b0ec0362cfe22d3dcc12f))
+
+
+### Bug Fixes
+
+* **ui:** tighten trace table pagination ([893ddf6](https://github.com/Apale7/opencode-provider-switch/commit/893ddf6f3cb29f3a89c7bbffd3ba7b5abf590d35))
+
 ## [1.3.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.2.1...v1.3.0) (2026-04-29)
 
 
