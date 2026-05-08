@@ -29,26 +29,28 @@ type ProviderHealthResult struct {
 }
 
 type ProviderHealthSummary struct {
-	RequestCount       int   `json:"requestCount"`
-	AttemptCount       int   `json:"attemptCount"`
-	Success            int   `json:"success"`
-	Failed             int   `json:"failed"`
-	Failover           int   `json:"failover"`
-	RetryableFailures  int   `json:"retryableFailures"`
-	RateLimited        int   `json:"rateLimited"`
-	Upstream5xx        int   `json:"upstream5xx"`
-	Timeouts           int   `json:"timeouts"`
-	TransportErrors    int   `json:"transportErrors"`
-	StreamErrors       int   `json:"streamErrors"`
-	InputTokens        int64 `json:"inputTokens"`
-	OutputTokens       int64 `json:"outputTokens"`
-	TotalTokens        int64 `json:"totalTokens"`
-	FirstByteP50Ms     int64 `json:"firstByteP50Ms,omitempty"`
-	FirstByteP95Ms     int64 `json:"firstByteP95Ms,omitempty"`
-	DurationP50Ms      int64 `json:"durationP50Ms,omitempty"`
-	DurationP95Ms      int64 `json:"durationP95Ms,omitempty"`
-	SampledProviders   int   `json:"sampledProviders"`
-	LowSampleProviders int   `json:"lowSampleProviders"`
+	RequestCount       int     `json:"requestCount"`
+	AttemptCount       int     `json:"attemptCount"`
+	Success            int     `json:"success"`
+	Failed             int     `json:"failed"`
+	Failover           int     `json:"failover"`
+	RetryableFailures  int     `json:"retryableFailures"`
+	RateLimited        int     `json:"rateLimited"`
+	Upstream5xx        int     `json:"upstream5xx"`
+	Timeouts           int     `json:"timeouts"`
+	TransportErrors    int     `json:"transportErrors"`
+	StreamErrors       int     `json:"streamErrors"`
+	InputTokens        int64   `json:"inputTokens"`
+	OutputTokens       int64   `json:"outputTokens"`
+	TotalTokens        int64   `json:"totalTokens"`
+	CacheReadTokens    int64   `json:"cacheReadTokens"`
+	CacheHitRate       float64 `json:"cacheHitRate"`
+	FirstByteP50Ms     int64   `json:"firstByteP50Ms,omitempty"`
+	FirstByteP95Ms     int64   `json:"firstByteP95Ms,omitempty"`
+	DurationP50Ms      int64   `json:"durationP50Ms,omitempty"`
+	DurationP95Ms      int64   `json:"durationP95Ms,omitempty"`
+	SampledProviders   int     `json:"sampledProviders"`
+	LowSampleProviders int     `json:"lowSampleProviders"`
 }
 
 type ProviderHealthView struct {
@@ -80,6 +82,8 @@ type ProviderHealthView struct {
 	InputTokens          int64                 `json:"inputTokens"`
 	OutputTokens         int64                 `json:"outputTokens"`
 	TotalTokens          int64                 `json:"totalTokens"`
+	CacheReadTokens      int64                 `json:"cacheReadTokens"`
+	CacheHitRate         float64               `json:"cacheHitRate"`
 	FirstByteP50Ms       int64                 `json:"firstByteP50Ms,omitempty"`
 	FirstByteP95Ms       int64                 `json:"firstByteP95Ms,omitempty"`
 	DurationP50Ms        int64                 `json:"durationP50Ms,omitempty"`
@@ -315,6 +319,9 @@ func aggregateTraceHealth(accums map[string]*providerHealthAccum, targets map[st
 			accum.view.InputTokens += trace.InputTokens
 			accum.view.OutputTokens += trace.OutputTokens
 			accum.view.TotalTokens += trace.InputTokens + trace.OutputTokens
+			if trace.Usage.CacheReadTokens != nil {
+				accum.view.CacheReadTokens += *trace.Usage.CacheReadTokens
+			}
 		}
 	}
 }
@@ -352,6 +359,7 @@ func providerHealthViews(accums map[string]*providerHealthAccum, providerFilter 
 		view.DurationP95Ms = percentileInt64(accum.durationMs, 95)
 		view.ObservedSuccessRate = ratio(view.Success, view.AttemptCount)
 		view.RetryableFailureRate = ratio(view.RetryableFailures, view.AttemptCount)
+		view.CacheHitRate = cacheHitRate(view.CacheReadTokens, view.InputTokens)
 		view.SampleLevel = providerSampleLevel(view.AttemptCount)
 		if !view.Configured {
 			view.Role = observedProviderRole(accum)
@@ -407,6 +415,7 @@ func summarizeProviderHealth(items []ProviderHealthView, traces []proxy.RequestT
 		summary.InputTokens += item.InputTokens
 		summary.OutputTokens += item.OutputTokens
 		summary.TotalTokens += item.TotalTokens
+		summary.CacheReadTokens += item.CacheReadTokens
 	}
 	for _, trace := range traces {
 		if !traceMatchesProviderFilter(trace, providerFilter) {
@@ -449,6 +458,7 @@ func summarizeProviderHealth(items []ProviderHealthView, traces []proxy.RequestT
 	summary.FirstByteP95Ms = percentileInt64(firstByteMs, 95)
 	summary.DurationP50Ms = percentileInt64(durationMs, 50)
 	summary.DurationP95Ms = percentileInt64(durationMs, 95)
+	summary.CacheHitRate = cacheHitRate(summary.CacheReadTokens, summary.InputTokens)
 	return summary
 }
 
@@ -564,4 +574,12 @@ func ratio(numerator, denominator int) float64 {
 		return 0
 	}
 	return float64(numerator) / float64(denominator)
+}
+
+func cacheHitRate(cacheReadTokens, inputTokens int64) float64 {
+	denominator := cacheReadTokens + inputTokens
+	if denominator <= 0 {
+		return 0
+	}
+	return float64(cacheReadTokens) / float64(denominator)
 }

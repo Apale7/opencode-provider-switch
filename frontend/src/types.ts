@@ -200,6 +200,8 @@ export type ProviderHealthSummary = {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  cacheReadTokens: number
+  cacheHitRate: number
   firstByteP50Ms?: number
   firstByteP95Ms?: number
   durationP50Ms?: number
@@ -246,6 +248,8 @@ export type ProviderHealthView = {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  cacheReadTokens: number
+  cacheHitRate: number
   firstByteP50Ms?: number
   firstByteP95Ms?: number
   durationP50Ms?: number

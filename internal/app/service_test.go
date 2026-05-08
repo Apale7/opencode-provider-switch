@@ -918,6 +918,8 @@ func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
 	svc := NewService(path)
 	svc.traces = proxy.NewTraceStore(10)
 	startedAt := time.Now().UTC()
+	primaryCacheReadTokens := int64(10)
+	backupCacheReadTokens := int64(5)
 	traces := []proxy.RequestTrace{
 		{
 			ID:            1,
@@ -927,6 +929,7 @@ func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
 			Success:       true,
 			StatusCode:    http.StatusOK,
 			FinalProvider: "primary",
+			Usage:         proxy.TraceUsage{CacheReadTokens: &primaryCacheReadTokens},
 			InputTokens:   10,
 			OutputTokens:  20,
 			FirstByteMs:   30,
@@ -942,6 +945,7 @@ func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
 			Success:       true,
 			StatusCode:    http.StatusOK,
 			FinalProvider: "backup",
+			Usage:         proxy.TraceUsage{CacheReadTokens: &backupCacheReadTokens},
 			InputTokens:   5,
 			OutputTokens:  7,
 			FirstByteMs:   40,
@@ -964,21 +968,21 @@ func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryProviderHealth() error = %v", err)
 	}
-	if result.Summary.RequestCount != 2 || result.Summary.AttemptCount != 3 || result.Summary.Failover != 1 || result.Summary.RetryableFailures != 1 {
+	if result.Summary.RequestCount != 2 || result.Summary.AttemptCount != 3 || result.Summary.Failover != 1 || result.Summary.RetryableFailures != 1 || result.Summary.CacheReadTokens != 15 || result.Summary.CacheHitRate != 0.5 {
 		t.Fatalf("summary = %#v", result.Summary)
 	}
 	primary := providerHealthByID(result.Providers, "primary")
 	if primary == nil {
 		t.Fatal("primary health missing")
 	}
-	if primary.Role != "primary" || primary.AttemptCount != 2 || primary.Success != 1 || primary.RetryableFailures != 1 || primary.Upstream5xx != 1 || primary.PrimaryAttempts != 2 {
+	if primary.Role != "primary" || primary.AttemptCount != 2 || primary.Success != 1 || primary.RetryableFailures != 1 || primary.Upstream5xx != 1 || primary.PrimaryAttempts != 2 || primary.CacheReadTokens != 10 || primary.CacheHitRate != 0.5 {
 		t.Fatalf("primary = %#v", primary)
 	}
 	backup := providerHealthByID(result.Providers, "backup")
 	if backup == nil {
 		t.Fatal("backup health missing")
 	}
-	if backup.Role != "backup" || backup.AttemptCount != 1 || backup.Success != 1 || backup.FinalSuccess != 1 || backup.BackupAttempts != 1 || backup.TotalTokens != 12 {
+	if backup.Role != "backup" || backup.AttemptCount != 1 || backup.Success != 1 || backup.FinalSuccess != 1 || backup.BackupAttempts != 1 || backup.TotalTokens != 12 || backup.CacheReadTokens != 5 || backup.CacheHitRate != 0.5 {
 		t.Fatalf("backup = %#v", backup)
 	}
 
@@ -986,7 +990,7 @@ func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryProviderHealth(filtered) error = %v", err)
 	}
-	if len(filtered.Providers) != 1 || filtered.Providers[0].Provider != "backup" || filtered.Summary.RequestCount != 1 || filtered.Summary.AttemptCount != 1 {
+	if len(filtered.Providers) != 1 || filtered.Providers[0].Provider != "backup" || filtered.Summary.RequestCount != 1 || filtered.Summary.AttemptCount != 1 || filtered.Summary.CacheReadTokens != 5 || filtered.Summary.CacheHitRate != 0.5 {
 		t.Fatalf("filtered = %#v", filtered)
 	}
 }
@@ -994,15 +998,6 @@ func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
 func containsWarning(warnings []string, want string) bool {
 	for _, warning := range warnings {
 		if strings.Contains(warning, want) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
 			return true
 		}
 	}

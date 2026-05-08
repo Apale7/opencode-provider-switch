@@ -778,6 +778,8 @@ export namespace app {
 	    inputTokens: number;
 	    outputTokens: number;
 	    totalTokens: number;
+	    cacheReadTokens: number;
+	    cacheHitRate: number;
 	    firstByteP50Ms?: number;
 	    firstByteP95Ms?: number;
 	    durationP50Ms?: number;
@@ -820,6 +822,8 @@ export namespace app {
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];
 	        this.totalTokens = source["totalTokens"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.cacheHitRate = source["cacheHitRate"];
 	        this.firstByteP50Ms = source["firstByteP50Ms"];
 	        this.firstByteP95Ms = source["firstByteP95Ms"];
 	        this.durationP50Ms = source["durationP50Ms"];
@@ -862,6 +866,8 @@ export namespace app {
 	    inputTokens: number;
 	    outputTokens: number;
 	    totalTokens: number;
+	    cacheReadTokens: number;
+	    cacheHitRate: number;
 	    firstByteP50Ms?: number;
 	    firstByteP95Ms?: number;
 	    durationP50Ms?: number;
@@ -889,6 +895,8 @@ export namespace app {
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];
 	        this.totalTokens = source["totalTokens"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.cacheHitRate = source["cacheHitRate"];
 	        this.firstByteP50Ms = source["firstByteP50Ms"];
 	        this.firstByteP95Ms = source["firstByteP95Ms"];
 	        this.durationP50Ms = source["durationP50Ms"];
