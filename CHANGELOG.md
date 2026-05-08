@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/Apale7/opencode-provider-switch/compare/v1.4.0...v1.4.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* **ci:** build frontend before desktop packaging ([890d00e](https://github.com/Apale7/opencode-provider-switch/commit/890d00e48154205759e47f3363c6f98ac1fcb2bb))
+
 ## [1.4.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.3.0...v1.4.0) (2026-05-08)
 
 
