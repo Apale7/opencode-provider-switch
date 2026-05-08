@@ -240,6 +240,8 @@ const emptyProviderHealthSummary: ProviderHealthSummary = {
 	inputTokens: 0,
 	outputTokens: 0,
 	totalTokens: 0,
+	cacheReadTokens: 0,
+	cacheHitRate: 0,
 	sampledProviders: 0,
 	lowSampleProviders: 0,
 }
@@ -824,6 +826,10 @@ function providerHealthPrimaryAlias(provider: ProviderHealthView): string {
 	}
 	const extra = provider.aliases && provider.aliases.length > 1 ? ` +${provider.aliases.length - 1}` : ''
 	return `${first.alias} #${first.targetIndex + 1}${extra}`
+}
+
+function providerHealthCacheHitRate(provider: ProviderHealthView): string {
+	return provider.cacheReadTokens + provider.inputTokens > 0 ? formatPercent(provider.cacheHitRate) : '-'
 }
 
 function isProviderProtocol(value?: string): value is ProviderProtocol {
@@ -3646,6 +3652,7 @@ export default function App() {
                       <span className="trace-table-head" role="columnheader">{t('health.tableProvider')}</span>
                       <span className="trace-table-head" role="columnheader">{t('health.tableTraffic')}</span>
                       <span className="trace-table-head" role="columnheader">{t('health.tableReliability')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.tableCache')}</span>
                       <span className="trace-table-head" role="columnheader">{t('health.tableLatency')}</span>
                       <span className="trace-table-head" role="columnheader">{t('health.tableFailures')}</span>
                       <span className="trace-table-head trace-table-head-end" role="columnheader">{t('health.tableTokens')}</span>
@@ -3676,6 +3683,12 @@ export default function App() {
                               <div className="trace-table-metric health-metric-stack">
                                 <span className="trace-mono">{formatPercent(provider.observedSuccessRate)} / {formatPercent(provider.retryableFailureRate)}</span>
                                 <span className="trace-table-muted">{t('health.successRetryableHint')}</span>
+                              </div>
+                            </div>
+                            <div className="trace-table-cell" role="cell" data-label={t('health.tableCache')}>
+                              <div className="trace-table-metric health-metric-stack">
+                                <span className="trace-mono">{providerHealthCacheHitRate(provider)}</span>
+                                <span className="trace-table-muted">{t('health.cacheTokenHint', { read: formatTokenCount(provider.cacheReadTokens), input: formatTokenCount(provider.inputTokens) })}</span>
                               </div>
                             </div>
                             <div className="trace-table-cell" role="cell" data-label={t('health.tableLatency')}>

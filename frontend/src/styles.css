@@ -2214,11 +2214,11 @@ input[type='file']::file-selector-button {
 
 .health-table .trace-table-header,
 .health-table .trace-table-row {
-	grid-template-columns: minmax(13rem, 1.1fr) minmax(13rem, 1fr) minmax(10rem, 0.8fr) minmax(8rem, 0.65fr) minmax(12rem, 1fr) minmax(7rem, max-content);
+	grid-template-columns: minmax(13rem, 1.1fr) minmax(12rem, 1fr) minmax(10rem, 0.8fr) minmax(9rem, 0.7fr) minmax(8rem, 0.65fr) minmax(11rem, 0.9fr) minmax(7rem, max-content);
 }
 
 .health-table {
-	--trace-table-min-width: 72rem;
+	--trace-table-min-width: 82rem;
 }
 
 .health-table-row {
