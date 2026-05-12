@@ -393,8 +393,51 @@ ocswitch server [--host HOST] [--port PORT]
 ocswitch doctor
 ocswitch provider {add,list,enable,disable,remove,import-opencode}
 ocswitch alias {add,list,bind,unbind,remove}
+ocswitch rewrite {add,list,enable,disable,remove}
 ocswitch opencode sync [--target FILE] [--set-model ALIAS] [--set-small-model ALIAS] [--dry-run]
 ocswitch --config PATH <command>
+```
+
+### Request Config Rewrites
+
+`rewrite` rules live in local `ocswitch` config under `request_rewrite_rules`. They add or rewrite top-level JSON fields on the outbound request sent to the upstream provider. Rules run in config order and can match the incoming alias, the resolved upstream model, or both. Use the bare alias name, for example `gpt-5.5-fast`, not `ocswitch/gpt-5.5-fast`.
+
+By default `override=false`: rules only fill fields missing from the request, so caller-supplied values win. With `--override`, a rule may delete fields and replace existing values. Deletes only target top-level fields.
+
+```bash
+ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --set serviceTier=priority --set store=false --set 'include=["reasoning.encrypted_content"]'
+ocswitch rewrite add --name gpt-model --model gpt-5.5 --override --delete store --set parallel_tool_calls=false
+ocswitch rewrite disable gpt-fast
+ocswitch rewrite list
+```
+
+Equivalent config snippet:
+
+```json
+{
+  "request_rewrite_rules": [
+    {
+      "name": "gpt-fast",
+      "alias": "gpt-5.5-fast",
+      "enabled": true,
+      "set": {
+        "serviceTier": "priority",
+        "store": false,
+        "include": ["reasoning.encrypted_content"]
+      }
+    },
+    {
+      "name": "gpt-model",
+      "model": "gpt-5.5",
+      "enabled": true,
+      "override": true,
+      "set": {
+        "parallel_tool_calls": false
+      },
+      "delete": ["store"]
+    }
+  ]
+}
 ```
 
 ## FAQ

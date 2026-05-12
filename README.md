@@ -395,8 +395,51 @@ ocswitch server [--host HOST] [--port PORT]
 ocswitch doctor
 ocswitch provider {add,list,enable,disable,remove,import-opencode}
 ocswitch alias {add,list,bind,unbind,remove}
+ocswitch rewrite {add,list,enable,disable,remove}
 ocswitch opencode sync [--target FILE] [--set-model ALIAS] [--set-small-model ALIAS] [--dry-run]
 ocswitch --config PATH <command>
+```
+
+### 请求配置改写
+
+`rewrite` 规则保存在本地 `ocswitch` 配置的 `request_rewrite_rules` 中，用来给转发到上游的请求补充或改写顶层 JSON 字段。规则按配置顺序执行，可按请求里的 alias、解析后的上游 model，或两者一起匹配。alias 使用裸名，例如 `gpt-5.5-fast`，不是 `ocswitch/gpt-5.5-fast`。
+
+默认 `override=false`：只补充请求里缺失的字段，调用方传入的值优先。启用 `--override` 后，规则可以删除字段，并覆盖已有字段；删除只支持顶层字段。
+
+```bash
+ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --set serviceTier=priority --set store=false --set 'include=["reasoning.encrypted_content"]'
+ocswitch rewrite add --name gpt-model --model gpt-5.5 --override --delete store --set parallel_tool_calls=false
+ocswitch rewrite disable gpt-fast
+ocswitch rewrite list
+```
+
+等价配置片段：
+
+```json
+{
+  "request_rewrite_rules": [
+    {
+      "name": "gpt-fast",
+      "alias": "gpt-5.5-fast",
+      "enabled": true,
+      "set": {
+        "serviceTier": "priority",
+        "store": false,
+        "include": ["reasoning.encrypted_content"]
+      }
+    },
+    {
+      "name": "gpt-model",
+      "model": "gpt-5.5",
+      "enabled": true,
+      "override": true,
+      "set": {
+        "parallel_tool_calls": false
+      },
+      "delete": ["store"]
+    }
+  ]
+}
 ```
 
 ## 常见问题

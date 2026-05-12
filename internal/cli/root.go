@@ -81,6 +81,7 @@ prefer command-local --help over README summaries.`,
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newProviderCmd())
 	root.AddCommand(newAliasCmd())
+	root.AddCommand(newRewriteCmd())
 	root.AddCommand(newOpencodeCmd())
 	return root
 }

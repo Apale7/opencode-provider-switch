@@ -1060,6 +1060,133 @@ func TestAliasUnbindAcceptsSlashModelWithExplicitProvider(t *testing.T) {
 	}
 }
 
+func TestRewriteCommandsManageRules(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	addCmd := newRewriteAddCmd()
+	addCmd.SetArgs([]string{
+		"--name", "fast",
+		"--alias", "gpt-5.5-fast",
+		"--set", "serviceTier=priority",
+		"--set", "store=false",
+		"--set", `include=["reasoning.encrypted_content"]`,
+	})
+	if err := addCmd.Execute(); err != nil {
+		t.Fatalf("execute rewrite add: %v", err)
+	}
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	rule := cfg.FindRequestRewriteRule("fast")
+	if rule == nil {
+		t.Fatal("rewrite rule fast not found")
+	}
+	if rule.Alias != "gpt-5.5-fast" || !rule.Enabled || rule.Override {
+		t.Fatalf("rule = %#v", rule)
+	}
+	if got := rule.Set["serviceTier"]; got != "priority" {
+		t.Fatalf("serviceTier = %#v", got)
+	}
+	if got := rule.Set["store"]; got != false {
+		t.Fatalf("store = %#v", got)
+	}
+	include, ok := rule.Set["include"].([]any)
+	if !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("include = %#v", rule.Set["include"])
+	}
+
+	listCmd := newRewriteListCmd()
+	var stdout bytes.Buffer
+	listCmd.SetOut(&stdout)
+	if err := listCmd.Execute(); err != nil {
+		t.Fatalf("execute rewrite list: %v", err)
+	}
+	if out := stdout.String(); !strings.Contains(out, "fast") || !strings.Contains(out, "serviceTier") {
+		t.Fatalf("rewrite list output = %q", out)
+	}
+
+	disableCmd := newRewriteDisableCmd()
+	disableCmd.SetArgs([]string{"fast"})
+	if err := disableCmd.Execute(); err != nil {
+		t.Fatalf("execute rewrite disable: %v", err)
+	}
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload after disable: %v", err)
+	}
+	if rule := cfg.FindRequestRewriteRule("fast"); rule == nil || rule.Enabled {
+		t.Fatalf("rule after disable = %#v", rule)
+	}
+
+	updateCmd := newRewriteAddCmd()
+	updateCmd.SetArgs([]string{
+		"--name", "fast",
+		"--alias", "gpt-5.5-fast",
+		"--set", "serviceTier=flex",
+	})
+	if err := updateCmd.Execute(); err != nil {
+		t.Fatalf("execute rewrite update: %v", err)
+	}
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload after update: %v", err)
+	}
+	updated := cfg.FindRequestRewriteRule("fast")
+	if updated == nil {
+		t.Fatal("rule after update not found")
+	}
+	if updated.Enabled {
+		t.Fatalf("rule update re-enabled disabled rule: %#v", updated)
+	}
+	if got := updated.Set["serviceTier"]; got != "flex" {
+		t.Fatalf("updated serviceTier = %#v, want flex", got)
+	}
+
+	enableCmd := newRewriteEnableCmd()
+	enableCmd.SetArgs([]string{"fast"})
+	if err := enableCmd.Execute(); err != nil {
+		t.Fatalf("execute rewrite enable: %v", err)
+	}
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload after enable: %v", err)
+	}
+	if rule := cfg.FindRequestRewriteRule("fast"); rule == nil || !rule.Enabled {
+		t.Fatalf("rule after enable = %#v", rule)
+	}
+
+	removeCmd := newRewriteRemoveCmd()
+	removeCmd.SetArgs([]string{"fast"})
+	if err := removeCmd.Execute(); err != nil {
+		t.Fatalf("execute rewrite remove: %v", err)
+	}
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload after remove: %v", err)
+	}
+	if rule := cfg.FindRequestRewriteRule("fast"); rule != nil {
+		t.Fatalf("rule after remove = %#v", rule)
+	}
+}
+
+func TestRewriteAddRejectsDeleteWithoutOverride(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cmd := newRewriteAddCmd()
+	cmd.SetArgs([]string{"--name", "bad", "--alias", "chat", "--delete", "serviceTier"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected rewrite add validation error")
+	}
+	if !strings.Contains(err.Error(), "delete requires override") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
 func TestImportedModelsDoNotBlockAliasBind(t *testing.T) {
 	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
 	configPath = ""

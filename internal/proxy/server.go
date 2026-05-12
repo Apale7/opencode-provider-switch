@@ -483,6 +483,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt, p.ID, t.Model, failoverCount)
 		cloned := cloneMap(payload)
 		cloned["model"] = t.Model
+		state.cfg.ApplyRequestRewriteRules(aliasName, t.Model, cloned)
 		attemptTrace.RequestParams = sanitizeJSONValue("", cloned)
 		newBody, err := json.Marshal(cloned)
 		if err != nil {

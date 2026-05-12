@@ -252,6 +252,145 @@ func TestValidateReportsAliasWithoutAvailableTargets(t *testing.T) {
 	}
 }
 
+func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.path = filepath.Join(t.TempDir(), "config.json")
+	cfg.RequestRewriteRules = []RequestRewriteRule{
+		{
+			Name:    "fast-tier",
+			Alias:   "gpt-5.5-fast",
+			Enabled: true,
+			Set: map[string]any{
+				"serviceTier": "priority",
+				"store":       false,
+			},
+		},
+		{
+			Name:     "model-override",
+			Model:    "gpt-5.5",
+			Enabled:  true,
+			Override: true,
+			Set:      map[string]any{"reasoningEffort": "high"},
+			Delete:   []string{"parallel_tool_calls"},
+		},
+		{
+			Name:    "disabled",
+			Alias:   "gpt-5.5-fast",
+			Enabled: false,
+			Set:     map[string]any{"disabled_field": true},
+		},
+	}
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	loaded, err := Load(cfg.path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.RequestRewriteRules) != 3 {
+		t.Fatalf("rewrite rule count = %d, want 3", len(loaded.RequestRewriteRules))
+	}
+	if loaded.RequestRewriteRules[0].Name != "fast-tier" || !loaded.RequestRewriteRules[0].Enabled {
+		t.Fatalf("first rule = %#v", loaded.RequestRewriteRules[0])
+	}
+
+	payload := map[string]any{
+		"model":               "gpt-5.5",
+		"serviceTier":         "standard",
+		"parallel_tool_calls": true,
+	}
+	loaded.ApplyRequestRewriteRules("gpt-5.5-fast", "gpt-5.5", payload)
+	if got := payload["serviceTier"]; got != "standard" {
+		t.Fatalf("serviceTier = %#v, want request value", got)
+	}
+	if got := payload["store"]; got != false {
+		t.Fatalf("store = %#v, want false", got)
+	}
+	if got := payload["reasoningEffort"]; got != "high" {
+		t.Fatalf("reasoningEffort = %#v, want high", got)
+	}
+	if _, ok := payload["parallel_tool_calls"]; ok {
+		t.Fatalf("parallel_tool_calls still present: %#v", payload)
+	}
+	if _, ok := payload["disabled_field"]; ok {
+		t.Fatalf("disabled rule applied: %#v", payload)
+	}
+}
+
+func TestValidateRequestRewriteRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rule    RequestRewriteRule
+		wantErr string
+	}{
+		{
+			name:    "empty name",
+			rule:    RequestRewriteRule{Alias: "chat", Enabled: true, Set: map[string]any{"store": false}},
+			wantErr: "empty name",
+		},
+		{
+			name:    "missing scope",
+			rule:    RequestRewriteRule{Name: "missing-scope", Enabled: true, Set: map[string]any{"store": false}},
+			wantErr: "requires alias or model",
+		},
+		{
+			name:    "missing operation",
+			rule:    RequestRewriteRule{Name: "missing-op", Alias: "chat", Enabled: true},
+			wantErr: "requires set or delete",
+		},
+		{
+			name:    "delete without override",
+			rule:    RequestRewriteRule{Name: "bad-delete", Alias: "chat", Enabled: true, Delete: []string{"store"}},
+			wantErr: "delete requires override",
+		},
+		{
+			name: "valid",
+			rule: RequestRewriteRule{Name: "valid", Model: "gpt-5.5", Enabled: true, Override: true, Delete: []string{"store"}},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Default()
+			cfg.RequestRewriteRules = []RequestRewriteRule{tt.rule}
+			errs := cfg.Validate()
+			if tt.wantErr == "" {
+				if len(errs) != 0 {
+					t.Fatalf("Validate() errors = %v, want none", errs)
+				}
+				return
+			}
+			if len(errs) == 0 {
+				t.Fatal("Validate() errors = nil, want error")
+			}
+			if !strings.Contains(errs[0].Error(), tt.wantErr) {
+				t.Fatalf("Validate() error = %q, want containing %q", errs[0].Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsDuplicateRequestRewriteRuleNames(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.RequestRewriteRules = []RequestRewriteRule{
+		{Name: "same", Alias: "a", Enabled: true, Set: map[string]any{"store": false}},
+		{Name: "same", Model: "m", Enabled: true, Set: map[string]any{"store": true}},
+	}
+	errs := cfg.Validate()
+	if len(errs) == 0 || !strings.Contains(errs[0].Error(), `duplicate request rewrite rule "same"`) {
+		t.Fatalf("Validate() errors = %v, want duplicate rule error", errs)
+	}
+}
+
 func TestValidateRejectsInvalidModelsSource(t *testing.T) {
 	t.Parallel()
 

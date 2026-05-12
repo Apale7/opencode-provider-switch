@@ -37,6 +37,18 @@ type TargetRef struct {
 	Model    string
 }
 
+// RequestRewriteRule rewrites top-level outbound request config for a matching
+// alias and/or resolved upstream model.
+type RequestRewriteRule struct {
+	Name     string         `json:"name"`
+	Alias    string         `json:"alias,omitempty"`
+	Model    string         `json:"model,omitempty"`
+	Enabled  bool           `json:"enabled"`
+	Override bool           `json:"override,omitempty"`
+	Set      map[string]any `json:"set,omitempty"`
+	Delete   []string       `json:"delete,omitempty"`
+}
+
 // Alias maps a logical model name to ordered upstream targets.
 type Alias struct {
 	Alias       string   `json:"alias"`
@@ -112,6 +124,8 @@ type Config struct {
 	Desktop   Desktop    `json:"desktop,omitempty"`
 	Providers []Provider `json:"providers"`
 	Aliases   []Alias    `json:"aliases"`
+
+	RequestRewriteRules []RequestRewriteRule `json:"request_rewrite_rules,omitempty"`
 
 	path string
 	mu   sync.RWMutex
@@ -219,9 +233,10 @@ func Default() *Config {
 			Host: "127.0.0.1",
 			Port: 9983,
 		},
-		Desktop:   Desktop{},
-		Providers: []Provider{},
-		Aliases:   []Alias{},
+		Desktop:             Desktop{},
+		Providers:           []Provider{},
+		Aliases:             []Alias{},
+		RequestRewriteRules: []RequestRewriteRule{},
 	}
 }
 
@@ -262,6 +277,7 @@ func Load(path string) (*Config, error) {
 	}
 	normalizeProviders(c.Providers)
 	normalizeAliases(c.Aliases)
+	normalizeRequestRewriteRules(c.RequestRewriteRules)
 	if c.Server.Host == "" {
 		c.Server.Host = "127.0.0.1"
 	}
@@ -303,13 +319,16 @@ func (c *Config) Save() error {
 		aliases := cloneAliases(c.Aliases)
 		normalizeAliases(aliases)
 		sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
+		rewriteRules := cloneRequestRewriteRules(c.RequestRewriteRules)
+		normalizeRequestRewriteRules(rewriteRules)
 		snap := struct {
-			Server    Server     `json:"server"`
-			Admin     Admin      `json:"admin,omitempty"`
-			Desktop   Desktop    `json:"desktop,omitempty"`
-			Providers []Provider `json:"providers"`
-			Aliases   []Alias    `json:"aliases"`
-		}{c.Server, c.Admin, c.Desktop, providers, aliases}
+			Server              Server               `json:"server"`
+			Admin               Admin                `json:"admin,omitempty"`
+			Desktop             Desktop              `json:"desktop,omitempty"`
+			Providers           []Provider           `json:"providers"`
+			Aliases             []Alias              `json:"aliases"`
+			RequestRewriteRules []RequestRewriteRule `json:"request_rewrite_rules,omitempty"`
+		}{c.Server, c.Admin, c.Desktop, providers, aliases, rewriteRules}
 		data, err := json.MarshalIndent(snap, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal: %w", err)
@@ -407,6 +426,123 @@ func (c *Config) RemoveAlias(name string) bool {
 		}
 	}
 	return false
+}
+
+// RequestRewriteRulesSnapshot returns request rewrite rules in configured order.
+func (c *Config) RequestRewriteRulesSnapshot() []RequestRewriteRule {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cloneRequestRewriteRules(c.RequestRewriteRules)
+}
+
+// FindRequestRewriteRule returns the request rewrite rule with matching name.
+func (c *Config) FindRequestRewriteRule(name string) *RequestRewriteRule {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	name = strings.TrimSpace(name)
+	for i := range c.RequestRewriteRules {
+		if c.RequestRewriteRules[i].Name == name {
+			clone := cloneRequestRewriteRule(c.RequestRewriteRules[i])
+			return &clone
+		}
+	}
+	return nil
+}
+
+// UpsertRequestRewriteRule adds or replaces a request rewrite rule by name.
+func (c *Config) UpsertRequestRewriteRule(rule RequestRewriteRule) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rule = normalizeRequestRewriteRule(rule)
+	for i := range c.RequestRewriteRules {
+		if c.RequestRewriteRules[i].Name == rule.Name {
+			c.RequestRewriteRules[i] = rule
+			return
+		}
+	}
+	c.RequestRewriteRules = append(c.RequestRewriteRules, rule)
+}
+
+// SetRequestRewriteRuleEnabled toggles one request rewrite rule.
+func (c *Config) SetRequestRewriteRuleEnabled(name string, enabled bool) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	name = strings.TrimSpace(name)
+	for i := range c.RequestRewriteRules {
+		if c.RequestRewriteRules[i].Name == name {
+			c.RequestRewriteRules[i].Enabled = enabled
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveRequestRewriteRule deletes a request rewrite rule by name.
+func (c *Config) RemoveRequestRewriteRule(name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	name = strings.TrimSpace(name)
+	for i := range c.RequestRewriteRules {
+		if c.RequestRewriteRules[i].Name == name {
+			c.RequestRewriteRules = append(c.RequestRewriteRules[:i], c.RequestRewriteRules[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// ApplyRequestRewriteRules mutates payload by applying matching rewrite rules.
+func (c *Config) ApplyRequestRewriteRules(aliasName, model string, payload map[string]any) {
+	if payload == nil {
+		return
+	}
+	c.mu.RLock()
+	rules := cloneRequestRewriteRules(c.RequestRewriteRules)
+	c.mu.RUnlock()
+	ApplyRequestRewriteRules(payload, aliasName, model, rules)
+}
+
+// ApplyRequestRewriteRules mutates payload using rules in order. Rules match the
+// normalized incoming alias and resolved upstream model.
+func ApplyRequestRewriteRules(payload map[string]any, aliasName, model string, rules []RequestRewriteRule) {
+	if payload == nil || len(rules) == 0 {
+		return
+	}
+	aliasName = strings.TrimSpace(aliasName)
+	model = strings.TrimSpace(model)
+	for _, rule := range rules {
+		rule = normalizeRequestRewriteRule(rule)
+		if !rule.Enabled || !requestRewriteRuleMatches(rule, aliasName, model) {
+			continue
+		}
+		if rule.Override {
+			for _, key := range rule.Delete {
+				delete(payload, key)
+			}
+		}
+		for key, value := range rule.Set {
+			if rule.Override {
+				payload[key] = value
+				continue
+			}
+			if _, exists := payload[key]; !exists {
+				payload[key] = value
+			}
+		}
+	}
+}
+
+func requestRewriteRuleMatches(rule RequestRewriteRule, aliasName, model string) bool {
+	if rule.Alias == "" && rule.Model == "" {
+		return false
+	}
+	if rule.Alias != "" && rule.Alias != aliasName {
+		return false
+	}
+	if rule.Model != "" && rule.Model != model {
+		return false
+	}
+	return true
 }
 
 // AddTarget appends a target to an alias; creates alias if missing.
@@ -642,6 +778,27 @@ func (c *Config) Validate() []error {
 			errs = append(errs, fmt.Errorf("alias %q has no available targets", a.Alias))
 		}
 	}
+	rewriteNames := map[string]bool{}
+	for _, rule := range c.RequestRewriteRules {
+		rule = normalizeRequestRewriteRule(rule)
+		if rule.Name == "" {
+			errs = append(errs, fmt.Errorf("request rewrite rule with empty name"))
+			continue
+		}
+		if rewriteNames[rule.Name] {
+			errs = append(errs, fmt.Errorf("duplicate request rewrite rule %q", rule.Name))
+		}
+		rewriteNames[rule.Name] = true
+		if rule.Alias == "" && rule.Model == "" {
+			errs = append(errs, fmt.Errorf("request rewrite rule %q requires alias or model", rule.Name))
+		}
+		if len(rule.Set) == 0 && len(rule.Delete) == 0 {
+			errs = append(errs, fmt.Errorf("request rewrite rule %q requires set or delete", rule.Name))
+		}
+		if len(rule.Delete) > 0 && !rule.Override {
+			errs = append(errs, fmt.Errorf("request rewrite rule %q delete requires override", rule.Name))
+		}
+	}
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
 		errs = append(errs, fmt.Errorf("invalid server port %d", c.Server.Port))
 	}
@@ -772,6 +929,47 @@ func normalizeAliases(aliases []Alias) {
 	}
 }
 
+func normalizeRequestRewriteRules(rules []RequestRewriteRule) {
+	for i := range rules {
+		rules[i] = normalizeRequestRewriteRule(rules[i])
+	}
+}
+
+func normalizeRequestRewriteRule(rule RequestRewriteRule) RequestRewriteRule {
+	rule.Name = strings.TrimSpace(rule.Name)
+	rule.Alias = strings.TrimSpace(rule.Alias)
+	rule.Model = strings.TrimSpace(rule.Model)
+	if len(rule.Set) > 0 {
+		next := make(map[string]any, len(rule.Set))
+		for key, value := range rule.Set {
+			trimmed := strings.TrimSpace(key)
+			if trimmed == "" {
+				continue
+			}
+			next[trimmed] = cloneJSONValue(value)
+		}
+		rule.Set = next
+	} else {
+		rule.Set = nil
+	}
+	if len(rule.Delete) > 0 {
+		seen := map[string]bool{}
+		next := make([]string, 0, len(rule.Delete))
+		for _, key := range rule.Delete {
+			trimmed := strings.TrimSpace(key)
+			if trimmed == "" || seen[trimmed] {
+				continue
+			}
+			seen[trimmed] = true
+			next = append(next, trimmed)
+		}
+		rule.Delete = next
+	} else {
+		rule.Delete = nil
+	}
+	return rule
+}
+
 func cloneProviders(in []Provider) []Provider {
 	out := make([]Provider, len(in))
 	for i := range in {
@@ -786,6 +984,23 @@ func cloneAliases(in []Alias) []Alias {
 		out[i] = cloneAlias(in[i])
 	}
 	return out
+}
+
+func cloneRequestRewriteRules(in []RequestRewriteRule) []RequestRewriteRule {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]RequestRewriteRule, len(in))
+	for i := range in {
+		out[i] = cloneRequestRewriteRule(in[i])
+	}
+	return out
+}
+
+func cloneRequestRewriteRule(in RequestRewriteRule) RequestRewriteRule {
+	in.Set = cloneAnyMap(in.Set)
+	in.Delete = cloneStrings(in.Delete)
+	return in
 }
 
 func cloneTargets(in []Target) []Target {
@@ -809,4 +1024,32 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = cloneJSONValue(v)
+	}
+	return out
+}
+
+func cloneJSONValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(v)
+	case []any:
+		out := make([]any, len(v))
+		for i := range v {
+			out[i] = cloneJSONValue(v[i])
+		}
+		return out
+	case []string:
+		return cloneStrings(v)
+	default:
+		return value
+	}
 }

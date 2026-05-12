@@ -65,6 +65,7 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 	cfg.Desktop = imported.Desktop
 	cfg.Providers = append([]config.Provider(nil), imported.Providers...)
 	cfg.Aliases = append([]config.Alias(nil), imported.Aliases...)
+	cfg.RequestRewriteRules = append([]config.RequestRewriteRule(nil), imported.RequestRewriteRules...)
 	if err := cfg.Save(); err != nil {
 		return ConfigImportResult{}, err
 	}
@@ -81,18 +82,21 @@ func marshalConfigContent(cfg *config.Config) (string, error) {
 	sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
 	aliases := append([]config.Alias(nil), cfg.Aliases...)
 	sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
+	rewriteRules := append([]config.RequestRewriteRule(nil), cfg.RequestRewriteRules...)
 	snapshot := struct {
-		Server    config.Server     `json:"server"`
-		Admin     config.Admin      `json:"admin,omitempty"`
-		Desktop   config.Desktop    `json:"desktop,omitempty"`
-		Providers []config.Provider `json:"providers"`
-		Aliases   []config.Alias    `json:"aliases"`
+		Server              config.Server               `json:"server"`
+		Admin               config.Admin                `json:"admin,omitempty"`
+		Desktop             config.Desktop              `json:"desktop,omitempty"`
+		Providers           []config.Provider           `json:"providers"`
+		Aliases             []config.Alias              `json:"aliases"`
+		RequestRewriteRules []config.RequestRewriteRule `json:"request_rewrite_rules,omitempty"`
 	}{
-		Server:    cfg.Server,
-		Admin:     cfg.Admin,
-		Desktop:   cfg.Desktop,
-		Providers: providers,
-		Aliases:   aliases,
+		Server:              cfg.Server,
+		Admin:               cfg.Admin,
+		Desktop:             cfg.Desktop,
+		Providers:           providers,
+		Aliases:             aliases,
+		RequestRewriteRules: rewriteRules,
 	}
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {

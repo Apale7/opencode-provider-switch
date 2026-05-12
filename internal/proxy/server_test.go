@@ -118,6 +118,84 @@ func TestHandleCompletionsProxiesOpenAICompatibleRequest(t *testing.T) {
 	}
 }
 
+func TestHandleResponsesAppliesRequestRewriteRules(t *testing.T) {
+	t.Parallel()
+
+	var seenPayload map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&seenPayload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","output":[]}`))
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.5-fast",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "gpt-5.5", Enabled: true}},
+		}},
+		RequestRewriteRules: []config.RequestRewriteRule{
+			{Name: "disabled", Alias: "gpt-5.5-fast", Enabled: false, Set: map[string]any{"disabled_field": true}},
+			{Name: "other-alias", Alias: "other", Enabled: true, Set: map[string]any{"other_field": true}},
+			{Name: "alias-add", Alias: "gpt-5.5-fast", Enabled: true, Set: map[string]any{"serviceTier": "priority", "store": false}},
+			{Name: "model-override", Model: "gpt-5.5", Enabled: true, Override: true, Set: map[string]any{"reasoningEffort": "high"}, Delete: []string{"parallel_tool_calls"}},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5-fast","stream":false,"serviceTier":"standard","reasoningEffort":"low","parallel_tool_calls":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rr.Code, rr.Body.String())
+	}
+	if got := seenPayload["model"]; got != "gpt-5.5" {
+		t.Fatalf("model = %#v, want resolved upstream model", got)
+	}
+	if got := seenPayload["serviceTier"]; got != "standard" {
+		t.Fatalf("serviceTier = %#v, want request value", got)
+	}
+	if got := seenPayload["store"]; got != false {
+		t.Fatalf("store = %#v, want false", got)
+	}
+	if got := seenPayload["reasoningEffort"]; got != "high" {
+		t.Fatalf("reasoningEffort = %#v, want high", got)
+	}
+	if _, ok := seenPayload["parallel_tool_calls"]; ok {
+		t.Fatalf("parallel_tool_calls still present: %#v", seenPayload)
+	}
+	if _, ok := seenPayload["disabled_field"]; ok {
+		t.Fatalf("disabled rule applied: %#v", seenPayload)
+	}
+	if _, ok := seenPayload["other_field"]; ok {
+		t.Fatalf("non-matching alias rule applied: %#v", seenPayload)
+	}
+
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || len(traces[0].Attempts) != 1 {
+		t.Fatalf("traces = %#v, want one attempt", traces)
+	}
+	params, ok := traces[0].Attempts[0].RequestParams.(map[string]any)
+	if !ok {
+		t.Fatalf("trace request params = %#v", traces[0].Attempts[0].RequestParams)
+	}
+	if got := params["store"]; got != false {
+		t.Fatalf("trace store = %#v, want rewritten payload", got)
+	}
+}
+
 func TestHandleMessagesProxiesAnthropicRequest(t *testing.T) {
 	t.Parallel()
 
