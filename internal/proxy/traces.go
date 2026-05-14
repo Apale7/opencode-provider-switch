@@ -328,15 +328,26 @@ var sensitiveHeaderNames = map[string]bool{
 }
 
 var redactedPayloadKeys = map[string]bool{
+	"access_token":  true,
+	"api_key":       true,
+	"apikey":        true,
+	"authorization": true,
 	"content":      true,
+	"credential":   true,
+	"credentials":  true,
 	"input":        true,
 	"instructions": true,
+	"key":          true,
 	"messages":     true,
 	"output":       true,
 	"output_text":  true,
+	"password":     true,
 	"prompt":       true,
 	"response":     true,
+	"secret":       true,
 	"text":         true,
+	"token":        true,
+	"x-api-key":    true,
 }
 
 func sanitizeHeaderMap(header http.Header) map[string]string {
