@@ -89,7 +89,19 @@ If the active session language is Chinese, write the audit message in Chinese ex
 
 ## Invocation
 
-Preferred helper:
+Preferred helper with `--message-file` on Windows/PowerShell:
+
+```powershell
+$auditMessage = @'
+<audit message>
+'@
+$auditFile = New-TemporaryFile
+Set-Content -LiteralPath $auditFile -Value $auditMessage -Encoding UTF8
+node .opencode/skills/local-opencode-audit/scripts/invoke.mjs --kind dev --message-file $auditFile --model "<user model text>" --agent "<user agent text>" --file path/to/file.go --timeout 600000
+Remove-Item -LiteralPath $auditFile
+```
+
+Piped stdin is also supported when the shell preserves multiline input correctly:
 
 ```powershell
 @'
@@ -107,7 +119,7 @@ For ops:
 
 If the user did not specify model, omit `--model`. If the user did not specify agent, omit `--agent`; the helper will use `plan` for `dev` and `build` for `ops`.
 
-Repeat `--file` for files that should be attached. Put line numbers in the message, not in `--file`.
+Repeat `--file` for files that should be attached. Put line numbers in the message, not in `--file`. The helper always builds `opencode run <message> --file <path>` so `--file` cannot consume the audit message as a path.
 
 Use dry run when checking resolution only:
 
@@ -116,6 +128,28 @@ Use dry run when checking resolution only:
 <audit message>
 '@ | node .opencode/skills/local-opencode-audit/scripts/invoke.mjs --kind dev --model "gpt 5.5" --dry-run
 ```
+
+Dry-run with `--file` must show the message immediately after `run`, before every `--file`:
+
+```powershell
+@'
+<audit message>
+'@ | node .opencode/skills/local-opencode-audit/scripts/invoke.mjs --kind dev --file path/to/file.go --dry-run
+```
+
+Expected `args` shape:
+
+```json
+["run", "<audit message>", "--agent", "plan", "--file", "path/to/file.go"]
+```
+
+The helper also has a lightweight self-test:
+
+```powershell
+node .opencode/skills/local-opencode-audit/scripts/invoke.mjs --self-test
+```
+
+If an audit fails with `File not found: <long audit message>`, treat it as argument ordering damage: the message was parsed as a `--file` value. Use the helper or put `<message>` immediately after `opencode run` and before `--file`.
 
 ## Prompt Template: Dev
 

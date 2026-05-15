@@ -28,7 +28,7 @@ function parseArgs(argv) {
     const eq = arg.indexOf("=")
     const key = eq === -1 ? arg.slice(2) : arg.slice(2, eq)
     const valueFromEquals = eq === -1 ? undefined : arg.slice(eq + 1)
-    const isFlag = ["dry-run", "print-command", "allow-nested", "no-default-agent", "thinking"].includes(key)
+    const isFlag = ["dry-run", "print-command", "allow-nested", "no-default-agent", "thinking", "self-test"].includes(key)
     const value = valueFromEquals ?? (isFlag ? true : argv[++i])
 
     if (key === "file" || key === "focus") {
@@ -261,11 +261,83 @@ function quoteArg(arg) {
   return `"${value.replace(/"/g, '\\"')}"`
 }
 
+function buildOpencodeArgs({ args, cwd, message, resolvedModel, resolvedAgent, warnings }) {
+  const opencodeArgs = ["run", message || "Dry-run audit message placeholder."]
+  if (resolvedModel) opencodeArgs.push("--model", resolvedModel)
+  if (resolvedAgent) opencodeArgs.push("--agent", resolvedAgent)
+  if (args.format) opencodeArgs.push("--format", String(args.format))
+  if (args.dir) opencodeArgs.push("--dir", String(args.dir))
+  if (args.attach) opencodeArgs.push("--attach", String(args.attach))
+  if (args.username) opencodeArgs.push("--username", String(args.username))
+  if (args.password) opencodeArgs.push("--password", String(args.password))
+  if (args.port) opencodeArgs.push("--port", String(args.port))
+  if (args.variant) opencodeArgs.push("--variant", String(args.variant))
+  if (args.thinking) opencodeArgs.push("--thinking")
+
+  for (const file of args.file || []) {
+    const filePath = String(file)
+    if (!existsSync(path.resolve(cwd, filePath))) {
+      warnings.push(`Attached file does not exist locally: ${filePath}`)
+    }
+    opencodeArgs.push("--file", filePath)
+  }
+
+  return opencodeArgs
+}
+
+function isLikelyMessageFileError(output, message) {
+  const normalizedOutput = stripAnsi(output).replace(/\s+/g, " ")
+  const normalizedMessage = String(message || "").trim().replace(/\s+/g, " ")
+  if (normalizedMessage.length < 40) return false
+  if (!/File not found:/i.test(normalizedOutput)) return false
+
+  const probeLength = Math.min(120, normalizedMessage.length)
+  return normalizedOutput.includes(normalizedMessage.slice(0, probeLength))
+}
+
+function printMessageFileHint(output, message) {
+  if (!isLikelyMessageFileError(output, message)) return
+  console.error("[local-opencode-audit] 检测到疑似 `message` 被 `--file` 当成文件路径解析。")
+  console.error("[local-opencode-audit] 正确顺序：`opencode run <message> --file <path>`，不要把 `<message>` 放在 `--file` 后面。")
+}
+
+function runSelfTest() {
+  const warnings = []
+  const message = "自测 audit message line 1\nline 2"
+  const opencodeArgs = buildOpencodeArgs({
+    args: { file: [process.argv[1] || "invoke.mjs"], focus: [] },
+    cwd: process.cwd(),
+    message,
+    resolvedModel: null,
+    resolvedAgent: "plan",
+    warnings,
+  })
+  const messageIndex = opencodeArgs.indexOf(message)
+  const fileIndex = opencodeArgs.indexOf("--file")
+  const errors = []
+
+  if (opencodeArgs[0] !== "run") errors.push("first argument must be run")
+  if (messageIndex !== 1) errors.push("message must be immediately after run")
+  if (fileIndex !== -1 && fileIndex < messageIndex) errors.push("--file must be after message")
+
+  if (errors.length > 0) {
+    console.error(JSON.stringify({ ok: false, errors, args: opencodeArgs, warnings }, null, 2))
+    process.exit(1)
+  }
+
+  console.log(JSON.stringify({ ok: true, args: opencodeArgs, warnings }, null, 2))
+}
+
 const OPENCODE = resolveExecutable(process.env.OPENCODE_BIN || "opencode")
 
 function main() {
   const args = parseArgs(process.argv.slice(2))
   const warnings = []
+
+  if (args["self-test"]) {
+    runSelfTest()
+    return
+  }
 
   if (process.env.LOCAL_OPENCODE_AUDIT === "1" && !args["allow-nested"]) {
     console.error("Nested local-opencode-audit invocation blocked by LOCAL_OPENCODE_AUDIT=1.")
@@ -291,27 +363,7 @@ function main() {
   const resolvedModel = args.model ? resolveCandidate(args.model, models, "model", warnings) : null
   const resolvedAgent = resolveAgent(agentInput, cwd, warnings)
 
-  const opencodeArgs = ["run"]
-  if (resolvedModel) opencodeArgs.push("--model", resolvedModel)
-  if (resolvedAgent) opencodeArgs.push("--agent", resolvedAgent)
-  if (args.format) opencodeArgs.push("--format", String(args.format))
-  if (args.dir) opencodeArgs.push("--dir", String(args.dir))
-  if (args.attach) opencodeArgs.push("--attach", String(args.attach))
-  if (args.username) opencodeArgs.push("--username", String(args.username))
-  if (args.password) opencodeArgs.push("--password", String(args.password))
-  if (args.port) opencodeArgs.push("--port", String(args.port))
-  if (args.variant) opencodeArgs.push("--variant", String(args.variant))
-  if (args.thinking) opencodeArgs.push("--thinking")
-
-  for (const file of args.file) {
-    const filePath = String(file)
-    if (!existsSync(path.resolve(cwd, filePath))) {
-      warnings.push(`Attached file does not exist locally: ${filePath}`)
-    }
-    opencodeArgs.push("--file", filePath)
-  }
-
-  opencodeArgs.push(message || "Dry-run audit message placeholder.")
+  const opencodeArgs = buildOpencodeArgs({ args, cwd, message, resolvedModel, resolvedAgent, warnings })
 
   if (warnings.length > 0) {
     for (const warning of warnings) console.error(`[local-opencode-audit] ${warning}`)
@@ -335,7 +387,9 @@ function main() {
   const spec = commandSpec(OPENCODE, opencodeArgs)
   const result = spawnSync(spec.command, spec.args, {
     cwd,
-    stdio: "inherit",
+    encoding: "utf8",
+    stdio: ["inherit", "pipe", "pipe"],
+    maxBuffer: 20 * 1024 * 1024,
     timeout,
     ...(spec.options || {}),
     env: {
@@ -344,9 +398,15 @@ function main() {
     },
   })
 
+  if (result.stdout) process.stdout.write(result.stdout)
+  if (result.stderr) process.stderr.write(result.stderr)
+
   if (result.error) {
     console.error(`[local-opencode-audit] opencode run failed: ${result.error.message}`)
     process.exit(result.error.code === "ETIMEDOUT" ? 124 : 1)
+  }
+  if ((result.status ?? 0) !== 0) {
+    printMessageFileHint(`${result.stdout || ""}\n${result.stderr || ""}`, message)
   }
   process.exit(result.status ?? 0)
 }
