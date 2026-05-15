@@ -1264,6 +1264,14 @@ html[data-theme='dark'] button.ghost-danger:hover {
   box-shadow: var(--shadow-sm);
 }
 
+.rewrite-rule-card {
+  border-left: 4px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.rewrite-rule-card.active {
+  border-left-color: var(--accent);
+}
+
 .resource-card-top {
   display: flex;
   align-items: flex-start;
@@ -1587,6 +1595,14 @@ html[data-theme='dark'] button.ghost-danger:hover {
   background: linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 92%, var(--panel)) 0%, var(--panel) 100%);
 }
 
+.alias-rewrite-section {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-softer) 42%, var(--panel-soft)) 0%, var(--panel) 100%);
+}
+
+.alias-rewrite-list {
+  max-height: none;
+}
+
 .compact-inline-meta {
   align-items: flex-start;
 }
@@ -1795,6 +1811,17 @@ dd {
 
 @media (max-width: 760px) {
   .target-card {
+    grid-template-columns: 1fr;
+  }
+
+  .resource-card-top,
+  .detail-section-header {
+    display: grid;
+  }
+
+  .resource-card-meta,
+  .detail-form-grid,
+  .detail-hero-grid {
     grid-template-columns: 1fr;
   }
 

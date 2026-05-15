@@ -5,6 +5,7 @@ import {
   bindAliasTarget,
   deleteAlias,
   deleteProvider,
+  deleteRewriteRule,
   exportConfig,
   getRequestTrace,
   getAdminToken,
@@ -15,21 +16,25 @@ import {
   importProviders,
   listAliases,
   listProviders,
+  listRewriteRules,
   queryProviderHealth,
   queryRequestTraces,
   refreshProviderModels,
   previewSync,
   pingProviderBaseUrl,
   reorderAliasTargets,
+  reorderRewriteRules,
   runDoctor,
   saveAlias,
   setAdminToken,
   saveDesktopPrefs,
   saveProxySettings,
+  saveRewriteRule,
   saveProvider,
   openExternalURL,
   setAliasTargetState,
   setProviderState,
+  setRewriteRuleState,
   startProxy,
   stopProxy,
   unbindAliasTarget,
@@ -66,6 +71,9 @@ import type {
 	ProxyStatusView,
 	ProxySettingsSaveResult,
 	ProxySettingsView,
+	RequestRewriteOperation,
+	RequestRewriteRuleInput,
+	RequestRewriteRuleView,
 	RequestTrace,
 	RequestTraceListResult,
 	TraceStats,
@@ -108,10 +116,26 @@ type AliasFormState = {
   disabled: boolean
 }
 
+type RewriteRuleProviderSelection = string[] | null
+
+type RewriteRuleFormState = {
+  name: string
+  alias: string
+  providers: RewriteRuleProviderSelection
+  enabled: boolean
+  override: boolean
+  opsText: string
+}
+
+type RewriteRuleProviderOption = {
+  id: string
+  label: string
+}
+
 type TabKey = 'overview' | 'providers' | 'aliases' | 'log' | 'network' | 'health' | 'sync' | 'settings'
 type FilterState = 'all' | 'enabled' | 'disabled'
 type ResolvedTheme = 'light' | 'dark'
-type ModalKey = 'provider-import' | 'alias-target' | null
+type ModalKey = 'provider-import' | 'alias-target' | 'rewrite-rule' | null
 type DetailMode = 'empty' | 'create' | 'edit'
 type ConfigImportMode = 'text' | 'file'
 type TraceTimePreset = 'run' | 'today' | 'week' | 'custom'
@@ -124,6 +148,7 @@ type ConfirmIntent =
   | { kind: 'delete-provider'; id: string }
   | { kind: 'delete-alias'; alias: string }
   | { kind: 'unbind-target'; alias: string; provider: string; model: string }
+  | { kind: 'delete-rewrite-rule'; name: string }
 
 const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'health', 'sync', 'settings']
 const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switch'
@@ -189,6 +214,35 @@ const emptyAliasForm: AliasFormState = {
   displayName: '',
   protocol: 'openai-responses',
   disabled: false,
+}
+
+const emptyRewriteRuleForm: RewriteRuleFormState = {
+  name: '',
+  alias: '',
+  providers: null,
+  enabled: true,
+  override: false,
+  opsText: '',
+}
+
+function rewriteRuleFormForAlias(aliasName: string): RewriteRuleFormState {
+  return { ...emptyRewriteRuleForm, alias: aliasName }
+}
+
+function rewriteRulesWithVisibleOrder(
+  allRules: RequestRewriteRuleView[],
+  visibleRules: RequestRewriteRuleView[],
+  aliasName: string,
+): RequestRewriteRuleView[] {
+  let visibleIndex = 0
+  return allRules.map((rule) => {
+    if (rule.alias !== aliasName) {
+      return rule
+    }
+    const nextRule = visibleRules[visibleIndex]
+    visibleIndex += 1
+    return nextRule || rule
+  })
 }
 
 function protocolLabel(protocol: ProviderProtocol): string {
@@ -322,6 +376,66 @@ function resolveDraftAliasProtocol(
 
 function selectedTraceModel(providerId: string, providers: ProviderView[]): string[] {
 	return providers.find((provider) => provider.id === providerId)?.models || []
+}
+
+function providerDisplayLabel(providerId: string, providers: ProviderView[]): string {
+  const provider = providers.find((item) => item.id === providerId)
+  return provider?.name ? `${providerId} (${provider.name})` : providerId
+}
+
+function rewriteRuleProviderOptions(alias: AliasView | null, providers: ProviderView[]): RewriteRuleProviderOption[] {
+  if (!alias) {
+    return []
+  }
+  const seen = new Set<string>()
+  const options: RewriteRuleProviderOption[] = []
+  for (const target of alias.targets) {
+    if (seen.has(target.provider)) {
+      continue
+    }
+    seen.add(target.provider)
+    options.push({ id: target.provider, label: providerDisplayLabel(target.provider, providers) })
+  }
+  return options
+}
+
+function rewriteRuleEffectiveProviderIds(selectedProviderIds: RewriteRuleProviderSelection, optionIds: string[]): string[] {
+  if (selectedProviderIds === null) {
+    return optionIds
+  }
+  return optionIds.filter((providerId) => selectedProviderIds.includes(providerId))
+}
+
+function rewriteRuleToggleProvider(selectedProviderIds: RewriteRuleProviderSelection, optionIds: string[], providerId: string, selected: boolean): string[] {
+  const effectiveIds = rewriteRuleEffectiveProviderIds(selectedProviderIds, optionIds)
+  const nextIds = selected
+    ? [...effectiveIds, providerId]
+    : effectiveIds.filter((item) => item !== providerId)
+  return optionIds.filter((item) => nextIds.includes(item))
+}
+
+function rewriteRuleProvidersForInput(selectedProviderIds: RewriteRuleProviderSelection, optionIds: string[]): string[] | undefined {
+  if (selectedProviderIds === null) {
+    return undefined
+  }
+  const scopedIds = optionIds.filter((providerId) => selectedProviderIds.includes(providerId))
+  return scopedIds.length > 0 && scopedIds.length < optionIds.length ? scopedIds : undefined
+}
+
+function rewriteRuleProviderScopeText(providerIds: string[] | undefined, alias: AliasView | null, providers: ProviderView[]): string {
+  const selectedProviderIds = Array.from(new Set(providerIds || []))
+  if (selectedProviderIds.length === 0) {
+    return i18n.t('rewriteRules.providerScopeAll')
+  }
+  const optionIds = rewriteRuleProviderOptions(alias, providers).map((option) => option.id)
+  const allTargetProvidersSelected = optionIds.length > 0
+    && selectedProviderIds.length === optionIds.length
+    && optionIds.every((providerId) => selectedProviderIds.includes(providerId))
+  if (allTargetProvidersSelected) {
+    return i18n.t('rewriteRules.providerScopeAll')
+  }
+  const labels = selectedProviderIds.map((providerId) => providerDisplayLabel(providerId, providers))
+  return i18n.t('rewriteRules.providerScopeSome', { providers: labels.join(', ') })
 }
 
 function tracePageCount(total: number, pageSize: number): number {
@@ -473,6 +587,346 @@ function parseHeadersText(input: string): Record<string, string> | undefined {
     headers[key] = value
   }
   return headers
+}
+
+function stringifyRewriteValue(value: unknown): string {
+  const json = JSON.stringify(value)
+  return json === undefined ? String(value) : json
+}
+
+function stringifyRewriteOperation(op: RequestRewriteOperation): string {
+  if (op.op === 'delete') {
+    return `${op.op}:${op.path}`
+  }
+  if (op.op === 'insert') {
+    return `${op.op}:${op.path}:${op.index ?? 0}=${stringifyRewriteValue(op.value)}`
+  }
+  return `${op.op}:${op.path}=${stringifyRewriteValue(op.value)}`
+}
+
+function rewriteOpsTextFromList(ops?: RequestRewriteOperation[]): string {
+  if (!ops || ops.length === 0) {
+    return ''
+  }
+  return ops.map((op) => stringifyRewriteOperation(op)).join('\n')
+}
+
+function parseRewriteValue(rawValue: string): unknown {
+  if (rawValue === '') {
+    return ''
+  }
+  try {
+    return JSON.parse(rawValue)
+  } catch {
+    return rawValue
+  }
+}
+
+function parseRewritePath(path: string, line: string): string {
+  const trimmedPath = path.trim()
+  if (!trimmedPath) {
+    throw new Error(i18n.t('rewriteRules.errors.emptyPath', { line }))
+  }
+  if (trimmedPath === '$') {
+    throw new Error(i18n.t('rewriteRules.errors.rootPath', { line }))
+  }
+  if (!trimmedPath.startsWith('$')) {
+    throw new Error(i18n.t('rewriteRules.errors.pathMustStartWithRoot', { line }))
+  }
+  validateRewriteJSONPath(trimmedPath, line)
+  return trimmedPath
+}
+
+function validateRewriteJSONPath(path: string, line: string): void {
+  let index = 1
+  let segmentCount = 0
+  while (index < path.length) {
+    const char = path[index]
+    if (char === '.') {
+      if (path[index + 1] === '.') {
+        throw new Error(i18n.t('rewriteRules.errors.unsupportedPath', { line }))
+      }
+      const nextIndex = scanRewriteDotName(path, index + 1)
+      if (nextIndex === index + 1) {
+        throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+      }
+      index = nextIndex
+      segmentCount += 1
+      continue
+    }
+    if (char === '[') {
+      const nextIndex = scanRewriteBracketSegment(path, index, line)
+      index = nextIndex
+      segmentCount += 1
+      continue
+    }
+    throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+  }
+  if (segmentCount === 0) {
+    throw new Error(i18n.t('rewriteRules.errors.rootPath', { line }))
+  }
+}
+
+function scanRewriteDotName(path: string, start: number): number {
+  if (start >= path.length || !isRewritePathNameStart(path[start])) {
+    return start
+  }
+  let index = start + 1
+  while (index < path.length && isRewritePathNameChar(path[index])) {
+    index += 1
+  }
+  return index
+}
+
+function scanRewriteBracketSegment(path: string, start: number, line: string): number {
+  let contentStart = start + 1
+  while (contentStart < path.length && /\s/.test(path[contentStart])) {
+    contentStart += 1
+  }
+  if (contentStart >= path.length) {
+    throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+  }
+  if (path[contentStart] === "'" || path[contentStart] === '"') {
+    const quote = path[contentStart]
+    let contentEnd = contentStart + 1
+    while (contentEnd < path.length) {
+      if (path[contentEnd] === '\\') {
+        contentEnd += 2
+        continue
+      }
+      if (path[contentEnd] === quote) {
+        break
+      }
+      contentEnd += 1
+    }
+    if (contentEnd >= path.length) {
+      throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+    }
+    let end = contentEnd + 1
+    while (end < path.length && /\s/.test(path[end])) {
+      end += 1
+    }
+    if (end >= path.length || path[end] !== ']') {
+      throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+    }
+    validateRewriteQuotedName(path.slice(contentStart, contentEnd + 1), line)
+    return end + 1
+  }
+  const end = path.indexOf(']', contentStart)
+  if (end < 0) {
+    throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+  }
+  const content = path.slice(contentStart, end).trim()
+  if (!content) {
+    throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+  }
+  if (/[*?:,]/.test(content)) {
+    throw new Error(i18n.t('rewriteRules.errors.unsupportedPath', { line }))
+  }
+  if (!/^\d+$/.test(content)) {
+    throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+  }
+  return end + 1
+}
+
+function splitRewriteOpValue(input: string, line: string): [string, string] {
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]
+    if (char === "'" || char === '"') {
+      index = scanRewriteQuotedSpan(input, index, line)
+      continue
+    }
+    if (char === '=') {
+      return [input.slice(0, index), input.slice(index + 1)]
+    }
+  }
+  throw new Error(i18n.t('rewriteRules.errors.invalidValueOpLine', { line }))
+}
+
+function splitRewriteInsertLeft(input: string, line: string): [string, string] {
+  let separator = -1
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]
+    if (char === "'" || char === '"') {
+      index = scanRewriteQuotedSpan(input, index, line)
+      continue
+    }
+    if (char === ':') {
+      separator = index
+    }
+  }
+  if (separator < 0) {
+    throw new Error(i18n.t('rewriteRules.errors.insertIndexRequired', { line }))
+  }
+  return [input.slice(0, separator), input.slice(separator + 1)]
+}
+
+function scanRewriteQuotedSpan(input: string, start: number, line: string): number {
+  const quote = input[start]
+  for (let index = start + 1; index < input.length; index += 1) {
+    if (input[index] === '\\') {
+      index += 1
+      continue
+    }
+    if (input[index] === quote) {
+      return index
+    }
+  }
+  throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+}
+
+function validateRewriteQuotedName(content: string, line: string): void {
+  const quote = content[0]
+  if (content.length < 2 || content[content.length - 1] !== quote) {
+    throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+  }
+  if (content.length === 2) {
+    throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+  }
+  for (let index = 1; index < content.length - 1; index += 1) {
+    if (content[index] !== '\\') {
+      continue
+    }
+    index += 1
+    if (index >= content.length - 1 || !['\\', '/', "'", '"', 'b', 'f', 'n', 'r', 't'].includes(content[index])) {
+      throw new Error(i18n.t('rewriteRules.errors.invalidPath', { line }))
+    }
+  }
+}
+
+function isRewritePathNameStart(char: string): boolean {
+  return char === '_' || /^\p{L}$/u.test(char)
+}
+
+function isRewritePathNameChar(char: string): boolean {
+  return isRewritePathNameStart(char) || /^\d$/.test(char)
+}
+
+function parseRewriteInsertIndex(rawIndex: string, line: string): number {
+  const trimmedIndex = rawIndex.trim()
+  if (!trimmedIndex) {
+    throw new Error(i18n.t('rewriteRules.errors.insertIndexRequired', { line }))
+  }
+  if (!/^\d+$/.test(trimmedIndex)) {
+    throw new Error(i18n.t('rewriteRules.errors.insertIndexInvalid', { line }))
+  }
+  return Number(trimmedIndex)
+}
+
+function parseRewriteOpsText(input: string): RequestRewriteOperation[] | undefined {
+  const lines = input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) {
+    return undefined
+  }
+  const ops: RequestRewriteOperation[] = []
+  for (const line of lines) {
+    const colonIndex = line.indexOf(':')
+    if (colonIndex <= 0) {
+      throw new Error(i18n.t('rewriteRules.errors.invalidOpLine', { line }))
+    }
+    const opName = line.slice(0, colonIndex).trim().toLowerCase()
+    const rest = line.slice(colonIndex + 1).trim()
+    if (opName === 'set' || opName === 'append') {
+      const [path, rawValue] = splitRewriteOpValue(rest, line)
+      ops.push({
+        op: opName,
+        path: parseRewritePath(path, line),
+        value: parseRewriteValue(rawValue.trim()),
+      })
+      continue
+    }
+    if (opName === 'delete') {
+      if (rest.includes('=')) {
+        throw new Error(i18n.t('rewriteRules.errors.invalidDeleteLine', { line }))
+      }
+      ops.push({ op: 'delete', path: parseRewritePath(rest, line) })
+      continue
+    }
+    if (opName === 'insert') {
+      const [left, rawValue] = splitRewriteOpValue(rest, line)
+      const [path, rawIndex] = splitRewriteInsertLeft(left.trim(), line)
+      ops.push({
+        op: 'insert',
+        path: parseRewritePath(path, line),
+        index: parseRewriteInsertIndex(rawIndex, line),
+        value: parseRewriteValue(rawValue.trim()),
+      })
+      continue
+    }
+    throw new Error(i18n.t('rewriteRules.errors.invalidOperation', { line }))
+  }
+  return ops
+}
+
+function rewriteRuleOpsCount(rule: RequestRewriteRuleView): number {
+  return rule.ops?.length || 0
+}
+
+function rewriteRuleWarnings(rule: RequestRewriteRuleView): string[] {
+  return rule.warnings || []
+}
+
+function rewriteRuleHasOverrideOnlyOps(ops: RequestRewriteOperation[]): boolean {
+  return ops.some((op) => op.op === 'delete' || op.op === 'append' || op.op === 'insert')
+}
+
+function rewriteRuleFormFromView(rule: RequestRewriteRuleView, providerOptionIds?: string[]): RewriteRuleFormState {
+  const savedProviders = rule.providers || []
+  const providers = savedProviders.length === 0
+    ? null
+    : providerOptionIds
+    ? providerOptionIds.filter((providerId) => savedProviders.includes(providerId))
+    : savedProviders
+  return {
+    name: rule.name,
+    alias: rule.alias || '',
+    providers,
+    enabled: rule.enabled,
+    override: rule.override,
+    opsText: rule.legacy ? '' : rewriteOpsTextFromList(rule.ops),
+  }
+}
+
+function rewriteRuleInputFromForm(form: RewriteRuleFormState, providerOptionIds: string[]): RequestRewriteRuleInput {
+  const name = form.name.trim()
+  const alias = form.alias.trim()
+  if (!name) {
+    throw new Error(i18n.t('rewriteRules.errors.nameRequired'))
+  }
+  if (!alias) {
+    throw new Error(i18n.t('rewriteRules.errors.aliasRequired'))
+  }
+  const ops = parseRewriteOpsText(form.opsText)
+  if (!ops || ops.length === 0) {
+    throw new Error(i18n.t('rewriteRules.errors.operationRequired'))
+  }
+  if (rewriteRuleHasOverrideOnlyOps(ops) && !form.override) {
+    throw new Error(i18n.t('rewriteRules.errors.overrideRequired'))
+  }
+  if (providerOptionIds.length > 0 && form.providers !== null && rewriteRuleEffectiveProviderIds(form.providers, providerOptionIds).length === 0) {
+    throw new Error(i18n.t('rewriteRules.providersHint'))
+  }
+  return {
+    name,
+    alias: alias || undefined,
+    providers: rewriteRuleProvidersForInput(form.providers, providerOptionIds),
+    enabled: form.enabled,
+    override: form.override,
+    ops,
+  }
+}
+
+function rewriteRuleScopeText(rule: RequestRewriteRuleView, alias: AliasView | null, providers: ProviderView[]): string {
+  if (rule.alias) {
+    return i18n.t('rewriteRules.scopeAliasProviders', {
+      alias: rule.alias,
+      providers: rewriteRuleProviderScopeText(rule.providers, alias, providers),
+    })
+  }
+  return i18n.t('rewriteRules.scopeMissing')
 }
 
 function providerFormFromView(provider: ProviderView): ProviderFormState {
@@ -1212,6 +1666,7 @@ export default function App() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [providers, setProviders] = useState<ProviderView[]>([])
   const [aliases, setAliases] = useState<AliasView[]>([])
+  const [rewriteRules, setRewriteRules] = useState<RequestRewriteRuleView[]>([])
   const [prefs, setPrefs] = useState<DesktopPrefsView>(emptyPrefs)
   const [proxySettings, setProxySettings] = useState<ProxySettingsView>(emptyProxySettings)
   const [prefsStatus, setPrefsStatus] = useState('')
@@ -1230,6 +1685,9 @@ export default function App() {
   const [aliasForm, setAliasForm] = useState<AliasFormState>(emptyAliasForm)
   const [targetForm, setTargetForm] = useState<AliasTargetInput>(emptyTargetForm)
   const [draggingAliasTargetIndex, setDraggingAliasTargetIndex] = useState<number | null>(null)
+  const [rewriteRuleStatus, setRewriteRuleStatus] = useState('')
+  const [rewriteRuleForm, setRewriteRuleForm] = useState<RewriteRuleFormState>(emptyRewriteRuleForm)
+  const [editingRewriteRuleName, setEditingRewriteRuleName] = useState('')
   const [logTraces, setLogTraces] = useState<RequestTrace[]>([])
   const [networkTraces, setNetworkTraces] = useState<RequestTrace[]>([])
   const [logTraceQuery, setLogTraceQuery] = useState<TraceQueryState>(emptyTraceQuery)
@@ -1281,14 +1739,21 @@ export default function App() {
   const networkDetailRef = useRef<HTMLDivElement | null>(null)
   const logTraceListRef = useRef<HTMLDivElement | null>(null)
   const networkTraceListRef = useRef<HTMLDivElement | null>(null)
-  const healthTraceListRef = useRef<HTMLDivElement | null>(null)
-  const logTraceRequestRef = useRef(0)
-  const networkTraceRequestRef = useRef(0)
-  const providerHealthRequestRef = useRef(0)
-  const logTraceLoadingKeyRef = useRef<string | null>(null)
-  const networkTraceLoadingKeyRef = useRef<string | null>(null)
-  const providerHealthLoadingKeyRef = useRef<string | null>(null)
+	const healthTraceListRef = useRef<HTMLDivElement | null>(null)
+	const logTraceRequestRef = useRef(0)
+	const networkTraceRequestRef = useRef(0)
+	const providerHealthRequestRef = useRef(0)
+	const logTraceLoadingKeyRef = useRef<string | null>(null)
+	const networkTraceLoadingKeyRef = useRef<string | null>(null)
+	const providerHealthLoadingKeyRef = useRef<string | null>(null)
+	const selectedAliasIdRef = useRef<string | null>(null)
+	const aliasDetailModeRef = useRef<DetailMode>('empty')
+	selectedAliasIdRef.current = selectedAliasId
+	aliasDetailModeRef.current = aliasDetailMode
 
+	function isActiveAliasContext(aliasName: string): boolean {
+		return aliasName !== '' && aliasDetailModeRef.current === 'edit' && selectedAliasIdRef.current === aliasName
+	}
   const fetchTracePage = useCallback(async (query: TraceQueryState, range: { startedFrom?: string; startedTo?: string }): Promise<RequestTraceListResult> => {
 	return queryRequestTraces({
 		page: query.page,
@@ -1394,17 +1859,19 @@ export default function App() {
     setLoading(true)
     setPrefsStatus(i18n.t('messages.refreshing'))
     try {
-      const [metaData, overviewData, providerData, aliasData, proxySettingsData] = await Promise.all([
+      const [metaData, overviewData, providerData, aliasData, rewriteRuleData, proxySettingsData] = await Promise.all([
         getMeta(),
         getOverview(),
         listProviders(),
         listAliases(),
+        listRewriteRules(),
         getProxySettings(),
       ])
       setMeta(metaData)
       setOverview(overviewData)
       setProviders(providerData)
       setAliases(aliasData)
+      setRewriteRules(rewriteRuleData)
       if (syncDesktopPrefs) {
         setPrefs(overviewData.desktop)
       }
@@ -1416,6 +1883,7 @@ export default function App() {
       const message = formatError(error)
       setPrefsStatus(message)
       setProxySettingsStatus(message)
+      setRewriteRuleStatus(message)
       if (message.toLowerCase().includes('unauthorized')) {
         setAuthRequired(true)
         setAuthStatus(i18n.t('auth.required'))
@@ -1501,6 +1969,12 @@ export default function App() {
   const desktopPrefsAvailable = meta.capabilities?.desktopPrefs ?? meta.shell !== 'server'
   const openCodeDirectSyncAvailable = meta.capabilities?.openCodeDirectSync ?? meta.shell !== 'server'
   const providerPingSource = meta.shell === 'server' ? t('providers.pingSourceServer') : t('providers.pingSourceDesktop')
+  const selectedAliasRewriteRules = selectedAlias ? rewriteRules.filter((rule) => rule.alias === selectedAlias.alias) : []
+  const editingRewriteRule = selectedAliasRewriteRules.find((rule) => rule.name === editingRewriteRuleName) || null
+  const rewriteRuleProviderChoices = rewriteRuleProviderOptions(selectedAlias, providers)
+  const rewriteRuleProviderChoiceIds = rewriteRuleProviderChoices.map((option) => option.id)
+  const rewriteRuleSelectedProviderIds = rewriteRuleEffectiveProviderIds(rewriteRuleForm.providers, rewriteRuleProviderChoiceIds)
+  const rewriteRuleAllProvidersSelected = rewriteRuleProviderChoiceIds.length > 0 && rewriteRuleSelectedProviderIds.length === rewriteRuleProviderChoiceIds.length
   const visibleTabs = visibleTabsForMeta(meta)
   const syncGeneratedContent = typeof syncOutput === 'string' ? '' : syncOutput?.content || ''
   const stats = overview
@@ -1768,9 +2242,12 @@ export default function App() {
     if (selectedAliasId && aliases.some((alias) => alias.alias === selectedAliasId)) {
       return
     }
+    setActiveModal((current) => (current === 'rewrite-rule' ? null : current))
     setSelectedAliasId(null)
     setEditingAliasId('')
     setAliasForm(emptyAliasForm)
+    resetRewriteRuleForm()
+    setRewriteRuleStatus('')
     setAliasDetailMode('empty')
   }, [aliasDetailMode, aliases, selectedAliasId])
 
@@ -1794,6 +2271,11 @@ export default function App() {
   function resetAliasForm() {
     setEditingAliasId('')
     setAliasForm(emptyAliasForm)
+  }
+
+  function resetRewriteRuleForm(aliasName = '') {
+    setEditingRewriteRuleName('')
+    setRewriteRuleForm(aliasName ? rewriteRuleFormForAlias(aliasName) : emptyRewriteRuleForm)
   }
 
   function selectProviderDetail(provider: ProviderView) {
@@ -1873,11 +2355,37 @@ export default function App() {
 	}
 
   function selectAliasDetail(alias: AliasView) {
+    closeRewriteRuleModal()
     setSelectedAliasId(alias.alias)
     setEditingAliasId(alias.alias)
     setAliasForm(aliasFormFromView(alias))
     setTargetForm((current) => ({ ...current, alias: alias.alias }))
+    resetRewriteRuleForm(alias.alias)
+    setRewriteRuleStatus('')
     setAliasDetailMode('edit')
+  }
+
+  function selectRewriteRule(rule: RequestRewriteRuleView) {
+    setEditingRewriteRuleName(rule.name)
+    setRewriteRuleForm(() => {
+      const next = rewriteRuleFormFromView(rule, rewriteRuleProviderChoiceIds)
+      return selectedAlias ? { ...next, alias: selectedAlias.alias } : next
+    })
+    setRewriteRuleStatus(i18n.t('rewriteRules.statusEditing', { name: rule.name }))
+  }
+
+  function openRewriteRuleCreateModal(aliasName: string) {
+    resetRewriteRuleForm(aliasName)
+    setActiveModal('rewrite-rule')
+  }
+
+  function openRewriteRuleEditModal(rule: RequestRewriteRuleView) {
+    selectRewriteRule(rule)
+    setActiveModal('rewrite-rule')
+  }
+
+  function closeRewriteRuleModal() {
+    setActiveModal((current) => (current === 'rewrite-rule' ? null : current))
   }
 
   function closeModal() {
@@ -1895,8 +2403,11 @@ export default function App() {
   }
 
   function closeAliasDetail() {
+    closeRewriteRuleModal()
     setSelectedAliasId(null)
     resetAliasForm()
+    resetRewriteRuleForm()
+    setRewriteRuleStatus('')
     setDraggingAliasTargetIndex(null)
     setAliasDetailMode('empty')
   }
@@ -1920,8 +2431,11 @@ export default function App() {
   }
 
   function openAliasCreateModal() {
+    closeRewriteRuleModal()
     resetAliasForm()
     setSelectedAliasId(null)
+    resetRewriteRuleForm()
+    setRewriteRuleStatus('')
     setAliasDetailMode('create')
   }
 
@@ -2008,6 +2522,21 @@ export default function App() {
     onActivate()
   }
 
+  function selectRewriteRuleProvider(providerId: string, selected: boolean) {
+    setRewriteRuleForm((current) => ({
+      ...current,
+      providers: rewriteRuleToggleProvider(current.providers, rewriteRuleProviderChoiceIds, providerId, selected),
+    }))
+  }
+
+  function selectAllRewriteRuleProviders() {
+    setRewriteRuleForm((current) => ({ ...current, providers: null }))
+  }
+
+  function clearRewriteRuleProviders() {
+    setRewriteRuleForm((current) => ({ ...current, providers: [] }))
+  }
+
   async function onSavePrefs(event: FormEvent) {
     event.preventDefault()
     setPrefsStatus(i18n.t('messages.saving'))
@@ -2035,6 +2564,130 @@ export default function App() {
     } catch (error) {
       setProxySettingsStatus(formatError(error))
     }
+  }
+
+  async function onSaveRewriteRule(event: FormEvent) {
+    event.preventDefault()
+    const aliasName = selectedAlias?.alias || ''
+    try {
+      const ruleName = rewriteRuleForm.name.trim()
+      if (!editingRewriteRuleName) {
+        const existingRule = rewriteRules.find((rule) => rule.name === ruleName)
+        if (existingRule) {
+          setRewriteRuleStatus(
+            i18n.t(
+              existingRule.alias === aliasName
+                ? 'rewriteRules.errors.nameExistsInAlias'
+                : 'rewriteRules.errors.nameExistsOutsideAlias',
+              { name: ruleName },
+            ),
+          )
+          return
+        }
+      }
+      setRewriteRuleStatus(i18n.t('messages.saving'))
+      const namedForm = editingRewriteRuleName ? { ...rewriteRuleForm, name: editingRewriteRuleName } : { ...rewriteRuleForm, name: ruleName }
+      const scopedForm = aliasName ? { ...namedForm, alias: aliasName } : namedForm
+      const input = rewriteRuleInputFromForm(scopedForm, rewriteRuleProviderChoiceIds)
+      const saved = await saveRewriteRule(input)
+      await refreshAll()
+      if (!isActiveAliasContext(aliasName)) {
+        return
+      }
+      setEditingRewriteRuleName(saved.name)
+      setRewriteRuleForm(() => {
+        const next = rewriteRuleFormFromView(saved, rewriteRuleProviderChoiceIds)
+        return { ...next, alias: aliasName }
+      })
+      setRewriteRuleStatus(i18n.t('rewriteRules.statusSaved', { name: saved.name }))
+    } catch (error) {
+      if (isActiveAliasContext(aliasName)) {
+        setRewriteRuleStatus(formatError(error))
+      }
+    }
+  }
+
+  async function onToggleRewriteRule(rule: RequestRewriteRuleView) {
+    const aliasName = selectedAlias?.alias || ''
+    const nextEnabled = !rule.enabled
+    setRewriteRuleStatus(i18n.t(nextEnabled ? 'rewriteRules.statusEnabling' : 'rewriteRules.statusDisabling', { name: rule.name }))
+    try {
+      const updated = await setRewriteRuleState({ name: rule.name, enabled: nextEnabled })
+      await refreshAll()
+      if (!isActiveAliasContext(aliasName)) {
+        return
+      }
+      if (editingRewriteRuleName === updated.name) {
+        setRewriteRuleForm(() => {
+          const next = rewriteRuleFormFromView(updated, rewriteRuleProviderChoiceIds)
+          return { ...next, alias: aliasName }
+        })
+      }
+      setRewriteRuleStatus(i18n.t(updated.enabled ? 'rewriteRules.statusEnabled' : 'rewriteRules.statusDisabled', { name: updated.name }))
+    } catch (error) {
+      if (isActiveAliasContext(aliasName)) {
+        setRewriteRuleStatus(formatError(error))
+      }
+    }
+  }
+
+  async function onDeleteRewriteRule(name: string) {
+    const aliasName = selectedAlias?.alias || ''
+    setRewriteRuleStatus(i18n.t('rewriteRules.statusDeleting', { name }))
+    try {
+      await deleteRewriteRule({ name })
+      await refreshAll()
+      if (!isActiveAliasContext(aliasName)) {
+        return
+      }
+      if (editingRewriteRuleName === name) {
+        resetRewriteRuleForm(aliasName)
+      }
+      setRewriteRuleStatus(i18n.t('rewriteRules.statusDeleted', { name }))
+    } catch (error) {
+      if (isActiveAliasContext(aliasName)) {
+        setRewriteRuleStatus(formatError(error))
+      }
+    }
+  }
+
+  function reorderRewriteRuleItems(rules: RequestRewriteRuleView[], fromIndex: number, toIndex: number): RequestRewriteRuleView[] | null {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= rules.length || toIndex >= rules.length) {
+      return null
+    }
+    const next = [...rules]
+    const [item] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, item)
+    return next
+  }
+
+  async function persistRewriteRuleOrder(rules: RequestRewriteRuleView[], aliasName: string) {
+    setRewriteRuleStatus(i18n.t('rewriteRules.statusReordering'))
+    try {
+      const result = await reorderRewriteRules({ names: rules.map((rule) => rule.name) })
+      await refreshAll()
+      if (!isActiveAliasContext(aliasName)) {
+        return
+      }
+      setRewriteRules(result.rules)
+      setRewriteRuleStatus(i18n.t('rewriteRules.statusReordered'))
+    } catch (error) {
+      if (isActiveAliasContext(aliasName)) {
+        setRewriteRuleStatus(formatError(error))
+      }
+    }
+  }
+
+  async function moveAliasRewriteRule(index: number, direction: -1 | 1) {
+    if (!selectedAlias) {
+      return
+    }
+    const nextVisible = reorderRewriteRuleItems(selectedAliasRewriteRules, index, index + direction)
+    if (!nextVisible) {
+      return
+    }
+    const aliasName = selectedAlias.alias
+    await persistRewriteRuleOrder(rewriteRulesWithVisibleOrder(rewriteRules, nextVisible, aliasName), aliasName)
   }
 
   async function onRunDoctor() {
@@ -2238,6 +2891,7 @@ export default function App() {
       setSelectedAliasId(input.alias)
       setEditingAliasId(input.alias)
       setTargetForm((current) => ({ ...current, alias: input.alias }))
+      resetRewriteRuleForm(input.alias)
       setAliasDetailMode('edit')
       setAliasStatus(i18n.t('aliases.statusSaved', { alias: input.alias }))
       await refreshAll()
@@ -2603,6 +3257,10 @@ export default function App() {
       await onDeleteAlias(intent.alias)
       return
     }
+    if (intent.kind === 'delete-rewrite-rule') {
+      await onDeleteRewriteRule(intent.name)
+      return
+    }
     await onUnbindTarget(intent.alias, intent.provider, intent.model)
   }
 
@@ -2611,7 +3269,9 @@ export default function App() {
       ? t('confirm.deleteProviderTitle')
       : confirmIntent.kind === 'delete-alias'
         ? t('confirm.deleteAliasTitle')
-        : t('confirm.unbindTargetTitle')
+        : confirmIntent.kind === 'delete-rewrite-rule'
+          ? t('confirm.deleteRewriteRuleTitle')
+          : t('confirm.unbindTargetTitle')
     : ''
 
   function openRepository() {
@@ -2626,17 +3286,20 @@ export default function App() {
       ? t('messages.confirmDeleteProvider', { id: confirmIntent.id })
       : confirmIntent.kind === 'delete-alias'
         ? t('messages.confirmDeleteAlias', { alias: confirmIntent.alias })
-        : t('messages.confirmUnbindTarget', {
-            alias: confirmIntent.alias,
-            provider: confirmIntent.provider,
-            model: confirmIntent.model,
-          })
+        : confirmIntent.kind === 'delete-rewrite-rule'
+          ? t('messages.confirmDeleteRewriteRule', { name: confirmIntent.name })
+          : t('messages.confirmUnbindTarget', {
+              alias: confirmIntent.alias,
+              provider: confirmIntent.provider,
+              model: confirmIntent.model,
+            })
     : ''
 
   const importModeLabelId = useId()
   const logAliasFilterId = useId()
   const providerImportTitleId = useId()
   const aliasTargetTitleId = useId()
+  const rewriteRuleTitleId = useId()
   const providerDetailTitleId = useId()
   const aliasDetailTitleId = useId()
   const logDetailTitleId = useId()
@@ -3906,6 +4569,7 @@ export default function App() {
                   </button>
                 </div>
               </form>
+
             </article>
 
             <article className="panel settings-side-panel">
@@ -4468,6 +5132,141 @@ export default function App() {
           </div>
         ) : null}
 
+        {activeModal === 'rewrite-rule' && selectedAlias ? (
+          <div className="modal-backdrop" onClick={closeModal}>
+            <div
+              className="modal-card"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={rewriteRuleTitleId}
+              tabIndex={-1}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={onModalKeyDown}
+            >
+              <div className="subpanel-header">
+                <div>
+                  <h4 id={rewriteRuleTitleId}>
+                    {editingRewriteRuleName
+                      ? t('rewriteRules.formEditTitle', { name: editingRewriteRuleName })
+                      : t('rewriteRules.formCreateTitle')}
+                  </h4>
+                  <p className="subtle">{t('rewriteRules.detailHint')}</p>
+                </div>
+                <div className="toolbar toolbar-end">
+                  <button type="button" onClick={() => resetRewriteRuleForm(selectedAlias.alias)}>
+                    {t('rewriteRules.newRule')}
+                  </button>
+                  <button type="button" onClick={closeModal}>
+                    {t('actions.close')}
+                  </button>
+                </div>
+              </div>
+              <form className="stack-blocks" onSubmit={(event) => void onSaveRewriteRule(event)}>
+                <section className="detail-section">
+                  <div className="detail-form-grid">
+                    <label>
+                      <span>{t('rewriteRules.name')}</span>
+                      <input
+                        type="text"
+                        value={rewriteRuleForm.name}
+                        onChange={(event) => setRewriteRuleForm((current) => ({ ...current, name: event.target.value }))}
+                        placeholder={t('rewriteRules.placeholderName')}
+                        readOnly={Boolean(editingRewriteRuleName)}
+                      />
+                    </label>
+                    <label>
+                      <span>{t('rewriteRules.alias')}</span>
+                      <input
+                        type="text"
+                        value={selectedAlias.alias}
+                        placeholder={t('rewriteRules.placeholderAlias')}
+                        readOnly
+                      />
+                      <span className="subtle">{t('rewriteRules.aliasLockedHint')}</span>
+                    </label>
+                    <fieldset className="detail-form-span">
+                      <legend>{t('rewriteRules.providers')}</legend>
+                      <div className="toolbar">
+                        <span className="subtle">
+                          {rewriteRuleProviderChoiceIds.length === 0
+                            ? t('rewriteRules.noProviderTargets')
+                            : rewriteRuleAllProvidersSelected
+                            ? t('rewriteRules.providerScopeAll')
+                            : t('rewriteRules.providerScopeSome', { providers: rewriteRuleSelectedProviderIds.map((providerId) => providerDisplayLabel(providerId, providers)).join(', ') })}
+                        </span>
+                        <div className="toolbar toolbar-end">
+                          <button type="button" onClick={selectAllRewriteRuleProviders} disabled={rewriteRuleProviderChoiceIds.length === 0 || rewriteRuleAllProvidersSelected}>
+                            {t('rewriteRules.selectAllProviders')}
+                          </button>
+                          <button type="button" onClick={clearRewriteRuleProviders} disabled={rewriteRuleSelectedProviderIds.length === 0}>
+                            {t('rewriteRules.clearProviders')}
+                          </button>
+                        </div>
+                      </div>
+                      {rewriteRuleProviderChoices.length > 0 ? (
+                        <div className="toggle-grid">
+                          {rewriteRuleProviderChoices.map((option) => (
+                            <label className="checkbox-row checkbox-card" key={option.id}>
+                              <input
+                                type="checkbox"
+                                checked={rewriteRuleSelectedProviderIds.includes(option.id)}
+                                onChange={(event) => selectRewriteRuleProvider(option.id, event.target.checked)}
+                              />
+                              <span>{option.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="subtle">{t('rewriteRules.noProviderTargets')}</p>
+                      )}
+                      <p className="subtle">{t('rewriteRules.providersHint')}</p>
+                    </fieldset>
+                    <label className="checkbox-row checkbox-card">
+                      <input
+                        type="checkbox"
+                        checked={rewriteRuleForm.enabled}
+                        onChange={(event) => setRewriteRuleForm((current) => ({ ...current, enabled: event.target.checked }))}
+                      />
+                      <span>{t('rewriteRules.enabled')}</span>
+                    </label>
+                    <label className="checkbox-row checkbox-card detail-form-span">
+                      <input
+                        type="checkbox"
+                        checked={rewriteRuleForm.override}
+                        onChange={(event) => setRewriteRuleForm((current) => ({ ...current, override: event.target.checked }))}
+                      />
+                      <span>{t('rewriteRules.override')}</span>
+                    </label>
+                    <label className="detail-form-span">
+                      <span>{t('rewriteRules.ops')}</span>
+                      <textarea
+                        value={rewriteRuleForm.opsText}
+                        onChange={(event) => setRewriteRuleForm((current) => ({ ...current, opsText: event.target.value }))}
+                        placeholder={t('rewriteRules.placeholderOps')}
+                        rows={7}
+                      />
+                      <span className="subtle">
+                        {rewriteRuleForm.override ? t('rewriteRules.opsHint') : t('rewriteRules.opsFillHint')}
+                      </span>
+                    </label>
+                    {editingRewriteRule?.legacy ? (
+                      <p className="subtle tone-warning detail-form-span">{t('rewriteRules.legacyEditWarning')}</p>
+                    ) : null}
+                  </div>
+                </section>
+                <div className="toolbar">
+                  <button type="submit" className="primary">
+                    {t('actions.save')}
+                  </button>
+                  <button type="button" onClick={() => resetRewriteRuleForm(selectedAlias.alias)}>
+                    {t('actions.reset')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
+
         {aliasDetailOpen ? (
           <div className="detail-backdrop" onClick={closeAliasDetail}>
             <div
@@ -4682,6 +5481,116 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+                </section>
+
+                <section className="detail-section alias-rewrite-section">
+                  <div className="detail-section-header">
+                    <div>
+                      <h4>{t('rewriteRules.aliasTitle')}</h4>
+                      <p className="subtle">{t('rewriteRules.aliasSubtitle')}</p>
+                    </div>
+                    <div className="toolbar toolbar-end">
+                      <p className="subtle settings-status">
+                        {selectedAlias ? rewriteRuleStatus || t('rewriteRules.count', { count: selectedAliasRewriteRules.length }) : null}
+                      </p>
+                      {selectedAlias ? (
+                        <button type="button" onClick={() => openRewriteRuleCreateModal(selectedAlias.alias)}>
+                          {t('rewriteRules.newRule')}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  {selectedAlias ? (
+                    <div className="stack-blocks">
+                      <p className="subtle">{t('rewriteRules.semantics')}</p>
+                      <div className="scroll-list compact-list alias-rewrite-list">
+                        {selectedAliasRewriteRules.length === 0 ? (
+                          <article className="empty-card compact-empty detail-empty-card">
+                            <div className="empty-illustration" aria-hidden="true">◎</div>
+                            <h4>{t('rewriteRules.aliasEmpty')}</h4>
+                            <p className="subtle">{t('rewriteRules.aliasEmptyHint')}</p>
+                          </article>
+                        ) : null}
+                        {selectedAliasRewriteRules.map((rule, index) => (
+                          <article className={`resource-card rewrite-rule-card ${editingRewriteRuleName === rule.name ? 'active' : ''}`} key={rule.name}>
+                            <div className="resource-card-top">
+                              <div className="resource-card-heading">
+                                <div className="resource-card-titlewrap">
+                                  <strong className="resource-card-title">{rule.name}</strong>
+                                  <code className="resource-card-code">{rewriteRuleScopeText(rule, selectedAlias, providers)}</code>
+                                </div>
+                                <div className="inline-pills">
+                                  <span className={`badge status-badge ${rule.enabled ? 'live' : 'idle'}`}>
+                                    {rule.enabled ? t('status.enabled') : t('status.disabled')}
+                                  </span>
+                                  <span className={`badge ${rule.override ? 'warn' : 'outline'}`}>
+                                    {rule.override ? t('rewriteRules.modeOverride') : t('rewriteRules.modeFill')}
+                                  </span>
+                                  <span className="pill">{t('rewriteRules.opsCount', { count: rewriteRuleOpsCount(rule) })}</span>
+                                  {rule.legacy ? <span className="badge warn">{t('rewriteRules.legacyBadge')}</span> : null}
+                                  {rewriteRuleWarnings(rule).length > 0 ? <span className="badge warn">{t('rewriteRules.warningBadge')}</span> : null}
+                                </div>
+                              </div>
+                              <div className="toolbar toolbar-end">
+                                <button type="button" onClick={() => void moveAliasRewriteRule(index, -1)} disabled={index === 0} aria-label={t('rewriteRules.moveUp')}>
+                                  {t('rewriteRules.moveUpShort')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void moveAliasRewriteRule(index, 1)}
+                                  disabled={index === selectedAliasRewriteRules.length - 1}
+                                  aria-label={t('rewriteRules.moveDown')}
+                                >
+                                  {t('rewriteRules.moveDownShort')}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="resource-card-meta">
+                              <div className="resource-meta-item">
+                                <span className="resource-meta-label">{t('rewriteRules.alias')}</span>
+                                <span className="resource-meta-value">{rule.alias || '-'}</span>
+                              </div>
+                              <div className="resource-meta-item">
+                                <span className="resource-meta-label">{t('rewriteRules.providers')}</span>
+                                <span className="resource-meta-value">{rewriteRuleProviderScopeText(rule.providers, selectedAlias, providers)}</span>
+                              </div>
+                              <div className="resource-meta-item">
+                                <span className="resource-meta-label">{t('rewriteRules.ops')}</span>
+                                <span className="resource-meta-value">{rewriteRuleOpsCount(rule)}</span>
+                              </div>
+                            </div>
+                            {rewriteRuleWarnings(rule).length > 0 ? (
+                              <p className="resource-card-subtitle resource-card-subtitle-multiline tone-warning">
+                                {rewriteRuleWarnings(rule).join('\n')}
+                              </p>
+                            ) : null}
+                            <div className="toolbar toolbar-end">
+                              <button type="button" onClick={() => openRewriteRuleEditModal(rule)}>
+                                {t('actions.edit')}
+                              </button>
+                              <button type="button" onClick={() => void onToggleRewriteRule(rule)}>
+                                {rule.enabled ? t('actions.disable') : t('actions.enable')}
+                              </button>
+                              <button
+                                type="button"
+                                className="danger ghost-danger"
+                                onClick={() => setConfirmIntent({ kind: 'delete-rewrite-rule', name: rule.name })}
+                              >
+                                {t('actions.delete')}
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+
+                    </div>
+                  ) : (
+                    <article className="empty-card compact-empty detail-empty-card">
+                      <div className="empty-illustration" aria-hidden="true">◎</div>
+                      <h4>{t('rewriteRules.saveAliasFirstTitle')}</h4>
+                      <p className="subtle">{t('rewriteRules.saveAliasFirstHint')}</p>
+                    </article>
+                  )}
                 </section>
               </div>
             </div>
