@@ -153,6 +153,7 @@ type ConfirmIntent =
 const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'health', 'sync', 'settings']
 const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switch'
 const protocolOptions: ProviderProtocol[] = ['openai-responses', 'anthropic-messages', 'openai-compatible']
+const defaultFailoverStatusCodes = [401, 402, 403, 429]
 
 const emptyPrefs: DesktopPrefsView = {
   launchAtLogin: false,
@@ -169,6 +170,7 @@ const emptyProxySettings: ProxySettingsView = {
   firstByteTimeoutMs: 15000,
   requestReadTimeoutMs: 30000,
   streamIdleTimeoutMs: 60000,
+  failoverStatusCodes: defaultFailoverStatusCodes,
   routing: {
     strategy: 'circuit-breaker',
     params: {
@@ -1006,6 +1008,32 @@ function proxySettingsSaveStatus(result: ProxySettingsSaveResult): string {
   return withWarnings(i18n.t('messages.saved'), result.warnings)
 }
 
+function formatFailoverStatusCodes(statusCodes: number[] | undefined): string {
+  return (statusCodes || []).join(', ')
+}
+
+function normalizeProxySettingsView(settings: ProxySettingsView): ProxySettingsView {
+  return {
+    ...settings,
+    failoverStatusCodes: settings.failoverStatusCodes || [],
+  }
+}
+
+function parseFailoverStatusCodes(value: string): number[] {
+  const statusCodes = new Set<number>()
+  for (const token of value.trim().split(/[\s,]+/).filter(Boolean)) {
+    if (!/^\d+$/.test(token)) {
+      throw new Error(i18n.t('settings.failoverStatusCodesInvalidToken', { value: token }))
+    }
+    const statusCode = Number(token)
+    if (!Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) {
+      throw new Error(i18n.t('settings.failoverStatusCodesInvalidRange', { value: token }))
+    }
+    statusCodes.add(statusCode)
+  }
+  return [...statusCodes].sort((left, right) => left - right)
+}
+
 function activeRoutingDescriptor(proxySettings: ProxySettingsView): RoutingStrategyDescriptor | null {
 	return proxySettings.routing.descriptors?.find((item) => item.name === proxySettings.routing.strategy) || null
 }
@@ -1669,6 +1697,7 @@ export default function App() {
   const [rewriteRules, setRewriteRules] = useState<RequestRewriteRuleView[]>([])
   const [prefs, setPrefs] = useState<DesktopPrefsView>(emptyPrefs)
   const [proxySettings, setProxySettings] = useState<ProxySettingsView>(emptyProxySettings)
+  const [failoverStatusCodesText, setFailoverStatusCodesText] = useState(formatFailoverStatusCodes(emptyProxySettings.failoverStatusCodes))
   const [prefsStatus, setPrefsStatus] = useState('')
   const [proxySettingsStatus, setProxySettingsStatus] = useState('')
   const [doctorStatus, setDoctorStatus] = useState('')
@@ -1875,7 +1904,9 @@ export default function App() {
       if (syncDesktopPrefs) {
         setPrefs(overviewData.desktop)
       }
-      setProxySettings(proxySettingsData)
+      const normalizedProxySettings = normalizeProxySettingsView(proxySettingsData)
+      setProxySettings(normalizedProxySettings)
+      setFailoverStatusCodesText(formatFailoverStatusCodes(normalizedProxySettings.failoverStatusCodes))
       setPrefsStatus(i18n.t('messages.fresh'))
       setProxySettingsStatus(i18n.t('messages.fresh'))
       setAuthRequired(false)
@@ -2555,10 +2586,14 @@ export default function App() {
   }
 
   async function onSaveProxySettings() {
-    setProxySettingsStatus(i18n.t('messages.saving'))
     try {
-      const saved = await saveProxySettings(proxySettings)
-      setProxySettings(saved.settings)
+      const failoverStatusCodes = parseFailoverStatusCodes(failoverStatusCodesText)
+      const input: ProxySettingsView = { ...proxySettings, failoverStatusCodes }
+      setProxySettingsStatus(i18n.t('messages.saving'))
+      const saved = await saveProxySettings(input)
+      const normalizedProxySettings = normalizeProxySettingsView(saved.settings)
+      setProxySettings(normalizedProxySettings)
+      setFailoverStatusCodesText(formatFailoverStatusCodes(normalizedProxySettings.failoverStatusCodes))
       await refreshAll()
       setProxySettingsStatus(proxySettingsSaveStatus(saved))
     } catch (error) {
@@ -4641,6 +4676,25 @@ export default function App() {
                         setProxySettings((current) => ({ ...current, streamIdleTimeoutMs: Number(event.target.value) || 0 }))
                       }
                     />
+                  </label>
+                  <label>
+                    <span>{t('settings.failoverStatusCodes')}</span>
+                    <input
+                      type="text"
+                      value={failoverStatusCodesText}
+                      onChange={(event) => {
+                        const nextValue = event.target.value
+                        setFailoverStatusCodesText(nextValue)
+                        try {
+                          const failoverStatusCodes = parseFailoverStatusCodes(nextValue)
+                          setProxySettings((current) => ({ ...current, failoverStatusCodes }))
+                        } catch {
+                          return
+                        }
+                      }}
+                      placeholder={t('settings.failoverStatusCodesPlaceholder')}
+                    />
+                    <p className="subtle">{t('settings.failoverStatusCodesHelp')}</p>
                   </label>
                   <label>
                     <span>{t('settings.routingStrategy')}</span>
