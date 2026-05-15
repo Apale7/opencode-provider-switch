@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-04-29
+- **Total Sessions**: 8
+- **Last Active**: 2026-05-15
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~342 | Active |
+| `journal-1.md` | ~383 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-05-15 | Configurable failover status codes | `9f54e68`, `cb60335`, `7e1785a`, `45024d5` | `master` |
 | 7 | 2026-04-29 | Add server web admin mode | - | `master` |
 | 6 | 2026-04-22 | Fix log and network responsive layout | `8f6831d` | `master` |
 | 5 | 2026-04-20 | Fix desktop sidebar scroll containment | `a5d6a58` | `release-please--branches--master` |

@@ -340,3 +340,44 @@ Implemented server-mode web admin with plaintext admin token bootstrap, shared w
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Configurable failover status codes
+
+**Date**: 2026-05-15
+**Task**: Configurable failover status codes
+**Branch**: `master`
+
+### Summary
+
+Added configurable HTTP status-code failover defaults and Settings UI.
+
+### Main Changes
+
+- Added configurable failover status-code rules across config, proxy, app service, and Settings UI.
+- Defaults: 401/402/403/429. 5xx remains always retryable. Empty list disables extra configured status-code failover.
+- Added validation, API/TS/Wails models, en/zh-CN UI strings, and Go tests.
+- Verified with rtk npm run build, rtk go test ./..., and changed-file LSP diagnostics.
+- Browser UI QA skipped per user request; user will test manually.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f54e68` | (see git log) |
+| `cb60335` | (see git log) |
+| `7e1785a` | (see git log) |
+| `45024d5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

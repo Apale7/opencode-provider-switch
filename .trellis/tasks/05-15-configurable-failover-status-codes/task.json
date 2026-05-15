@@ -1,0 +1,75 @@
+{
+  "id": "configurable-failover-status-codes",
+  "name": "configurable-failover-status-codes",
+  "title": "Configurable failover status codes",
+  "description": "Add configurable HTTP status-code failover defaults, backend settings, proxy retry behavior, and Settings UI.",
+  "status": "completed",
+  "dev_type": "fullstack",
+  "scope": "failover-status-codes",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-05-15",
+  "completedAt": "2026-05-15",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": "9f54e68,cb60335,7e1785a,45024d5",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/proxy/server.go",
+    "internal/proxy/server_test.go",
+    "internal/app/service.go",
+    "internal/app/types.go",
+    "internal/app/service_test.go",
+    "frontend/src/App.tsx",
+    "frontend/src/types.ts",
+    "frontend/wailsjs/go/models.ts",
+    "frontend/src/i18n/locales/en.json",
+    "frontend/src/i18n/locales/zh-CN.json"
+  ],
+  "notes": "Implemented configurable failover HTTP status-code rules. Defaults are 401/402/403/429; 5xx remains always retryable; explicit empty list disables extra configured status-code failover. Settings UI supports comma/space-separated status code input with en/zh-CN strings. Automated UI QA was skipped per user request; user will test manually.",
+  "meta": {
+    "verification": [
+      "rtk npm run build",
+      "rtk go test ./...",
+      "lsp_diagnostics on changed files"
+    ],
+    "skipped": [
+      "browser UI QA skipped at user request"
+    ]
+  }
+}
