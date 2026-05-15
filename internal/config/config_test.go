@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -249,6 +250,70 @@ func TestValidateReportsAliasWithoutAvailableTargets(t *testing.T) {
 	}
 	if got := errs[0].Error(); got != `alias "gpt-5.4" has no available targets` {
 		t.Fatalf("Validate() error = %q", got)
+	}
+}
+
+func TestDefaultFailoverStatusCodes(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	if !reflect.DeepEqual(cfg.Server.FailoverStatusCodes, []int{401, 402, 403, 429}) {
+		t.Fatalf("default failover status codes = %#v", cfg.Server.FailoverStatusCodes)
+	}
+
+	loaded, err := Load(filepath.Join(t.TempDir(), "missing.json"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !reflect.DeepEqual(loaded.Server.FailoverStatusCodes, []int{401, 402, 403, 429}) {
+		t.Fatalf("loaded defaults = %#v", loaded.Server.FailoverStatusCodes)
+	}
+}
+
+func TestFailoverStatusCodesSaveLoadNormalize(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.path = filepath.Join(t.TempDir(), "config.json")
+	cfg.Server.FailoverStatusCodes = []int{429, 401, 401, 402, 403}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	loaded, err := Load(cfg.path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !reflect.DeepEqual(loaded.Server.FailoverStatusCodes, []int{401, 402, 403, 429}) {
+		t.Fatalf("normalized failover status codes = %#v", loaded.Server.FailoverStatusCodes)
+	}
+}
+
+func TestFailoverStatusCodesAllowExplicitEmpty(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.path = filepath.Join(t.TempDir(), "config.json")
+	cfg.Server.FailoverStatusCodes = []int{}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	loaded, err := Load(cfg.path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.Server.FailoverStatusCodes) != 0 {
+		t.Fatalf("failover status codes = %#v, want empty", loaded.Server.FailoverStatusCodes)
+	}
+}
+
+func TestValidateRejectsInvalidFailoverStatusCode(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Server.FailoverStatusCodes = []int{99}
+	errs := cfg.Validate()
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "server.failover_status_codes") {
+		t.Fatalf("Validate() errors = %#v", errs)
 	}
 }
 

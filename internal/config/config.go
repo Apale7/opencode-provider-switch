@@ -90,6 +90,7 @@ type Server struct {
 	FirstByteTimeoutMs      int            `json:"first_byte_timeout_ms,omitempty"`
 	RequestReadTimeoutMs    int            `json:"request_read_timeout_ms,omitempty"`
 	StreamIdleTimeoutMs     int            `json:"stream_idle_timeout_ms,omitempty"`
+	FailoverStatusCodes     []int          `json:"failover_status_codes"`
 	Routing                 routing.Config `json:"routing,omitempty"`
 }
 
@@ -108,6 +109,12 @@ const (
 	DefaultRequestReadTimeoutMs    = 30_000
 	DefaultStreamIdleTimeoutMs     = 60_000
 )
+
+var defaultFailoverStatusCodes = []int{401, 402, 403, 429}
+
+func DefaultFailoverStatusCodes() []int {
+	return cloneInts(defaultFailoverStatusCodes)
+}
 
 // Desktop holds desktop-shell user preferences.
 type Desktop struct {
@@ -229,6 +236,7 @@ func Default() *Config {
 			FirstByteTimeoutMs:      DefaultFirstByteTimeoutMs,
 			RequestReadTimeoutMs:    DefaultRequestReadTimeoutMs,
 			StreamIdleTimeoutMs:     DefaultStreamIdleTimeoutMs,
+			FailoverStatusCodes:     DefaultFailoverStatusCodes(),
 			Routing:                 routing.Config{Strategy: routing.DefaultStrategy},
 		},
 		Admin: Admin{
@@ -291,6 +299,7 @@ func Load(path string) (*Config, error) {
 	}
 	normalizeAdmin(&c.Admin)
 	normalizeServerTimeouts(&c.Server)
+	normalizeServerFailoverStatusCodes(&c.Server)
 	normalizeServerRouting(&c.Server)
 	c.path = path
 	return c, nil
@@ -323,6 +332,10 @@ func (c *Config) Save() error {
 		sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
 		rewriteRules := cloneRequestRewriteRules(c.RequestRewriteRules)
 		normalizeRequestRewriteRules(rewriteRules)
+		server := c.Server
+		normalizeServerTimeouts(&server)
+		normalizeServerFailoverStatusCodes(&server)
+		normalizeServerRouting(&server)
 		snap := struct {
 			Server              Server               `json:"server"`
 			Admin               Admin                `json:"admin,omitempty"`
@@ -330,7 +343,7 @@ func (c *Config) Save() error {
 			Providers           []Provider           `json:"providers"`
 			Aliases             []Alias              `json:"aliases"`
 			RequestRewriteRules []RequestRewriteRule `json:"request_rewrite_rules,omitempty"`
-		}{c.Server, c.Admin, c.Desktop, providers, aliases, rewriteRules}
+		}{server, c.Admin, c.Desktop, providers, aliases, rewriteRules}
 		data, err := json.MarshalIndent(snap, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal: %w", err)
@@ -839,6 +852,9 @@ func (c *Config) Validate() []error {
 	if c.Server.StreamIdleTimeoutMs <= 0 {
 		errs = append(errs, fmt.Errorf("server.stream_idle_timeout_ms must be greater than 0"))
 	}
+	if err := ValidateFailoverStatusCodes(c.Server.FailoverStatusCodes); err != nil {
+		errs = append(errs, err)
+	}
 	if err := routing.ValidateConfig(c.Server.Routing); err != nil {
 		errs = append(errs, err)
 	}
@@ -866,6 +882,42 @@ func normalizeServerTimeouts(server *Server) {
 	server.FirstByteTimeoutMs = normalizeServerTimeoutMs(server.FirstByteTimeoutMs, DefaultFirstByteTimeoutMs)
 	server.RequestReadTimeoutMs = normalizeServerTimeoutMs(server.RequestReadTimeoutMs, DefaultRequestReadTimeoutMs)
 	server.StreamIdleTimeoutMs = normalizeServerTimeoutMs(server.StreamIdleTimeoutMs, DefaultStreamIdleTimeoutMs)
+}
+
+func normalizeServerFailoverStatusCodes(server *Server) {
+	if server == nil {
+		return
+	}
+	server.FailoverStatusCodes = NormalizeFailoverStatusCodes(server.FailoverStatusCodes)
+}
+
+func NormalizeFailoverStatusCodes(statusCodes []int) []int {
+	if statusCodes == nil {
+		return DefaultFailoverStatusCodes()
+	}
+	if len(statusCodes) == 0 {
+		return []int{}
+	}
+	seen := map[int]bool{}
+	out := make([]int, 0, len(statusCodes))
+	for _, statusCode := range statusCodes {
+		if seen[statusCode] {
+			continue
+		}
+		seen[statusCode] = true
+		out = append(out, statusCode)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func ValidateFailoverStatusCodes(statusCodes []int) error {
+	for _, statusCode := range statusCodes {
+		if statusCode < 100 || statusCode > 599 {
+			return fmt.Errorf("server.failover_status_codes must contain HTTP status codes from 100 to 599")
+		}
+	}
+	return nil
 }
 
 func normalizeServerRouting(server *Server) {
@@ -1050,6 +1102,12 @@ func cloneRequestRewriteRule(in RequestRewriteRule) RequestRewriteRule {
 
 func cloneTargets(in []Target) []Target {
 	out := make([]Target, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneInts(in []int) []int {
+	out := make([]int, len(in))
 	copy(out, in)
 	return out
 }
