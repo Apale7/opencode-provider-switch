@@ -99,11 +99,30 @@ CREATE INDEX IF NOT EXISTS idx_request_traces_started_at ON request_traces(start
 CREATE INDEX IF NOT EXISTS idx_request_traces_alias ON request_traces(alias);
 CREATE INDEX IF NOT EXISTS idx_request_traces_status_code ON request_traces(status_code);
 CREATE INDEX IF NOT EXISTS idx_request_traces_attempt_count ON request_traces(attempt_count);
+CREATE TABLE IF NOT EXISTS request_trace_attempts (
+	trace_id INTEGER NOT NULL,
+	attempt_index INTEGER NOT NULL,
+	attempt INTEGER NOT NULL DEFAULT 0,
+	provider TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	first_byte_ms INTEGER NOT NULL DEFAULT 0,
+	status_code INTEGER NOT NULL DEFAULT 0,
+	success INTEGER NOT NULL DEFAULT 0,
+	retryable INTEGER NOT NULL DEFAULT 0,
+	skipped INTEGER NOT NULL DEFAULT 0,
+	result TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(trace_id, attempt_index)
+);
+CREATE INDEX IF NOT EXISTS idx_request_trace_attempts_provider ON request_trace_attempts(provider);
 `)
 	if err != nil {
 		return fmt.Errorf("init trace db: %w", err)
 	}
 	if err := ensureSQLiteTraceColumn(ctx, db, "request_traces", "usage_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := backfillSQLiteTraceAttempts(ctx, db, 0); err != nil {
 		return err
 	}
 	if err := seedSQLiteTraceCounter(ctx, db); err != nil {
@@ -121,7 +140,12 @@ func (s *SQLiteTraceStore) Add(ctx context.Context, trace RequestTrace) error {
 		return err
 	}
 	return s.withDB(ctx, func(db *sql.DB) error {
-		_, err = db.ExecContext(ctx, `
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin trace insert: %w", err)
+		}
+		defer tx.Rollback()
+		_, err = tx.ExecContext(ctx, `
 INSERT INTO request_traces (
 	id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
 	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
@@ -178,7 +202,10 @@ ON CONFLICT(id) DO UPDATE SET
 		if err != nil {
 			return fmt.Errorf("insert trace: %w", err)
 		}
-		return nil
+		if err := replaceSQLiteTraceAttempts(ctx, tx, row.Trace.ID, row.Trace.Attempts); err != nil {
+			return err
+		}
+		return tx.Commit()
 	})
 }
 
@@ -296,26 +323,50 @@ func (s *SQLiteTraceStore) QueryHealthTraces(ctx context.Context, query TraceQue
 	err := s.withDB(ctx, func(db *sql.DB) error {
 		where, args := buildSQLiteTraceWhere(query)
 		listSQL := `
-SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
-	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
-	final_model, final_url, failover, attempt_count, usage_json, attempts_json
-FROM request_traces`
+SELECT request_traces.id, request_traces.started_at, request_traces.finished_at,
+	request_traces.duration_ms, request_traces.first_byte_ms,
+	request_traces.input_tokens, request_traces.output_tokens,
+	request_traces.protocol, request_traces.raw_model, request_traces.alias,
+	request_traces.stream, request_traces.success, request_traces.status_code,
+	request_traces.error, request_traces.final_provider, request_traces.final_model,
+	request_traces.final_url, request_traces.failover, request_traces.attempt_count,
+	json_extract(CASE WHEN trim(request_traces.usage_json) = '' THEN '{}' ELSE request_traces.usage_json END, '$.cacheReadTokens') AS cache_read_tokens,
+	request_trace_attempts.attempt_index,
+	request_trace_attempts.attempt,
+	request_trace_attempts.provider,
+	request_trace_attempts.model,
+	request_trace_attempts.duration_ms,
+	request_trace_attempts.first_byte_ms,
+	request_trace_attempts.status_code,
+	request_trace_attempts.success,
+	request_trace_attempts.retryable,
+	request_trace_attempts.skipped,
+	request_trace_attempts.result
+FROM request_traces
+LEFT JOIN request_trace_attempts ON request_trace_attempts.trace_id = request_traces.id`
 		if where != "" {
 			listSQL += " WHERE " + where
 		}
-		listSQL += " ORDER BY started_at DESC, id DESC"
+		listSQL += " ORDER BY started_at DESC, request_traces.id DESC, request_trace_attempts.attempt_index"
 		rows, err := db.QueryContext(ctx, listSQL, args...)
 		if err != nil {
 			return fmt.Errorf("query health traces: %w", err)
 		}
 		defer rows.Close()
 		items = []RequestTrace{}
+		var current *RequestTrace
 		for rows.Next() {
-			trace, err := scanSQLiteTraceHealth(rows)
+			row, err := scanSQLiteTraceHealthAttempt(rows)
 			if err != nil {
 				return err
 			}
-			items = append(items, trace)
+			if current == nil || current.ID != row.Trace.ID {
+				items = append(items, row.Trace)
+				current = &items[len(items)-1]
+			}
+			if row.HasAttempt {
+				current.Attempts = append(current.Attempts, row.Attempt)
+			}
 		}
 		if err := rows.Err(); err != nil {
 			return fmt.Errorf("iterate health traces: %w", err)
@@ -405,55 +456,139 @@ func (s *SQLiteTraceStore) Close() error {
 	return nil
 }
 
+func (s *SQLiteTraceStore) DBPath() string {
+	if s == nil {
+		return ""
+	}
+	path := s.path
+	if index := strings.Index(path, "?"); index >= 0 {
+		path = path[:index]
+	}
+	return path
+}
+
 func querySQLiteTraceCatalog(ctx context.Context, db *sql.DB, where string, args []any) ([]string, []int, []int, TraceStats, error) {
-	query := "SELECT alias, status_code, attempt_count, success, failover FROM request_traces"
+	aliases, err := querySQLiteTraceStringSet(ctx, db, "alias", where, args, "alias <> ''")
+	if err != nil {
+		return nil, nil, nil, TraceStats{}, err
+	}
+	statusCodes, err := querySQLiteTraceIntSet(ctx, db, "status_code", where, args, "status_code > 0")
+	if err != nil {
+		return nil, nil, nil, TraceStats{}, err
+	}
+	failoverCounts, err := querySQLiteTraceFailoverCounts(ctx, db, where, args)
+	if err != nil {
+		return nil, nil, nil, TraceStats{}, err
+	}
+	stats, err := querySQLiteTraceStats(ctx, db, where, args)
+	if err != nil {
+		return nil, nil, nil, TraceStats{}, err
+	}
+	return aliases, failoverCounts, statusCodes, stats, nil
+}
+
+func querySQLiteTraceStringSet(ctx context.Context, db *sql.DB, column string, where string, args []any, extraClause string) ([]string, error) {
+	clauses := sqliteCatalogClauses(where, extraClause)
+	query := fmt.Sprintf("SELECT DISTINCT %s FROM request_traces", column)
+	if clauses != "" {
+		query += " WHERE " + clauses
+	}
+	query += " ORDER BY " + column
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query trace %s catalog: %w", column, err)
+	}
+	defer rows.Close()
+	values := []string{}
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, fmt.Errorf("scan trace %s catalog: %w", column, err)
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate trace %s catalog: %w", column, err)
+	}
+	return values, nil
+}
+
+func querySQLiteTraceIntSet(ctx context.Context, db *sql.DB, column string, where string, args []any, extraClause string) ([]int, error) {
+	clauses := sqliteCatalogClauses(where, extraClause)
+	query := fmt.Sprintf("SELECT DISTINCT %s FROM request_traces", column)
+	if clauses != "" {
+		query += " WHERE " + clauses
+	}
+	query += " ORDER BY " + column
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query trace %s catalog: %w", column, err)
+	}
+	defer rows.Close()
+	values := []int{}
+	for rows.Next() {
+		var value int
+		if err := rows.Scan(&value); err != nil {
+			return nil, fmt.Errorf("scan trace %s catalog: %w", column, err)
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate trace %s catalog: %w", column, err)
+	}
+	return values, nil
+}
+
+func querySQLiteTraceFailoverCounts(ctx context.Context, db *sql.DB, where string, args []any) ([]int, error) {
+	query := "SELECT DISTINCT CASE WHEN attempt_count > 1 THEN attempt_count - 1 ELSE 0 END FROM request_traces"
 	if where != "" {
 		query += " WHERE " + where
 	}
+	query += " ORDER BY 1"
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, nil, nil, TraceStats{}, fmt.Errorf("query trace catalog: %w", err)
+		return nil, fmt.Errorf("query trace failover catalog: %w", err)
 	}
 	defer rows.Close()
-	aliases := map[string]struct{}{}
-	statusCodes := map[int]struct{}{}
-	failoverCounts := map[int]struct{}{}
-	stats := TraceStats{}
+	values := []int{}
 	for rows.Next() {
-		var (
-			alias        string
-			statusCode   int
-			attemptCount int
-			success      int
-			failover     int
-		)
-		if err := rows.Scan(&alias, &statusCode, &attemptCount, &success, &failover); err != nil {
-			return nil, nil, nil, TraceStats{}, fmt.Errorf("scan trace catalog: %w", err)
+		var value int
+		if err := rows.Scan(&value); err != nil {
+			return nil, fmt.Errorf("scan trace failover catalog: %w", err)
 		}
-		if alias != "" {
-			aliases[alias] = struct{}{}
-		}
-		if statusCode > 0 {
-			statusCodes[statusCode] = struct{}{}
-		}
-		count := attemptCount - 1
-		if count < 0 {
-			count = 0
-		}
-		failoverCounts[count] = struct{}{}
-		if success == 1 {
-			stats.Success++
-		} else {
-			stats.Failed++
-		}
-		if failover == 1 || attemptCount > 1 {
-			stats.Failover++
-		}
+		values = append(values, value)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, nil, TraceStats{}, fmt.Errorf("iterate trace catalog: %w", err)
+		return nil, fmt.Errorf("iterate trace failover catalog: %w", err)
 	}
-	return sortedStringSet(aliases), sortedIntSet(failoverCounts), sortedIntSet(statusCodes), stats, nil
+	return values, nil
+}
+
+func querySQLiteTraceStats(ctx context.Context, db *sql.DB, where string, args []any) (TraceStats, error) {
+	query := `SELECT
+	COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN success = 1 THEN 0 ELSE 1 END), 0),
+	COALESCE(SUM(CASE WHEN failover = 1 OR attempt_count > 1 THEN 1 ELSE 0 END), 0)
+FROM request_traces`
+	if where != "" {
+		query += " WHERE " + where
+	}
+	var stats TraceStats
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&stats.Success, &stats.Failed, &stats.Failover); err != nil {
+		return TraceStats{}, fmt.Errorf("query trace stats: %w", err)
+	}
+	return stats, nil
+}
+
+func sqliteCatalogClauses(where string, extraClause string) string {
+	clauses := []string{}
+	if strings.TrimSpace(where) != "" {
+		clauses = append(clauses, where)
+	}
+	if strings.TrimSpace(extraClause) != "" {
+		clauses = append(clauses, extraClause)
+	}
+	return strings.Join(clauses, " AND ")
 }
 
 func sortedStringSet(values map[string]struct{}) []string {
@@ -600,6 +735,109 @@ func ensureSQLiteTraceColumn(ctx context.Context, db *sql.DB, table string, colu
 	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)
 	if _, err := db.ExecContext(ctx, stmt); err != nil {
 		return fmt.Errorf("add %s.%s: %w", table, column, err)
+	}
+	return nil
+}
+
+type sqliteTraceAttemptWriter interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	PrepareContext(context.Context, string) (*sql.Stmt, error)
+}
+
+func backfillSQLiteTraceAttempts(ctx context.Context, db *sql.DB, traceID uint64) error {
+	query := `
+SELECT request_traces.id
+FROM request_traces
+	LEFT JOIN request_trace_attempts ON request_trace_attempts.trace_id = request_traces.id
+WHERE request_traces.attempts_json <> ''
+	AND json_valid(request_traces.attempts_json)`
+	args := []any{}
+	if traceID > 0 {
+		query += ` AND request_traces.id = ?`
+		args = append(args, traceID)
+	}
+	query += `
+GROUP BY request_traces.id, request_traces.attempts_json
+HAVING COUNT(request_trace_attempts.trace_id) != json_array_length(request_traces.attempts_json)
+ORDER BY request_traces.id`
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("query trace attempts backfill: %w", err)
+	}
+	defer rows.Close()
+	type traceAttempts struct {
+		id       uint64
+		attempts []TraceAttempt
+	}
+	items := []traceAttempts{}
+	for rows.Next() {
+		var id uint64
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan trace attempts backfill: %w", err)
+		}
+		items = append(items, traceAttempts{id: id})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate trace attempts backfill: %w", err)
+	}
+	for _, item := range items {
+		attempts, err := readSQLiteTraceHealthAttempts(ctx, db, item.id)
+		if err != nil {
+			continue
+		}
+		item.attempts = attempts
+		if err := replaceSQLiteTraceAttempts(ctx, db, item.id, item.attempts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readSQLiteTraceHealthAttempts(ctx context.Context, db *sql.DB, traceID uint64) ([]TraceAttempt, error) {
+	var attemptsJSON string
+	if err := db.QueryRowContext(ctx, "SELECT attempts_json FROM request_traces WHERE id = ?", traceID).Scan(&attemptsJSON); err != nil {
+		return nil, fmt.Errorf("query trace attempts json: %w", err)
+	}
+	attempts, err := decodeSQLiteTraceHealthAttempts(attemptsJSON)
+	if err != nil {
+		return nil, err
+	}
+	return attempts, nil
+}
+
+func replaceSQLiteTraceAttempts(ctx context.Context, db sqliteTraceAttemptWriter, traceID uint64, attempts []TraceAttempt) error {
+	if _, err := db.ExecContext(ctx, "DELETE FROM request_trace_attempts WHERE trace_id = ?", traceID); err != nil {
+		return fmt.Errorf("delete trace attempts: %w", err)
+	}
+	if len(attempts) == 0 {
+		return nil
+	}
+	stmt, err := db.PrepareContext(ctx, `
+INSERT INTO request_trace_attempts (
+	trace_id, attempt_index, attempt, provider, model, duration_ms, first_byte_ms,
+	status_code, success, retryable, skipped, result
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare trace attempts insert: %w", err)
+	}
+	defer stmt.Close()
+	for index, attempt := range attempts {
+		if _, err := stmt.ExecContext(ctx,
+			traceID,
+			index,
+			attempt.Attempt,
+			attempt.Provider,
+			attempt.Model,
+			attempt.DurationMs,
+			attempt.FirstByteMs,
+			attempt.StatusCode,
+			boolToInt(attempt.Success),
+			boolToInt(attempt.Retryable),
+			boolToInt(attempt.Skipped),
+			attempt.Result,
+		); err != nil {
+			return fmt.Errorf("insert trace attempt: %w", err)
+		}
 	}
 	return nil
 }
@@ -818,6 +1056,116 @@ func scanSQLiteTraceHealth(scanner interface{ Scan(dest ...any) error }) (Reques
 		trace.Attempts = []TraceAttempt{}
 	}
 	return trace, nil
+}
+
+type sqliteTraceHealthAttemptRow struct {
+	Trace      RequestTrace
+	HasAttempt bool
+	Attempt    TraceAttempt
+}
+
+func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) (sqliteTraceHealthAttemptRow, error) {
+	var (
+		row             sqliteTraceHealthAttemptRow
+		startedAt       string
+		finishedAt      string
+		stream          int
+		success         int
+		failover        int
+		cacheReadTokens sql.NullInt64
+		attemptKey      sql.NullInt64
+		attempt         sql.NullInt64
+		provider        sql.NullString
+		model           sql.NullString
+		durationMs      sql.NullInt64
+		firstByteMs     sql.NullInt64
+		statusCode      sql.NullInt64
+		attemptSuccess  sql.NullBool
+		retryable       sql.NullBool
+		skipped         sql.NullBool
+		result          sql.NullString
+	)
+	err := scanner.Scan(
+		&row.Trace.ID,
+		&startedAt,
+		&finishedAt,
+		&row.Trace.DurationMs,
+		&row.Trace.FirstByteMs,
+		&row.Trace.InputTokens,
+		&row.Trace.OutputTokens,
+		&row.Trace.Protocol,
+		&row.Trace.RawModel,
+		&row.Trace.Alias,
+		&stream,
+		&success,
+		&row.Trace.StatusCode,
+		&row.Trace.Error,
+		&row.Trace.FinalProvider,
+		&row.Trace.FinalModel,
+		&row.Trace.FinalURL,
+		&failover,
+		&row.Trace.AttemptCount,
+		&cacheReadTokens,
+		&attemptKey,
+		&attempt,
+		&provider,
+		&model,
+		&durationMs,
+		&firstByteMs,
+		&statusCode,
+		&attemptSuccess,
+		&retryable,
+		&skipped,
+		&result,
+	)
+	if err != nil {
+		return sqliteTraceHealthAttemptRow{}, err
+	}
+	row.Trace.StartedAt = parseSQLiteTime(startedAt)
+	row.Trace.FinishedAt = parseSQLiteTime(finishedAt)
+	row.Trace.Stream = stream == 1
+	row.Trace.Success = success == 1
+	row.Trace.Failover = failover == 1
+	row.Trace.Attempts = []TraceAttempt{}
+	if cacheReadTokens.Valid {
+		value := cacheReadTokens.Int64
+		row.Trace.Usage.CacheReadTokens = &value
+	}
+	if !attemptKey.Valid {
+		return row, nil
+	}
+	row.HasAttempt = true
+	if attempt.Valid {
+		row.Attempt.Attempt = int(attempt.Int64)
+	}
+	if provider.Valid {
+		row.Attempt.Provider = provider.String
+	}
+	if model.Valid {
+		row.Attempt.Model = model.String
+	}
+	if durationMs.Valid {
+		row.Attempt.DurationMs = durationMs.Int64
+	}
+	if firstByteMs.Valid {
+		row.Attempt.FirstByteMs = firstByteMs.Int64
+	}
+	if statusCode.Valid {
+		row.Attempt.StatusCode = int(statusCode.Int64)
+	}
+	if attemptSuccess.Valid {
+		row.Attempt.Success = attemptSuccess.Bool
+	}
+	if retryable.Valid {
+		row.Attempt.Retryable = retryable.Bool
+	}
+	if skipped.Valid {
+		row.Attempt.Skipped = skipped.Bool
+	}
+	if result.Valid {
+		row.Attempt.Result = result.String
+	}
+	return row, nil
 }
 
 func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {

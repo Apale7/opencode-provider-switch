@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -18,7 +19,56 @@ import (
 	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 	"github.com/Apale7/opencode-provider-switch/internal/proxy"
 	"github.com/Apale7/opencode-provider-switch/internal/routing"
+	_ "modernc.org/sqlite"
 )
+
+func TestNewServiceReportsTraceStoreStatus(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+	overview, err := svc.GetOverview(context.Background())
+	if err != nil {
+		t.Fatalf("GetOverview() error = %v", err)
+	}
+	if overview.TraceStore.Mode != "sqlite" {
+		t.Fatalf("trace store mode = %q, want sqlite", overview.TraceStore.Mode)
+	}
+	if overview.TraceStore.Path == "" || overview.TraceStore.Error != "" {
+		t.Fatalf("trace store status = %#v, want sqlite path without error", overview.TraceStore)
+	}
+}
+
+func TestNewServiceReportsTraceStoreFallbackError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "ocswitch.json")
+	dbPath := filepath.Join(dir, "traces.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec("CREATE VIEW request_traces AS SELECT 1 AS id"); err != nil {
+		_ = db.Close()
+		t.Fatalf("create incompatible trace view error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("db.Close() error = %v", err)
+	}
+
+	svc := NewService(configPath)
+	overview, err := svc.GetOverview(context.Background())
+	if err != nil {
+		t.Fatalf("GetOverview() error = %v", err)
+	}
+	if overview.TraceStore.Mode != "memory" {
+		t.Fatalf("trace store mode = %q, want memory", overview.TraceStore.Mode)
+	}
+	if overview.TraceStore.Error == "" {
+		t.Fatalf("trace store status = %#v, want error", overview.TraceStore)
+	}
+}
 
 func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
 	t.Parallel()

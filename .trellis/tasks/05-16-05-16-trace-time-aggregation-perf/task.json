@@ -49,9 +49,17 @@
   "parent": null,
   "relatedFiles": [
     "internal/app/provider_health.go",
+    "internal/app/service.go",
+    "internal/app/types.go",
     "internal/proxy/sqlite_traces.go",
-    "internal/proxy/server_test.go"
+    "internal/proxy/server_test.go",
+    "internal/app/service_test.go",
+    "internal/server/server.go",
+    "frontend/src/App.tsx",
+    "frontend/src/types.ts",
+    "frontend/src/i18n/locales/en.json",
+    "frontend/src/i18n/locales/zh-CN.json"
   ],
-  "notes": "Optimized trace time-range aggregation without changing SQLite schema. Verified with go test ./internal/app ./internal/proxy and go test ./...; local opencode audit reported no findings.",
+  "notes": "Optimized trace time-range aggregation and deployed production fix. Online investigation found /root/.config/ocswitch/traces.db about 493MiB with database disk image is malformed; service had silently fallen back to memory store. Backed up malformed traces.db/wal/shm, recovered 3670 readable rows into a clean SQLite DB, replaced live DB while service stopped, and preserved malformed/before-replace backups. Added traceStore mode/path/error exposure in API/UI/logs. Added request_trace_attempts derived table for health aggregation, transactional main trace + attempts writes, SQL-count based derived-table backfill, and invalid attempts_json isolation. Final production binary sha256 ef4c457d39f26355a3d67de222c4a50f617591930bed6ec99c879890e7f3d246 deployed at 2026-05-16 03:02 CST. Final online checks: service active, trace store sqlite, DB integrity ok, request_traces=3740, request_trace_attempts=4016, missing_attempt_rows=0, TRACE 0.025s, HEALTH 0.288s, HEALTH_TODAY 0.014s, public web HTTP 200. Verified locally with rtk npm run build --prefix frontend, rtk go test ./internal/proxy ./internal/app ./internal/server (79 passed), rtk go test ./... (232 passed). Final local opencode audit reported no findings; residual gaps are concurrency regression tests and ongoing monitoring for trace store fallback.",
   "meta": {}
 }

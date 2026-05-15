@@ -2014,6 +2014,7 @@ export default function App() {
         ['overview.aliases', String(overview.aliasCount)],
         ['overview.routableAliases', String(overview.availableAliases.length)],
         ['overview.proxy', overview.proxy.running ? t('status.proxyRunning') : t('status.proxyIdle')],
+        ['overview.traceStore', overview.traceStore?.mode || '-'],
       ]
     : []
 
@@ -3481,6 +3482,20 @@ export default function App() {
                 <div>
                   <dt>{t('overview.lastError')}</dt>
                   <dd>{overview?.proxy.lastError || '-'}</dd>
+                </div>
+                <div>
+                  <dt>{t('overview.traceStore')}</dt>
+                  <dd className={overview?.traceStore?.error ? 'tone-warning' : undefined}>
+                    {overview?.traceStore?.mode || '-'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t('overview.traceStorePath')}</dt>
+                  <dd>{overview?.traceStore?.path || '-'}</dd>
+                </div>
+                <div>
+                  <dt>{t('overview.traceStoreError')}</dt>
+                  <dd className={overview?.traceStore?.error ? 'tone-warning' : undefined}>{overview?.traceStore?.error || '-'}</dd>
                 </div>
               </dl>
             </article>

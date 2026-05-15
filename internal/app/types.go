@@ -14,8 +14,15 @@ type Overview struct {
 	ProviderCount    int              `json:"providerCount"`
 	AliasCount       int              `json:"aliasCount"`
 	AvailableAliases []string         `json:"availableAliases"`
+	TraceStore       TraceStoreStatus `json:"traceStore"`
 	Proxy            ProxyStatusView  `json:"proxy"`
 	Desktop          DesktopPrefsView `json:"desktop"`
+}
+
+type TraceStoreStatus struct {
+	Mode  string `json:"mode"`
+	Path  string `json:"path,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 type ProxyStatusView struct {

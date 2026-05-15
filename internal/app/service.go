@@ -16,8 +16,9 @@ import (
 )
 
 type Service struct {
-	configPath string
-	traces     proxy.RequestTraceStore
+	configPath     string
+	traces         proxy.RequestTraceStore
+	traceStoreInfo TraceStoreStatus
 
 	mu            sync.Mutex
 	proxyCancel   context.CancelFunc
@@ -32,16 +33,26 @@ type Service struct {
 func NewService(configPath string) *Service {
 	resolvedPath := strings.TrimSpace(configPath)
 	store, err := proxy.NewSQLiteTraceStore(resolveConfigPath(resolvedPath))
+	traceStoreInfo := TraceStoreStatus{Mode: "sqlite"}
 	if err != nil {
+		traceStoreInfo = TraceStoreStatus{Mode: "memory", Error: err.Error()}
 		store = nil
 	}
 	var traces proxy.RequestTraceStore
 	if store != nil {
 		traces = store
+		traceStoreInfo.Path = store.DBPath()
 	} else {
 		traces = proxy.NewTraceStore(200)
 	}
-	return &Service{configPath: resolvedPath, traces: traces}
+	return &Service{configPath: resolvedPath, traces: traces, traceStoreInfo: traceStoreInfo}
+}
+
+func (s *Service) TraceStoreStatus() TraceStoreStatus {
+	if s == nil {
+		return TraceStoreStatus{Mode: "memory", Error: "service unavailable"}
+	}
+	return s.traceStoreInfo
 }
 
 func (s *Service) ConfigPath() string {
@@ -65,6 +76,7 @@ func (s *Service) GetOverview(ctx context.Context) (Overview, error) {
 		ProviderCount:    len(cfg.Providers),
 		AliasCount:       len(cfg.Aliases),
 		AvailableAliases: aliases,
+		TraceStore:       s.TraceStoreStatus(),
 		Proxy:            status,
 		Desktop:          desktopPrefsView(cfg.Desktop),
 	}, nil

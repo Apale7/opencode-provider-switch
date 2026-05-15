@@ -78,6 +78,12 @@ func Run(opts RunOptions) error {
 
 	logger.Printf("admin web listening: %s", baseURL)
 	logger.Printf("config path: %s", cfg.Path())
+	traceStore := svc.TraceStoreStatus()
+	if traceStore.Error != "" {
+		logger.Printf("warning: trace store fallback mode=%s error=%s", traceStore.Mode, traceStore.Error)
+	} else {
+		logger.Printf("trace store mode=%s path=%s", traceStore.Mode, traceStore.Path)
+	}
 	if !isLoopbackHost(cfg.Admin.Host) {
 		logger.Printf("warning: admin web is listening on non-loopback host %q; use firewall or HTTPS reverse proxy", cfg.Admin.Host)
 	}

@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 	"github.com/Apale7/opencode-provider-switch/internal/routing"
+	_ "modernc.org/sqlite"
 )
 
 func TestHandleResponsesWritesOpenAIErrorForMissingAlias(t *testing.T) {
@@ -947,6 +950,130 @@ func TestSQLiteTraceStoreQueryHealthTracesReturnsAggregationFieldsOnly(t *testin
 	}
 }
 
+func TestSQLiteTraceStoreBackfillsMissingHealthAttempts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 16, 11, 0, 0, 0, time.UTC)
+	trace := RequestTrace{
+		ID:           41,
+		StartedAt:    startedAt,
+		Alias:        "chat",
+		Success:      true,
+		StatusCode:   http.StatusOK,
+		AttemptCount: 2,
+		Attempts: []TraceAttempt{
+			{Attempt: 1, Provider: "p1", Model: "m1", StatusCode: http.StatusBadGateway, Retryable: true, Result: "retryable_failure"},
+			{Attempt: 2, Provider: "p2", Model: "m2", StatusCode: http.StatusOK, Success: true, Result: "success"},
+		},
+	}
+	if err := store.Add(ctx, trace); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if err := store.withDB(ctx, func(db *sql.DB) error {
+		_, err := db.ExecContext(ctx, "DELETE FROM request_trace_attempts WHERE trace_id = ? AND attempt_index = 1", trace.ID)
+		return err
+	}); err != nil {
+		t.Fatalf("delete one attempt error = %v", err)
+	}
+	if err := store.init(ctx, mustOpenSQLiteTraceTestDB(t, store.path)); err != nil {
+		t.Fatalf("init() backfill error = %v", err)
+	}
+	items, err := store.QueryHealthTraces(ctx, TraceQuery{StartedFrom: startedAt.Add(-time.Second), StartedTo: startedAt.Add(time.Second)})
+	if err != nil {
+		t.Fatalf("QueryHealthTraces() error = %v", err)
+	}
+	if len(items) != 1 || len(items[0].Attempts) != 2 {
+		t.Fatalf("health attempts = %#v", items)
+	}
+}
+
+func TestSQLiteTraceStoreBackfillSkipsInvalidAttemptsJSON(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
+	if err := store.Add(ctx, RequestTrace{
+		ID:           51,
+		StartedAt:    startedAt,
+		Alias:        "chat",
+		Success:      true,
+		StatusCode:   http.StatusOK,
+		AttemptCount: 1,
+		Attempts:     []TraceAttempt{{Attempt: 1, Provider: "p1", Model: "m1", Success: true, StatusCode: http.StatusOK}},
+	}); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if err := store.withDB(ctx, func(db *sql.DB) error {
+		_, err := db.ExecContext(ctx, "UPDATE request_traces SET attempts_json = ? WHERE id = ?", `{bad-json`, uint64(51))
+		return err
+	}); err != nil {
+		t.Fatalf("corrupt attempts_json error = %v", err)
+	}
+	if err := store.init(ctx, mustOpenSQLiteTraceTestDB(t, store.path)); err != nil {
+		t.Fatalf("init() with invalid attempts_json error = %v", err)
+	}
+	items, err := store.QueryHealthTraces(ctx, TraceQuery{StartedFrom: startedAt.Add(-time.Second), StartedTo: startedAt.Add(time.Second)})
+	if err != nil {
+		t.Fatalf("QueryHealthTraces() error = %v", err)
+	}
+	if len(items) != 1 || len(items[0].Attempts) != 1 {
+		t.Fatalf("existing derived attempts = %#v", items)
+	}
+}
+
+func TestSQLiteTraceStoreQueryCatalogUsesAggregates(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	ctx := context.Background()
+	base := time.Date(2026, 5, 16, 10, 0, 0, 0, time.UTC)
+	items := []RequestTrace{
+		{ID: 1, StartedAt: base, Alias: "chat", Success: true, StatusCode: 200, AttemptCount: 1},
+		{ID: 2, StartedAt: base.Add(time.Minute), Alias: "chat", Success: false, StatusCode: 502, AttemptCount: 2, Failover: true},
+		{ID: 3, StartedAt: base.Add(2 * time.Minute), Alias: "code", Success: true, StatusCode: 200, AttemptCount: 0},
+	}
+	for _, item := range items {
+		if err := store.Add(ctx, item); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+	}
+
+	result, err := store.Query(ctx, TraceQuery{Page: 1, PageSize: 2, StartedFrom: base.Add(-time.Second), StartedTo: base.Add(3 * time.Minute)})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !reflect.DeepEqual(result.AvailableAliases, []string{"chat", "code"}) {
+		t.Fatalf("AvailableAliases = %#v", result.AvailableAliases)
+	}
+	if !reflect.DeepEqual(result.AvailableStatusCodes, []int{200, 502}) {
+		t.Fatalf("AvailableStatusCodes = %#v", result.AvailableStatusCodes)
+	}
+	if !reflect.DeepEqual(result.AvailableFailoverCounts, []int{0, 1}) {
+		t.Fatalf("AvailableFailoverCounts = %#v", result.AvailableFailoverCounts)
+	}
+	if result.Stats.Success != 2 || result.Stats.Failed != 1 || result.Stats.Failover != 1 {
+		t.Fatalf("Stats = %#v", result.Stats)
+	}
+}
+
 func TestSQLiteTraceStoreSeedsRequestCounterFromExistingMaxID(t *testing.T) {
 	t.Parallel()
 
@@ -985,6 +1112,16 @@ func TestSQLiteTraceStoreSeedsRequestCounterFromExistingMaxID(t *testing.T) {
 	if got != 189 {
 		t.Fatalf("next request id = %d, want 189", got)
 	}
+}
+
+func mustOpenSQLiteTraceTestDB(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
 func TestHandleResponsesIgnoresEarlierZeroUsageAndUsesFinalCompletedUsage(t *testing.T) {

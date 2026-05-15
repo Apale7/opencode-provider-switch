@@ -321,8 +321,15 @@ export type Overview = {
   providerCount: number
   aliasCount: number
   availableAliases: string[]
+  traceStore: TraceStoreStatus
   proxy: ProxyStatusView
   desktop: DesktopPrefsView
+}
+
+export type TraceStoreStatus = {
+  mode: string
+  path?: string
+  error?: string
 }
 
 export type ProviderView = {
