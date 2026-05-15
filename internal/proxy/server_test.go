@@ -134,17 +134,24 @@ func TestHandleResponsesAppliesRequestRewriteRules(t *testing.T) {
 
 	srv := New(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}, {ID: "p2", BaseURL: upstream.URL + "/v1"}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.5-fast",
 			Enabled: true,
-			Targets: []config.Target{{Provider: "p1", Model: "gpt-5.5", Enabled: true}},
+			Targets: []config.Target{{Provider: "p1", Model: "gpt-5.5", Enabled: true}, {Provider: "p2", Model: "gpt-5.5", Enabled: true}},
 		}},
 		RequestRewriteRules: []config.RequestRewriteRule{
-			{Name: "disabled", Alias: "gpt-5.5-fast", Enabled: false, Set: map[string]any{"disabled_field": true}},
-			{Name: "other-alias", Alias: "other", Enabled: true, Set: map[string]any{"other_field": true}},
-			{Name: "alias-add", Alias: "gpt-5.5-fast", Enabled: true, Set: map[string]any{"serviceTier": "priority", "store": false}},
-			{Name: "model-override", Model: "gpt-5.5", Enabled: true, Override: true, Set: map[string]any{"reasoningEffort": "high"}, Delete: []string{"parallel_tool_calls"}},
+			{Name: "disabled", Alias: "gpt-5.5-fast", Enabled: false, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.disabled_field", Value: true, ValueSet: true}}},
+			{Name: "other-alias", Alias: "other", Enabled: true, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.other_field", Value: true, ValueSet: true}}},
+			{Name: "alias-add", Alias: "gpt-5.5-fast", Enabled: true, Ops: []config.RequestRewriteOperation{
+				{Op: config.RequestRewriteOpSet, Path: "$.serviceTier", Value: "priority", ValueSet: true},
+				{Op: config.RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true},
+			}},
+			{Name: "provider-override", Alias: "gpt-5.5-fast", Providers: []string{"p1"}, Enabled: true, Override: true, Ops: []config.RequestRewriteOperation{
+				{Op: config.RequestRewriteOpSet, Path: "$.reasoningEffort", Value: "high", ValueSet: true},
+				{Op: config.RequestRewriteOpDelete, Path: "$.parallel_tool_calls"},
+			}},
+			{Name: "other-provider", Alias: "gpt-5.5-fast", Providers: []string{"p2"}, Enabled: true, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.other_provider_field", Value: true, ValueSet: true}}},
 		},
 	})
 
@@ -178,6 +185,9 @@ func TestHandleResponsesAppliesRequestRewriteRules(t *testing.T) {
 	}
 	if _, ok := seenPayload["other_field"]; ok {
 		t.Fatalf("non-matching alias rule applied: %#v", seenPayload)
+	}
+	if _, ok := seenPayload["other_provider_field"]; ok {
+		t.Fatalf("non-selected provider rule applied: %#v", seenPayload)
 	}
 
 	traces, err := srv.traces.List(context.Background(), 10)

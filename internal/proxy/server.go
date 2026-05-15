@@ -483,7 +483,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt, p.ID, t.Model, failoverCount)
 		cloned := cloneMap(payload)
 		cloned["model"] = t.Model
-		state.cfg.ApplyRequestRewriteRules(aliasName, t.Model, cloned)
+		state.cfg.ApplyRequestRewriteRules(aliasName, t.Provider, t.Model, cloned)
 		attemptTrace.RequestParams = sanitizeJSONValue("", cloned)
 		newBody, err := json.Marshal(cloned)
 		if err != nil {
@@ -1101,7 +1101,7 @@ func copyResponseHeaders(dst, src http.Header) {
 func cloneMap(m map[string]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
-		out[k] = v
+		out[k] = cloneJSONValue(v)
 	}
 	return out
 }
