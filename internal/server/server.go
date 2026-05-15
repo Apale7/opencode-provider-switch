@@ -270,6 +270,26 @@ func (s appService) ReorderAliasTargets(ctx context.Context, in app.AliasTargetR
 	return s.service.ReorderAliasTargets(ctx, in)
 }
 
+func (s appService) ListRequestRewriteRules(ctx context.Context) ([]app.RequestRewriteRuleView, error) {
+	return s.service.ListRequestRewriteRules(ctx)
+}
+
+func (s appService) UpsertRequestRewriteRule(ctx context.Context, in app.RequestRewriteRuleInput) (app.RequestRewriteRuleView, error) {
+	return s.service.UpsertRequestRewriteRule(ctx, in)
+}
+
+func (s appService) SetRequestRewriteRuleEnabled(ctx context.Context, in app.RequestRewriteRuleStateInput) (app.RequestRewriteRuleView, error) {
+	return s.service.SetRequestRewriteRuleEnabled(ctx, in)
+}
+
+func (s appService) RemoveRequestRewriteRule(ctx context.Context, in app.RequestRewriteRuleRemoveInput) (app.RequestRewriteRuleRemoveResult, error) {
+	return s.service.RemoveRequestRewriteRule(ctx, in)
+}
+
+func (s appService) ReorderRequestRewriteRules(ctx context.Context, in app.RequestRewriteRuleReorderInput) (app.RequestRewriteRuleReorderResult, error) {
+	return s.service.ReorderRequestRewriteRules(ctx, in)
+}
+
 func (s appService) GetDesktopPrefs(ctx context.Context) (app.DesktopPrefsView, error) {
 	return s.service.GetDesktopPrefs(ctx)
 }

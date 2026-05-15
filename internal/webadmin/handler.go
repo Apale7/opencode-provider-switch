@@ -32,6 +32,11 @@ type Service interface {
 	SetAliasTargetDisabled(context.Context, appcore.AliasTargetInput) (appcore.AliasView, error)
 	UnbindAliasTarget(context.Context, appcore.AliasTargetInput) (appcore.AliasView, error)
 	ReorderAliasTargets(context.Context, appcore.AliasTargetReorderInput) (appcore.AliasView, error)
+	ListRequestRewriteRules(context.Context) ([]appcore.RequestRewriteRuleView, error)
+	UpsertRequestRewriteRule(context.Context, appcore.RequestRewriteRuleInput) (appcore.RequestRewriteRuleView, error)
+	SetRequestRewriteRuleEnabled(context.Context, appcore.RequestRewriteRuleStateInput) (appcore.RequestRewriteRuleView, error)
+	RemoveRequestRewriteRule(context.Context, appcore.RequestRewriteRuleRemoveInput) (appcore.RequestRewriteRuleRemoveResult, error)
+	ReorderRequestRewriteRules(context.Context, appcore.RequestRewriteRuleReorderInput) (appcore.RequestRewriteRuleReorderResult, error)
 	GetDesktopPrefs(context.Context) (appcore.DesktopPrefsView, error)
 	SaveDesktopPrefs(context.Context, appcore.DesktopPrefsInput) (appcore.DesktopPrefsView, error)
 	GetProxyStatus(context.Context) (appcore.ProxyStatusView, error)
@@ -308,6 +313,62 @@ func NewHandler(opts Options) (http.Handler, error) {
 			return
 		}
 		data, err := b.ReorderAliasTargets(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/rewrite-rules", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			data, err := b.ListRequestRewriteRules(r.Context())
+			writeResult(w, data, err)
+		case http.MethodPost:
+			var in appcore.RequestRewriteRuleInput
+			if !decodeJSONBody(w, r, &in) {
+				return
+			}
+			data, err := b.UpsertRequestRewriteRule(r.Context(), in)
+			writeResult(w, data, err)
+		default:
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	})
+
+	api.HandleFunc("/api/rewrite-rules/state", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.RequestRewriteRuleStateInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.SetRequestRewriteRuleEnabled(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/rewrite-rules/delete", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.RequestRewriteRuleRemoveInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.RemoveRequestRewriteRule(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/rewrite-rules/reorder", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.RequestRewriteRuleReorderInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.ReorderRequestRewriteRules(r.Context(), in)
 		writeResult(w, data, err)
 	})
 

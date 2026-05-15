@@ -56,6 +56,64 @@ func TestProviderPingRouteRunsThroughService(t *testing.T) {
 	}
 }
 
+func TestRewriteRuleRoutesRunThroughService(t *testing.T) {
+	t.Parallel()
+
+	service := &pingSpyService{Service: appcore.NewService(filepath.Join(t.TempDir(), "config.json"))}
+	h, err := NewHandler(Options{
+		Version:    "test",
+		Shell:      "server",
+		Service:    service,
+		ServerMode: true,
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+
+	post := func(path string, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		h.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("POST %s status = %d, want %d body=%s", path, resp.Code, http.StatusOK, resp.Body.String())
+		}
+		return resp
+	}
+
+	post("/api/rewrite-rules", `{"name":"fast","alias":"chat","enabled":true,"ops":[{"op":"set","path":"$.store","value":false}]}`)
+	post("/api/rewrite-rules", `{"name":"strip","alias":"chat","providers":["p1"],"enabled":true,"override":true,"ops":[{"op":"delete","path":"$.store"}]}`)
+	post("/api/rewrite-rules/state", `{"name":"fast","enabled":false}`)
+	post("/api/rewrite-rules/reorder", `{"names":["strip","fast"]}`)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/rewrite-rules", nil)
+	resp := httptest.NewRecorder()
+	h.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET /api/rewrite-rules status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	var listPayload struct {
+		Data []appcore.RequestRewriteRuleView `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &listPayload); err != nil {
+		t.Fatalf("json.Unmarshal(list) error = %v", err)
+	}
+	if len(listPayload.Data) != 2 || listPayload.Data[0].Name != "strip" || listPayload.Data[1].Enabled {
+		t.Fatalf("list payload = %#v", listPayload.Data)
+	}
+
+	deleteResp := post("/api/rewrite-rules/delete", `{"name":"strip"}`)
+	var deletePayload struct {
+		Data appcore.RequestRewriteRuleRemoveResult `json:"data"`
+	}
+	if err := json.Unmarshal(deleteResp.Body.Bytes(), &deletePayload); err != nil {
+		t.Fatalf("json.Unmarshal(delete) error = %v", err)
+	}
+	if !deletePayload.Data.OK {
+		t.Fatalf("delete payload = %#v", deletePayload.Data)
+	}
+}
+
 type pingSpyService struct {
 	*appcore.Service
 	pingCalled bool
