@@ -1,0 +1,57 @@
+{
+  "id": "05-16-trace-time-aggregation-perf",
+  "name": "05-16-trace-time-aggregation-perf",
+  "title": "Optimize trace time-range aggregation",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-05-16",
+  "completedAt": "2026-05-16",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 6,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/app/provider_health.go",
+    "internal/proxy/sqlite_traces.go",
+    "internal/proxy/server_test.go"
+  ],
+  "notes": "Optimized trace time-range aggregation without changing SQLite schema. Verified with go test ./internal/app ./internal/proxy and go test ./...; local opencode audit reported no findings.",
+  "meta": {}
+}

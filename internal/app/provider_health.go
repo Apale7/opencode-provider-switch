@@ -132,7 +132,7 @@ func (s *Service) QueryProviderHealth(ctx context.Context, in ProviderHealthInpu
 	if err != nil {
 		return ProviderHealthResult{}, err
 	}
-	traces, err := s.traces.QueryAll(ctx, proxy.TraceQuery{
+	traces, err := queryProviderHealthTraces(ctx, s.traces, proxy.TraceQuery{
 		Aliases:     in.Aliases,
 		StartedFrom: startedFrom,
 		StartedTo:   startedTo,
@@ -161,6 +161,20 @@ func (s *Service) QueryProviderHealth(ctx context.Context, in ProviderHealthInpu
 		AvailableProviders: providers,
 		Warnings:           warnings,
 	}, nil
+}
+
+type providerHealthTraceStore interface {
+	QueryHealthTraces(context.Context, proxy.TraceQuery) ([]proxy.RequestTrace, error)
+}
+
+func queryProviderHealthTraces(ctx context.Context, store proxy.RequestTraceStore, query proxy.TraceQuery) ([]proxy.RequestTrace, error) {
+	if store == nil {
+		return nil, nil
+	}
+	if healthStore, ok := store.(providerHealthTraceStore); ok {
+		return healthStore.QueryHealthTraces(ctx, query)
+	}
+	return store.QueryAll(ctx, query)
 }
 
 func initializeProviderHealthAccums(cfg *config.Config) map[string]*providerHealthAccum {

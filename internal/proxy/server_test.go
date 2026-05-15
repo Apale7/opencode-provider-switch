@@ -874,6 +874,79 @@ func TestSQLiteTraceStoreQueryFiltersTimeRangeAndReturnsStats(t *testing.T) {
 	}
 }
 
+func TestSQLiteTraceStoreQueryHealthTracesReturnsAggregationFieldsOnly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "ocswitch.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	store, err := NewSQLiteTraceStore(configPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteTraceStore() error = %v", err)
+	}
+	defer store.Close()
+
+	cacheRead := int64(9)
+	startedAt := time.Now().UTC()
+	trace := RequestTrace{
+		ID:             99,
+		StartedAt:      startedAt,
+		DurationMs:     120,
+		FirstByteMs:    30,
+		Protocol:       config.ProtocolOpenAIResponses,
+		Alias:          "chat",
+		Success:        true,
+		StatusCode:     http.StatusOK,
+		FinalProvider:  "p2",
+		FinalModel:     "m2",
+		FinalURL:       "https://upstream.example/v1/responses",
+		Failover:       true,
+		AttemptCount:   2,
+		InputTokens:    11,
+		OutputTokens:   7,
+		RequestHeaders: map[string]string{"X-Test": "present"},
+		RequestParams:  map[string]any{"model": "m2"},
+		Usage:          TraceUsage{CacheReadTokens: &cacheRead, Source: config.ProtocolOpenAIResponses},
+		Attempts: []TraceAttempt{
+			{Attempt: 1, Provider: "p1", Model: "m1", URL: "https://p1.example", DurationMs: 40, StatusCode: http.StatusBadGateway, Retryable: true, Result: "retryable_failure", RequestHeaders: map[string]string{"X-Attempt": "present"}, ResponseBody: `{"error":"x"}`},
+			{Attempt: 2, Provider: "p2", Model: "m2", URL: "https://p2.example", DurationMs: 80, FirstByteMs: 30, StatusCode: http.StatusOK, Success: true, Result: "success", ResponseHeaders: map[string]string{"Content-Type": "application/json"}},
+		},
+	}
+	if err := store.Add(context.Background(), trace); err != nil {
+		t.Fatalf("store.Add() error = %v", err)
+	}
+
+	items, err := store.QueryHealthTraces(context.Background(), TraceQuery{StartedFrom: startedAt.Add(-time.Second), StartedTo: startedAt.Add(time.Second)})
+	if err != nil {
+		t.Fatalf("QueryHealthTraces() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items count = %d, want 1", len(items))
+	}
+	got := items[0]
+	if got.ID != trace.ID || got.Alias != "chat" || !got.Failover || got.AttemptCount != 2 || got.FinalProvider != "p2" {
+		t.Fatalf("trace summary = %#v", got)
+	}
+	if got.Usage.CacheReadTokens == nil || *got.Usage.CacheReadTokens != cacheRead || got.Usage.Source != "" {
+		t.Fatalf("usage = %#v, want cache read only", got.Usage)
+	}
+	if got.RequestHeaders != nil || got.RequestParams != nil {
+		t.Fatalf("detail payload decoded: headers=%#v params=%#v", got.RequestHeaders, got.RequestParams)
+	}
+	if len(got.Attempts) != 2 {
+		t.Fatalf("attempt count = %d, want 2", len(got.Attempts))
+	}
+	if got.Attempts[0].Provider != "p1" || got.Attempts[0].URL != "" || got.Attempts[0].ResponseBody != "" || !got.Attempts[0].Retryable {
+		t.Fatalf("first attempt = %#v, want aggregation fields only", got.Attempts[0])
+	}
+	if got.Attempts[1].Provider != "p2" || !got.Attempts[1].Success || got.Attempts[1].FirstByteMs != 30 || got.Attempts[1].ResponseHeaders != nil {
+		t.Fatalf("second attempt = %#v, want aggregation fields only", got.Attempts[1])
+	}
+}
+
 func TestSQLiteTraceStoreSeedsRequestCounterFromExistingMaxID(t *testing.T) {
 	t.Parallel()
 

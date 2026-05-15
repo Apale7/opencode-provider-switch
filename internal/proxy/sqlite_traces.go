@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -264,46 +265,9 @@ FROM request_traces`
 			return fmt.Errorf("iterate traces: %w", err)
 		}
 		timeWhere, timeArgs := buildSQLiteTraceTimeWhere(query)
-		aliasWhere := "alias <> ''"
-		if timeWhere != "" {
-			aliasWhere += " AND " + timeWhere
-		}
-		aliases, err := s.listDistinctStrings(ctx, db, "alias", aliasWhere, "alias ASC", timeArgs...)
+		aliases, failoverCounts, statusCodes, stats, err := querySQLiteTraceCatalog(ctx, db, timeWhere, timeArgs)
 		if err != nil {
 			return err
-		}
-		statusTimeArgs := append([]any(nil), timeArgs...)
-		statusWhere := "status_code > 0"
-		if timeWhere != "" {
-			statusWhere += " AND " + timeWhere
-		}
-		statusCodes, err := s.listDistinctInts(ctx, db, "status_code", statusWhere, "status_code ASC", statusTimeArgs...)
-		if err != nil {
-			return err
-		}
-		attemptTimeArgs := append([]any(nil), timeArgs...)
-		attemptWhere := "attempt_count >= 0"
-		if timeWhere != "" {
-			attemptWhere += " AND " + timeWhere
-		}
-		attemptCounts, err := s.listDistinctInts(ctx, db, "attempt_count", attemptWhere, "attempt_count ASC", attemptTimeArgs...)
-		if err != nil {
-			return err
-		}
-		stats, err := querySQLiteTraceStats(ctx, db, timeWhere, timeArgs)
-		if err != nil {
-			return err
-		}
-		failoverCounts := make([]int, 0, len(attemptCounts))
-		for _, attemptCount := range attemptCounts {
-			count := attemptCount - 1
-			if count < 0 {
-				count = 0
-			}
-			if len(failoverCounts) > 0 && failoverCounts[len(failoverCounts)-1] == count {
-				continue
-			}
-			failoverCounts = append(failoverCounts, count)
 		}
 		result = TraceQueryResult{
 			Items:                   items,
@@ -321,6 +285,47 @@ FROM request_traces`
 		return TraceQueryResult{}, err
 	}
 	return result, nil
+}
+
+func (s *SQLiteTraceStore) QueryHealthTraces(ctx context.Context, query TraceQuery) ([]RequestTrace, error) {
+	if s == nil {
+		return nil, nil
+	}
+	query = normalizeTraceQuery(query)
+	items := []RequestTrace{}
+	err := s.withDB(ctx, func(db *sql.DB) error {
+		where, args := buildSQLiteTraceWhere(query)
+		listSQL := `
+SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
+	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+	final_model, final_url, failover, attempt_count, usage_json, attempts_json
+FROM request_traces`
+		if where != "" {
+			listSQL += " WHERE " + where
+		}
+		listSQL += " ORDER BY started_at DESC, id DESC"
+		rows, err := db.QueryContext(ctx, listSQL, args...)
+		if err != nil {
+			return fmt.Errorf("query health traces: %w", err)
+		}
+		defer rows.Close()
+		items = []RequestTrace{}
+		for rows.Next() {
+			trace, err := scanSQLiteTraceHealth(rows)
+			if err != nil {
+				return err
+			}
+			items = append(items, trace)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate health traces: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (s *SQLiteTraceStore) QueryAll(ctx context.Context, query TraceQuery) ([]RequestTrace, error) {
@@ -400,54 +405,79 @@ func (s *SQLiteTraceStore) Close() error {
 	return nil
 }
 
-func (s *SQLiteTraceStore) listDistinctStrings(ctx context.Context, db *sql.DB, column string, where string, orderBy string, args ...any) ([]string, error) {
-	query := fmt.Sprintf("SELECT DISTINCT %s FROM request_traces", column)
+func querySQLiteTraceCatalog(ctx context.Context, db *sql.DB, where string, args []any) ([]string, []int, []int, TraceStats, error) {
+	query := "SELECT alias, status_code, attempt_count, success, failover FROM request_traces"
 	if where != "" {
 		query += " WHERE " + where
 	}
-	query += " ORDER BY " + orderBy
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list distinct %s: %w", column, err)
+		return nil, nil, nil, TraceStats{}, fmt.Errorf("query trace catalog: %w", err)
 	}
 	defer rows.Close()
-	out := []string{}
+	aliases := map[string]struct{}{}
+	statusCodes := map[int]struct{}{}
+	failoverCounts := map[int]struct{}{}
+	stats := TraceStats{}
 	for rows.Next() {
-		var value string
-		if err := rows.Scan(&value); err != nil {
-			return nil, fmt.Errorf("scan distinct %s: %w", column, err)
+		var (
+			alias        string
+			statusCode   int
+			attemptCount int
+			success      int
+			failover     int
+		)
+		if err := rows.Scan(&alias, &statusCode, &attemptCount, &success, &failover); err != nil {
+			return nil, nil, nil, TraceStats{}, fmt.Errorf("scan trace catalog: %w", err)
 		}
-		out = append(out, value)
+		if alias != "" {
+			aliases[alias] = struct{}{}
+		}
+		if statusCode > 0 {
+			statusCodes[statusCode] = struct{}{}
+		}
+		count := attemptCount - 1
+		if count < 0 {
+			count = 0
+		}
+		failoverCounts[count] = struct{}{}
+		if success == 1 {
+			stats.Success++
+		} else {
+			stats.Failed++
+		}
+		if failover == 1 || attemptCount > 1 {
+			stats.Failover++
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate distinct %s: %w", column, err)
+		return nil, nil, nil, TraceStats{}, fmt.Errorf("iterate trace catalog: %w", err)
 	}
-	return out, nil
+	return sortedStringSet(aliases), sortedIntSet(failoverCounts), sortedIntSet(statusCodes), stats, nil
 }
 
-func (s *SQLiteTraceStore) listDistinctInts(ctx context.Context, db *sql.DB, column string, where string, orderBy string, args ...any) ([]int, error) {
-	query := fmt.Sprintf("SELECT DISTINCT %s FROM request_traces", column)
-	if where != "" {
-		query += " WHERE " + where
+func sortedStringSet(values map[string]struct{}) []string {
+	if len(values) == 0 {
+		return nil
 	}
-	query += " ORDER BY " + orderBy
-	rows, err := db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list distinct %s: %w", column, err)
-	}
-	defer rows.Close()
-	out := []int{}
-	for rows.Next() {
-		var value int
-		if err := rows.Scan(&value); err != nil {
-			return nil, fmt.Errorf("scan distinct %s: %w", column, err)
-		}
+	out := make([]string, 0, len(values))
+	for value := range values {
 		out = append(out, value)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate distinct %s: %w", column, err)
+	sort.Strings(out)
+	return out
+}
+
+func sortedIntSet(values map[int]struct{}) []int {
+	if len(values) == 0 {
+		return nil
 	}
-	return out, nil
+	out := make([]int, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Ints(out)
+	return out
 }
 
 func buildSQLiteTraceWhere(query TraceQuery) (string, []any) {
@@ -491,18 +521,6 @@ func appendSQLiteTraceTimeWhere(query TraceQuery, clauses []string, args []any) 
 		args = append(args, formatSQLiteTime(query.StartedTo))
 	}
 	return clauses, args
-}
-
-func querySQLiteTraceStats(ctx context.Context, db *sql.DB, where string, args []any) (TraceStats, error) {
-	query := "SELECT COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN failover = 1 OR attempt_count > 1 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) FROM request_traces"
-	if where != "" {
-		query += " WHERE " + where
-	}
-	stats := TraceStats{}
-	if err := db.QueryRowContext(ctx, query, args...).Scan(&stats.Success, &stats.Failover, &stats.Failed); err != nil {
-		return TraceStats{}, fmt.Errorf("query trace stats: %w", err)
-	}
-	return stats, nil
 }
 
 func appendSQLiteFailoverWhere(counts []int, clauses []string, args []any) ([]string, []any) {
@@ -736,6 +754,104 @@ func scanSQLiteTraceSummary(scanner interface{ Scan(dest ...any) error }) (Reque
 	}
 	trace.Attempts = []TraceAttempt{}
 	return trace, nil
+}
+
+func scanSQLiteTraceHealth(scanner interface{ Scan(dest ...any) error }) (RequestTrace, error) {
+	var (
+		trace        RequestTrace
+		startedAt    string
+		finishedAt   string
+		stream       int
+		success      int
+		failover     int
+		usageJSON    string
+		attemptsJSON string
+	)
+	err := scanner.Scan(
+		&trace.ID,
+		&startedAt,
+		&finishedAt,
+		&trace.DurationMs,
+		&trace.FirstByteMs,
+		&trace.InputTokens,
+		&trace.OutputTokens,
+		&trace.Protocol,
+		&trace.RawModel,
+		&trace.Alias,
+		&stream,
+		&success,
+		&trace.StatusCode,
+		&trace.Error,
+		&trace.FinalProvider,
+		&trace.FinalModel,
+		&trace.FinalURL,
+		&failover,
+		&trace.AttemptCount,
+		&usageJSON,
+		&attemptsJSON,
+	)
+	if err != nil {
+		return RequestTrace{}, err
+	}
+	trace.StartedAt = parseSQLiteTime(startedAt)
+	trace.FinishedAt = parseSQLiteTime(finishedAt)
+	trace.Stream = stream == 1
+	trace.Success = success == 1
+	trace.Failover = failover == 1
+	if usageJSON != "" {
+		var usage struct {
+			CacheReadTokens *int64 `json:"cacheReadTokens,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(usageJSON), &usage); err != nil {
+			return RequestTrace{}, fmt.Errorf("decode health usage: %w", err)
+		}
+		trace.Usage.CacheReadTokens = usage.CacheReadTokens
+	}
+	if attemptsJSON != "" {
+		attempts, err := decodeSQLiteTraceHealthAttempts(attemptsJSON)
+		if err != nil {
+			return RequestTrace{}, err
+		}
+		trace.Attempts = attempts
+	}
+	if trace.Attempts == nil {
+		trace.Attempts = []TraceAttempt{}
+	}
+	return trace, nil
+}
+
+func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {
+	var rows []struct {
+		Attempt     int    `json:"attempt"`
+		Provider    string `json:"provider,omitempty"`
+		Model       string `json:"model,omitempty"`
+		DurationMs  int64  `json:"durationMs"`
+		FirstByteMs int64  `json:"firstByteMs,omitempty"`
+		StatusCode  int    `json:"statusCode,omitempty"`
+		Success     bool   `json:"success"`
+		Retryable   bool   `json:"retryable"`
+		Skipped     bool   `json:"skipped"`
+		Result      string `json:"result,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(value), &rows); err != nil {
+		return nil, fmt.Errorf("decode health attempts: %w", err)
+	}
+	out := make([]TraceAttempt, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, TraceAttempt{
+			Attempt:     row.Attempt,
+			Provider:    row.Provider,
+			Model:       row.Model,
+			DurationMs:  row.DurationMs,
+			FirstByteMs: row.FirstByteMs,
+			StatusCode:  row.StatusCode,
+			Success:     row.Success,
+			Retryable:   row.Retryable,
+			Skipped:     row.Skipped,
+			Result:      row.Result,
+		})
+	}
+	return out, nil
 }
 
 func formatSQLiteTime(value time.Time) string {
