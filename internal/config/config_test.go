@@ -254,6 +254,7 @@ func TestValidateReportsAliasWithoutAvailableTargets(t *testing.T) {
 
 func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 	t.Parallel()
+	insertIndex := 1
 
 	cfg := Default()
 	cfg.path = filepath.Join(t.TempDir(), "config.json")
@@ -262,24 +263,37 @@ func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 			Name:    "fast-tier",
 			Alias:   "gpt-5.5-fast",
 			Enabled: true,
-			Set: map[string]any{
-				"serviceTier": "priority",
-				"store":       false,
+			Ops: []RequestRewriteOperation{
+				{Op: RequestRewriteOpSet, Path: "$.serviceTier", Value: "priority", ValueSet: true},
+				{Op: RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true},
+				{Op: RequestRewriteOpSet, Path: "$.reasoning.effort", Value: "medium", ValueSet: true},
+				{Op: RequestRewriteOpSet, Path: `$['meta:data']`, Value: "ok", ValueSet: true},
 			},
 		},
 		{
-			Name:     "model-override",
-			Model:    "gpt-5.5",
-			Enabled:  true,
-			Override: true,
-			Set:      map[string]any{"reasoningEffort": "high"},
-			Delete:   []string{"parallel_tool_calls"},
+			Name:      "provider-override",
+			Alias:     "gpt-5.5-fast",
+			Providers: []string{"p1"},
+			Enabled:   true,
+			Override:  true,
+			Ops: []RequestRewriteOperation{
+				{Op: RequestRewriteOpSet, Path: "$.reasoning.effort", Value: "high", ValueSet: true},
+				{Op: RequestRewriteOpDelete, Path: "$.parallel_tool_calls"},
+				{Op: RequestRewriteOpAppend, Path: "$.include", Value: "reasoning.encrypted_content", ValueSet: true},
+				{Op: RequestRewriteOpInsert, Path: "$.tools", Index: &insertIndex, Value: map[string]any{"type": "web_search"}, ValueSet: true},
+			},
 		},
 		{
 			Name:    "disabled",
 			Alias:   "gpt-5.5-fast",
 			Enabled: false,
-			Set:     map[string]any{"disabled_field": true},
+			Ops:     []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.disabled_field", Value: true, ValueSet: true}},
+		},
+		{
+			Name:    "legacy",
+			Alias:   "gpt-5.5-fast",
+			Enabled: true,
+			Set:     map[string]any{"legacy_field": true},
 		},
 	}
 
@@ -290,8 +304,8 @@ func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if len(loaded.RequestRewriteRules) != 3 {
-		t.Fatalf("rewrite rule count = %d, want 3", len(loaded.RequestRewriteRules))
+	if len(loaded.RequestRewriteRules) != 4 {
+		t.Fatalf("rewrite rule count = %d, want 4", len(loaded.RequestRewriteRules))
 	}
 	if loaded.RequestRewriteRules[0].Name != "fast-tier" || !loaded.RequestRewriteRules[0].Enabled {
 		t.Fatalf("first rule = %#v", loaded.RequestRewriteRules[0])
@@ -301,22 +315,55 @@ func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 		"model":               "gpt-5.5",
 		"serviceTier":         "standard",
 		"parallel_tool_calls": true,
+		"include":             []any{"base"},
+		"tools":               []any{map[string]any{"type": "function"}},
 	}
-	loaded.ApplyRequestRewriteRules("gpt-5.5-fast", "gpt-5.5", payload)
+	loaded.ApplyRequestRewriteRules("gpt-5.5-fast", "p1", "gpt-5.5", payload)
 	if got := payload["serviceTier"]; got != "standard" {
 		t.Fatalf("serviceTier = %#v, want request value", got)
 	}
 	if got := payload["store"]; got != false {
 		t.Fatalf("store = %#v, want false", got)
 	}
-	if got := payload["reasoningEffort"]; got != "high" {
-		t.Fatalf("reasoningEffort = %#v, want high", got)
+	if got := payload["meta:data"]; got != "ok" {
+		t.Fatalf("quoted path value = %#v, want ok", got)
+	}
+	reasoning, ok := payload["reasoning"].(map[string]any)
+	if !ok || reasoning["effort"] != "high" {
+		t.Fatalf("reasoning = %#v, want effort high", payload["reasoning"])
 	}
 	if _, ok := payload["parallel_tool_calls"]; ok {
 		t.Fatalf("parallel_tool_calls still present: %#v", payload)
 	}
+	include, ok := payload["include"].([]any)
+	if !ok || len(include) != 2 || include[1] != "reasoning.encrypted_content" {
+		t.Fatalf("include = %#v", payload["include"])
+	}
+	tools, ok := payload["tools"].([]any)
+	if !ok || len(tools) != 2 || tools[1].(map[string]any)["type"] != "web_search" {
+		t.Fatalf("tools = %#v", payload["tools"])
+	}
 	if _, ok := payload["disabled_field"]; ok {
 		t.Fatalf("disabled rule applied: %#v", payload)
+	}
+	if _, ok := payload["legacy_field"]; ok {
+		t.Fatalf("legacy rule applied: %#v", payload)
+	}
+
+	otherProviderPayload := map[string]any{
+		"model":               "gpt-5.5",
+		"parallel_tool_calls": true,
+	}
+	loaded.ApplyRequestRewriteRules("gpt-5.5-fast", "p2", "gpt-5.5", otherProviderPayload)
+	reasoning, ok = otherProviderPayload["reasoning"].(map[string]any)
+	if !ok || reasoning["effort"] != "medium" {
+		t.Fatalf("alias-wide rule did not set nested reasoning: %#v", otherProviderPayload)
+	}
+	if reasoning["effort"] == "high" {
+		t.Fatalf("provider-scoped rule applied to non-selected provider: %#v", otherProviderPayload)
+	}
+	if got := otherProviderPayload["store"]; got != false {
+		t.Fatalf("alias-wide rule did not apply to provider without explicit scope: %#v", otherProviderPayload)
 	}
 }
 
@@ -330,27 +377,41 @@ func TestValidateRequestRewriteRules(t *testing.T) {
 	}{
 		{
 			name:    "empty name",
-			rule:    RequestRewriteRule{Alias: "chat", Enabled: true, Set: map[string]any{"store": false}},
+			rule:    RequestRewriteRule{Alias: "chat", Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true}}},
 			wantErr: "empty name",
 		},
 		{
-			name:    "missing scope",
-			rule:    RequestRewriteRule{Name: "missing-scope", Enabled: true, Set: map[string]any{"store": false}},
-			wantErr: "requires alias or model",
+			name:    "missing alias",
+			rule:    RequestRewriteRule{Name: "missing-scope", Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true}}},
+			wantErr: "requires alias",
 		},
 		{
 			name:    "missing operation",
 			rule:    RequestRewriteRule{Name: "missing-op", Alias: "chat", Enabled: true},
-			wantErr: "requires set or delete",
+			wantErr: "requires ops",
 		},
 		{
 			name:    "delete without override",
-			rule:    RequestRewriteRule{Name: "bad-delete", Alias: "chat", Enabled: true, Delete: []string{"store"}},
+			rule:    RequestRewriteRule{Name: "bad-delete", Alias: "chat", Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpDelete, Path: "$.store"}}},
 			wantErr: "delete requires override",
 		},
 		{
+			name:    "invalid path",
+			rule:    RequestRewriteRule{Name: "bad-path", Alias: "chat", Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "store", Value: false, ValueSet: true}}},
+			wantErr: "path must start with $",
+		},
+		{
+			name:    "set missing value",
+			rule:    RequestRewriteRule{Name: "missing-value", Alias: "chat", Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.store"}}},
+			wantErr: "set requires value",
+		},
+		{
 			name: "valid",
-			rule: RequestRewriteRule{Name: "valid", Model: "gpt-5.5", Enabled: true, Override: true, Delete: []string{"store"}},
+			rule: RequestRewriteRule{Name: "valid", Alias: "chat", Providers: []string{"p1"}, Enabled: true, Override: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpDelete, Path: "$.store"}}},
+		},
+		{
+			name: "legacy does not block validation",
+			rule: RequestRewriteRule{Name: "legacy", Alias: "chat", Enabled: true, Set: map[string]any{"store": false}},
 		},
 	}
 
@@ -383,11 +444,35 @@ func TestValidateRejectsDuplicateRequestRewriteRuleNames(t *testing.T) {
 	cfg := Default()
 	cfg.RequestRewriteRules = []RequestRewriteRule{
 		{Name: "same", Alias: "a", Enabled: true, Set: map[string]any{"store": false}},
-		{Name: "same", Model: "m", Enabled: true, Set: map[string]any{"store": true}},
+		{Name: "same", Alias: "b", Providers: []string{"p1"}, Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.store", Value: true, ValueSet: true}}},
 	}
 	errs := cfg.Validate()
 	if len(errs) == 0 || !strings.Contains(errs[0].Error(), `duplicate request rewrite rule "same"`) {
 		t.Fatalf("Validate() errors = %v, want duplicate rule error", errs)
+	}
+}
+
+func TestReorderRequestRewriteRulesPreservesStateAndRejectsBadOrders(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.RequestRewriteRules = []RequestRewriteRule{
+		{Name: "first", Alias: "chat", Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true}}},
+		{Name: "second", Alias: "chat", Providers: []string{"p1"}, Enabled: false, Override: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpDelete, Path: "$.store"}}},
+	}
+
+	if err := cfg.ReorderRequestRewriteRules([]string{"second", "first"}); err != nil {
+		t.Fatalf("ReorderRequestRewriteRules() error = %v", err)
+	}
+	rules := cfg.RequestRewriteRulesSnapshot()
+	if len(rules) != 2 || rules[0].Name != "second" || rules[0].Enabled || rules[1].Name != "first" || !rules[1].Enabled {
+		t.Fatalf("rules after reorder = %#v", rules)
+	}
+
+	for _, names := range [][]string{{"first"}, {"first", "first"}, {"first", "missing"}} {
+		if err := cfg.ReorderRequestRewriteRules(names); err == nil {
+			t.Fatalf("ReorderRequestRewriteRules(%#v) error = nil, want error", names)
+		}
 	}
 }
 

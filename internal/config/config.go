@@ -37,16 +37,18 @@ type TargetRef struct {
 	Model    string
 }
 
-// RequestRewriteRule rewrites top-level outbound request config for a matching
-// alias and/or resolved upstream model.
+// RequestRewriteRule rewrites outbound request config for a matching alias and
+// selected target provider list. Empty Providers means all providers for that
+// alias. Set and Delete are legacy fields kept only to detect inactive old rules.
 type RequestRewriteRule struct {
-	Name     string         `json:"name"`
-	Alias    string         `json:"alias,omitempty"`
-	Model    string         `json:"model,omitempty"`
-	Enabled  bool           `json:"enabled"`
-	Override bool           `json:"override,omitempty"`
-	Set      map[string]any `json:"set,omitempty"`
-	Delete   []string       `json:"delete,omitempty"`
+	Name      string                    `json:"name"`
+	Alias     string                    `json:"alias,omitempty"`
+	Providers []string                  `json:"providers,omitempty"`
+	Enabled   bool                      `json:"enabled"`
+	Override  bool                      `json:"override,omitempty"`
+	Ops       []RequestRewriteOperation `json:"ops,omitempty"`
+	Set       map[string]any            `json:"set,omitempty"`
+	Delete    []string                  `json:"delete,omitempty"`
 }
 
 // Alias maps a logical model name to ordered upstream targets.
@@ -491,58 +493,69 @@ func (c *Config) RemoveRequestRewriteRule(name string) bool {
 	return false
 }
 
+// ReorderRequestRewriteRules replaces rewrite rule order while preserving rule state.
+func (c *Config) ReorderRequestRewriteRules(names []string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(names) != len(c.RequestRewriteRules) {
+		return fmt.Errorf("request rewrite rule reorder count mismatch: got %d, want %d", len(names), len(c.RequestRewriteRules))
+	}
+	byName := make(map[string]RequestRewriteRule, len(c.RequestRewriteRules))
+	for _, rule := range c.RequestRewriteRules {
+		name := strings.TrimSpace(rule.Name)
+		if _, exists := byName[name]; exists {
+			return fmt.Errorf("duplicate request rewrite rule %q", name)
+		}
+		byName[name] = rule
+	}
+	seen := make(map[string]bool, len(names))
+	next := make([]RequestRewriteRule, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return fmt.Errorf("request rewrite rule name is required")
+		}
+		if seen[name] {
+			return fmt.Errorf("duplicate request rewrite rule %q in reorder request", name)
+		}
+		rule, ok := byName[name]
+		if !ok {
+			return fmt.Errorf("request rewrite rule %q not found", name)
+		}
+		seen[name] = true
+		next = append(next, rule)
+	}
+	c.RequestRewriteRules = next
+	return nil
+}
+
 // ApplyRequestRewriteRules mutates payload by applying matching rewrite rules.
-func (c *Config) ApplyRequestRewriteRules(aliasName, model string, payload map[string]any) {
+func (c *Config) ApplyRequestRewriteRules(aliasName, provider, model string, payload map[string]any) {
 	if payload == nil {
 		return
 	}
 	c.mu.RLock()
 	rules := cloneRequestRewriteRules(c.RequestRewriteRules)
 	c.mu.RUnlock()
-	ApplyRequestRewriteRules(payload, aliasName, model, rules)
+	ApplyRequestRewriteRules(payload, aliasName, provider, model, rules)
 }
 
-// ApplyRequestRewriteRules mutates payload using rules in order. Rules match the
-// normalized incoming alias and resolved upstream model.
-func ApplyRequestRewriteRules(payload map[string]any, aliasName, model string, rules []RequestRewriteRule) {
-	if payload == nil || len(rules) == 0 {
-		return
-	}
-	aliasName = strings.TrimSpace(aliasName)
-	model = strings.TrimSpace(model)
-	for _, rule := range rules {
-		rule = normalizeRequestRewriteRule(rule)
-		if !rule.Enabled || !requestRewriteRuleMatches(rule, aliasName, model) {
-			continue
-		}
-		if rule.Override {
-			for _, key := range rule.Delete {
-				delete(payload, key)
-			}
-		}
-		for key, value := range rule.Set {
-			if rule.Override {
-				payload[key] = value
-				continue
-			}
-			if _, exists := payload[key]; !exists {
-				payload[key] = value
-			}
-		}
-	}
-}
-
-func requestRewriteRuleMatches(rule RequestRewriteRule, aliasName, model string) bool {
-	if rule.Alias == "" && rule.Model == "" {
+func requestRewriteRuleMatches(rule RequestRewriteRule, aliasName, provider string) bool {
+	if rule.Alias == "" {
 		return false
 	}
-	if rule.Alias != "" && rule.Alias != aliasName {
+	if rule.Alias != aliasName {
 		return false
 	}
-	if rule.Model != "" && rule.Model != model {
-		return false
+	if len(rule.Providers) == 0 {
+		return true
 	}
-	return true
+	for _, allowed := range rule.Providers {
+		if allowed == provider {
+			return true
+		}
+	}
+	return false
 }
 
 // AddTarget appends a target to an alias; creates alias if missing.
@@ -789,14 +802,17 @@ func (c *Config) Validate() []error {
 			errs = append(errs, fmt.Errorf("duplicate request rewrite rule %q", rule.Name))
 		}
 		rewriteNames[rule.Name] = true
-		if rule.Alias == "" && rule.Model == "" {
-			errs = append(errs, fmt.Errorf("request rewrite rule %q requires alias or model", rule.Name))
+		if RequestRewriteRuleUsesLegacySyntax(rule) {
+			continue
 		}
-		if len(rule.Set) == 0 && len(rule.Delete) == 0 {
-			errs = append(errs, fmt.Errorf("request rewrite rule %q requires set or delete", rule.Name))
+		if rule.Alias == "" {
+			errs = append(errs, fmt.Errorf("request rewrite rule %q requires alias", rule.Name))
 		}
-		if len(rule.Delete) > 0 && !rule.Override {
-			errs = append(errs, fmt.Errorf("request rewrite rule %q delete requires override", rule.Name))
+		if len(rule.Ops) == 0 {
+			errs = append(errs, fmt.Errorf("request rewrite rule %q requires ops", rule.Name))
+		}
+		for _, err := range validateRequestRewriteOperations(rule) {
+			errs = append(errs, err)
 		}
 	}
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
@@ -938,7 +954,21 @@ func normalizeRequestRewriteRules(rules []RequestRewriteRule) {
 func normalizeRequestRewriteRule(rule RequestRewriteRule) RequestRewriteRule {
 	rule.Name = strings.TrimSpace(rule.Name)
 	rule.Alias = strings.TrimSpace(rule.Alias)
-	rule.Model = strings.TrimSpace(rule.Model)
+	if len(rule.Providers) > 0 {
+		seen := map[string]bool{}
+		next := make([]string, 0, len(rule.Providers))
+		for _, provider := range rule.Providers {
+			trimmed := strings.TrimSpace(provider)
+			if trimmed == "" || seen[trimmed] {
+				continue
+			}
+			seen[trimmed] = true
+			next = append(next, trimmed)
+		}
+		rule.Providers = next
+	} else {
+		rule.Providers = nil
+	}
 	if len(rule.Set) > 0 {
 		next := make(map[string]any, len(rule.Set))
 		for key, value := range rule.Set {
@@ -966,6 +996,19 @@ func normalizeRequestRewriteRule(rule RequestRewriteRule) RequestRewriteRule {
 		rule.Delete = next
 	} else {
 		rule.Delete = nil
+	}
+	if len(rule.Ops) > 0 {
+		next := make([]RequestRewriteOperation, 0, len(rule.Ops))
+		for _, op := range rule.Ops {
+			op = normalizeRequestRewriteOperation(op)
+			if op.Op == "" && op.Path == "" {
+				continue
+			}
+			next = append(next, op)
+		}
+		rule.Ops = next
+	} else {
+		rule.Ops = nil
 	}
 	return rule
 }
@@ -998,6 +1041,8 @@ func cloneRequestRewriteRules(in []RequestRewriteRule) []RequestRewriteRule {
 }
 
 func cloneRequestRewriteRule(in RequestRewriteRule) RequestRewriteRule {
+	in.Providers = cloneStrings(in.Providers)
+	in.Ops = cloneRequestRewriteOperations(in.Ops)
 	in.Set = cloneAnyMap(in.Set)
 	in.Delete = cloneStrings(in.Delete)
 	return in
