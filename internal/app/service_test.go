@@ -745,6 +745,182 @@ func TestUpsertAliasCanReEnableExistingAlias(t *testing.T) {
 	}
 }
 
+func TestRequestRewriteRulesUpsertListReorderAndPersist(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	first, err := svc.UpsertRequestRewriteRule(context.Background(), RequestRewriteRuleInput{
+		Name:    "fast-tier",
+		Alias:   "chat-fast",
+		Enabled: true,
+		Ops: []config.RequestRewriteOperation{
+			{Op: config.RequestRewriteOpSet, Path: "$.serviceTier", Value: "priority", ValueSet: true},
+			{Op: config.RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertRequestRewriteRule(first) error = %v", err)
+	}
+	if first.Name != "fast-tier" || !first.Enabled || requestRewriteOpValue(first.Ops, "$.serviceTier") != "priority" {
+		t.Fatalf("first rule view = %#v", first)
+	}
+
+	second, err := svc.UpsertRequestRewriteRule(context.Background(), RequestRewriteRuleInput{
+		Name:      "strip-store",
+		Alias:     "chat-fast",
+		Providers: []string{"p1", "p1", " p2 "},
+		Enabled:   true,
+		Override:  true,
+		Ops:       []config.RequestRewriteOperation{{Op: config.RequestRewriteOpDelete, Path: "$.store"}},
+	})
+	if err != nil {
+		t.Fatalf("UpsertRequestRewriteRule(second) error = %v", err)
+	}
+	if !second.Override || len(second.Ops) != 1 || second.Ops[0].Path != "$.store" || strings.Join(second.Providers, ",") != "p1,p2" {
+		t.Fatalf("second rule view = %#v", second)
+	}
+
+	rules, err := svc.ListRequestRewriteRules(context.Background())
+	if err != nil {
+		t.Fatalf("ListRequestRewriteRules() error = %v", err)
+	}
+	if len(rules) != 2 || rules[0].Name != "fast-tier" || rules[1].Name != "strip-store" {
+		t.Fatalf("rules = %#v", rules)
+	}
+
+	disabled, err := svc.SetRequestRewriteRuleEnabled(context.Background(), RequestRewriteRuleStateInput{Name: "fast-tier", Enabled: false})
+	if err != nil {
+		t.Fatalf("SetRequestRewriteRuleEnabled() error = %v", err)
+	}
+	if disabled.Enabled {
+		t.Fatalf("disabled rule = %#v", disabled)
+	}
+
+	reordered, err := svc.ReorderRequestRewriteRules(context.Background(), RequestRewriteRuleReorderInput{Names: []string{"strip-store", "fast-tier"}})
+	if err != nil {
+		t.Fatalf("ReorderRequestRewriteRules() error = %v", err)
+	}
+	if len(reordered.Rules) != 2 || reordered.Rules[0].Name != "strip-store" || reordered.Rules[1].Enabled {
+		t.Fatalf("reordered rules = %#v", reordered.Rules)
+	}
+
+	removed, err := svc.RemoveRequestRewriteRule(context.Background(), RequestRewriteRuleRemoveInput{Name: "strip-store"})
+	if err != nil {
+		t.Fatalf("RemoveRequestRewriteRule() error = %v", err)
+	}
+	if !removed.OK {
+		t.Fatalf("removed = %#v", removed)
+	}
+
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	persisted := reloaded.RequestRewriteRulesSnapshot()
+	if len(persisted) != 1 || persisted[0].Name != "fast-tier" || persisted[0].Enabled {
+		t.Fatalf("persisted rules = %#v", persisted)
+	}
+	if got := requestRewriteOpValue(persisted[0].Ops, "$.store"); got != false {
+		t.Fatalf("persisted op store = %#v, want false", got)
+	}
+}
+
+func requestRewriteOpValue(ops []config.RequestRewriteOperation, path string) any {
+	for _, op := range ops {
+		if op.Path == path {
+			return op.Value
+		}
+	}
+	return nil
+}
+
+func TestRequestRewriteRuleMutationReloadsRunningProxy(t *testing.T) {
+	t.Parallel()
+
+	var seenPayload map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		seenPayload = payload
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","output":[]}`))
+	}))
+	defer upstream.Close()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	port := freePort(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Server.Port = port
+	cfg.Server.APIKey = config.DefaultLocalAPIKey
+	cfg.Providers = []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}}
+	cfg.Aliases = []config.Alias{{
+		Alias:   "chat",
+		Enabled: true,
+		Targets: []config.Target{{Provider: "p1", Model: "gpt-5.5", Enabled: true}},
+	}}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	if err := svc.StartProxy(context.Background()); err != nil {
+		t.Fatalf("StartProxy() error = %v", err)
+	}
+	t.Cleanup(func() { _ = svc.StopProxy(context.Background()) })
+
+	if _, err := svc.UpsertRequestRewriteRule(context.Background(), RequestRewriteRuleInput{
+		Name:    "store-off",
+		Alias:   "chat",
+		Enabled: true,
+		Ops:     []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true}},
+	}); err != nil {
+		t.Fatalf("UpsertRequestRewriteRule() error = %v", err)
+	}
+	postProxyResponse(t, port, `{"model":"chat","stream":false}`)
+	if got := seenPayload["store"]; got != false {
+		t.Fatalf("store after upsert = %#v, want false", got)
+	}
+
+	if _, err := svc.SetRequestRewriteRuleEnabled(context.Background(), RequestRewriteRuleStateInput{Name: "store-off", Enabled: false}); err != nil {
+		t.Fatalf("SetRequestRewriteRuleEnabled() error = %v", err)
+	}
+	postProxyResponse(t, port, `{"model":"chat","stream":false}`)
+	if _, ok := seenPayload["store"]; ok {
+		t.Fatalf("store after disable still present: %#v", seenPayload)
+	}
+
+	if _, err := svc.RemoveRequestRewriteRule(context.Background(), RequestRewriteRuleRemoveInput{Name: "store-off"}); err != nil {
+		t.Fatalf("RemoveRequestRewriteRule() error = %v", err)
+	}
+}
+
+func postProxyResponse(t *testing.T, port int, payload string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:"+itoa(port)+"/v1/responses", strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("proxy request error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("proxy status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
 func TestReconcileRuntimeSnapshotReportsDriftCategories(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.Server{Host: "127.0.0.1", Port: 9982},

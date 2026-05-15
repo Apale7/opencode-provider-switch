@@ -25,6 +25,7 @@ type Service struct {
 	proxyReady    chan struct{}
 	proxyReadyErr error
 	proxyErr      error
+	proxyServer   *proxy.Server
 	proxyStatus   ProxyStatusView
 }
 
@@ -105,6 +106,7 @@ func (s *Service) RunDoctor(ctx context.Context) (DoctorReport, error) {
 		return DoctorReport{}, err
 	}
 	issues := doctorIssues(cfg.Validate())
+	issues = append(issues, requestRewriteWarningIssues(cfg.RequestRewriteRulesSnapshot())...)
 	path, existed := opencode.ResolveGlobalConfigPath()
 	raw, loadErr := opencode.Load(path)
 	fileSnapshotRaw := opencode.SnapshotFileConfig(path, existed, raw, loadErr, syncedProtocols())
@@ -242,7 +244,9 @@ func (s *Service) StartProxy(ctx context.Context) error {
 		BindAddress: bindAddress,
 		StartedAt:   formatTimestamp(time.Now()),
 	}
-	go s.runProxy(runCtx, cancel, done, ready, cfg, bindAddress)
+	proxyServer := proxy.New(cfg, s.traces)
+	s.proxyServer = proxyServer
+	go s.runProxy(runCtx, done, ready, proxyServer, bindAddress)
 	s.mu.Unlock()
 
 	select {
@@ -531,6 +535,17 @@ func (s *Service) loadConfig() (*config.Config, error) {
 	return config.Load(s.configPath)
 }
 
+func (s *Service) reloadRunningProxyConfig(cfg *config.Config) error {
+	s.mu.Lock()
+	proxyServer := s.proxyServer
+	running := s.proxyStatus.Running
+	s.mu.Unlock()
+	if !running || proxyServer == nil {
+		return nil
+	}
+	return proxyServer.ReloadConfig(cfg)
+}
+
 func (s *Service) currentProxyStatus(bindAddress string) ProxyStatusView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -541,7 +556,7 @@ func (s *Service) currentProxyStatus(bindAddress string) ProxyStatusView {
 	return status
 }
 
-func (s *Service) runProxy(runCtx context.Context, cancel context.CancelFunc, done chan struct{}, ready chan struct{}, cfg *config.Config, bindAddress string) {
+func (s *Service) runProxy(runCtx context.Context, done chan struct{}, ready chan struct{}, proxyServer *proxy.Server, bindAddress string) {
 	readyErr := make(chan error, 1)
 	readyReported := make(chan struct{})
 	go func() {
@@ -554,7 +569,7 @@ func (s *Service) runProxy(runCtx context.Context, cancel context.CancelFunc, do
 		s.mu.Unlock()
 		close(readyReported)
 	}()
-	err := proxy.New(cfg, s.traces).ListenAndServeWithReady(runCtx, readyErr)
+	err := proxyServer.ListenAndServeWithReady(runCtx, readyErr)
 	<-readyReported
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -562,6 +577,7 @@ func (s *Service) runProxy(runCtx context.Context, cancel context.CancelFunc, do
 		s.proxyCancel = nil
 		s.proxyDone = nil
 		s.proxyReady = nil
+		s.proxyServer = nil
 	}
 	s.proxyErr = err
 	status := s.proxyStatus
@@ -620,10 +636,41 @@ func aliasView(cfg *config.Config, alias config.Alias) AliasView {
 	}
 }
 
+func requestRewriteRuleViews(rules []config.RequestRewriteRule) []RequestRewriteRuleView {
+	views := make([]RequestRewriteRuleView, 0, len(rules))
+	for _, rule := range rules {
+		views = append(views, requestRewriteRuleView(rule))
+	}
+	return views
+}
+
+func requestRewriteRuleView(rule config.RequestRewriteRule) RequestRewriteRuleView {
+	return RequestRewriteRuleView{
+		Name:      rule.Name,
+		Alias:     rule.Alias,
+		Providers: append([]string(nil), rule.Providers...),
+		Enabled:   rule.Enabled,
+		Override:  rule.Override,
+		Ops:       cloneRequestRewriteOperations(rule.Ops),
+		Legacy:    config.RequestRewriteRuleUsesLegacySyntax(rule),
+		Warnings:  config.RequestRewriteRuleWarnings(rule),
+	}
+}
+
 func doctorIssues(errs []error) []DoctorIssue {
 	issues := make([]DoctorIssue, 0, len(errs))
 	for _, err := range errs {
 		issues = append(issues, DoctorIssue{Code: "config_invalid", Severity: "error", Message: err.Error(), ActionHint: "fix local ocswitch config and rerun doctor"})
+	}
+	return issues
+}
+
+func requestRewriteWarningIssues(rules []config.RequestRewriteRule) []DoctorIssue {
+	issues := []DoctorIssue{}
+	for _, rule := range rules {
+		for _, warning := range config.RequestRewriteRuleWarnings(rule) {
+			issues = append(issues, DoctorIssue{Code: "rewrite_rule_legacy", Severity: "warning", Message: warning, Alias: rule.Alias, ActionHint: "edit the rewrite rule and replace set/delete with ops"})
+		}
 	}
 	return issues
 }
@@ -784,6 +831,54 @@ func cloneHeaders(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = cloneJSONValue(value)
+	}
+	return out
+}
+
+func cloneRequestRewriteOperations(in []config.RequestRewriteOperation) []config.RequestRewriteOperation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]config.RequestRewriteOperation, len(in))
+	for i := range in {
+		out[i] = config.RequestRewriteOperation{
+			Op:       in[i].Op,
+			Path:     in[i].Path,
+			Value:    cloneJSONValue(in[i].Value),
+			ValueSet: in[i].ValueSet,
+		}
+		if in[i].Index != nil {
+			index := *in[i].Index
+			out[i].Index = &index
+		}
+	}
+	return out
+}
+
+func cloneJSONValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for index := range typed {
+			out[index] = cloneJSONValue(typed[index])
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	default:
+		return value
+	}
 }
 
 func formatTimestamp(value time.Time) string {

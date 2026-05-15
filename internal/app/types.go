@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/Apale7/opencode-provider-switch/internal/config"
 	"github.com/Apale7/opencode-provider-switch/internal/proxy"
 	"github.com/Apale7/opencode-provider-switch/internal/routing"
 )
@@ -638,4 +639,45 @@ type AliasTargetRefInput struct {
 type AliasTargetReorderInput struct {
 	Alias   string                `json:"alias"`
 	Targets []AliasTargetRefInput `json:"targets"`
+}
+
+type RequestRewriteRuleView struct {
+	Name      string                           `json:"name"`
+	Alias     string                           `json:"alias,omitempty"`
+	Providers []string                         `json:"providers,omitempty"`
+	Enabled   bool                             `json:"enabled"`
+	Override  bool                             `json:"override"`
+	Ops       []config.RequestRewriteOperation `json:"ops,omitempty"`
+	Legacy    bool                             `json:"legacy,omitempty"`
+	Warnings  []string                         `json:"warnings,omitempty"`
+}
+
+type RequestRewriteRuleInput struct {
+	Name      string                           `json:"name"`
+	Alias     string                           `json:"alias,omitempty"`
+	Providers []string                         `json:"providers,omitempty"`
+	Enabled   bool                             `json:"enabled"`
+	Override  bool                             `json:"override"`
+	Ops       []config.RequestRewriteOperation `json:"ops,omitempty"`
+}
+
+type RequestRewriteRuleStateInput struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+type RequestRewriteRuleRemoveInput struct {
+	Name string `json:"name"`
+}
+
+type RequestRewriteRuleRemoveResult struct {
+	OK bool `json:"ok"`
+}
+
+type RequestRewriteRuleReorderInput struct {
+	Names []string `json:"names"`
+}
+
+type RequestRewriteRuleReorderResult struct {
+	Rules []RequestRewriteRuleView `json:"rules"`
 }

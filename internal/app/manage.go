@@ -13,6 +13,117 @@ import (
 	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 )
 
+func (s *Service) ListRequestRewriteRules(ctx context.Context) ([]RequestRewriteRuleView, error) {
+	_ = ctx
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	return requestRewriteRuleViews(cfg.RequestRewriteRulesSnapshot()), nil
+}
+
+func (s *Service) UpsertRequestRewriteRule(ctx context.Context, in RequestRewriteRuleInput) (RequestRewriteRuleView, error) {
+	_ = ctx
+	rule := config.RequestRewriteRule{
+		Name:      strings.TrimSpace(in.Name),
+		Alias:     strings.TrimSpace(in.Alias),
+		Providers: append([]string(nil), in.Providers...),
+		Enabled:   in.Enabled,
+		Override:  in.Override,
+		Ops:       cloneRequestRewriteOperations(in.Ops),
+	}
+	if rule.Name == "" {
+		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule name is required")
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return RequestRewriteRuleView{}, err
+	}
+	cfg.UpsertRequestRewriteRule(rule)
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return RequestRewriteRuleView{}, errs[0]
+	}
+	if err := cfg.Save(); err != nil {
+		return RequestRewriteRuleView{}, err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return RequestRewriteRuleView{}, fmt.Errorf("reload proxy config: %w", err)
+	}
+	current := cfg.FindRequestRewriteRule(rule.Name)
+	if current == nil {
+		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule %q not found", rule.Name)
+	}
+	return requestRewriteRuleView(*current), nil
+}
+
+func (s *Service) SetRequestRewriteRuleEnabled(ctx context.Context, in RequestRewriteRuleStateInput) (RequestRewriteRuleView, error) {
+	_ = ctx
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule name is required")
+	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return RequestRewriteRuleView{}, err
+	}
+	if !cfg.SetRequestRewriteRuleEnabled(name, in.Enabled) {
+		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule %q not found", in.Name)
+	}
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return RequestRewriteRuleView{}, errs[0]
+	}
+	if err := cfg.Save(); err != nil {
+		return RequestRewriteRuleView{}, err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return RequestRewriteRuleView{}, fmt.Errorf("reload proxy config: %w", err)
+	}
+	current := cfg.FindRequestRewriteRule(name)
+	if current == nil {
+		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule %q not found", name)
+	}
+	return requestRewriteRuleView(*current), nil
+}
+
+func (s *Service) RemoveRequestRewriteRule(ctx context.Context, in RequestRewriteRuleRemoveInput) (RequestRewriteRuleRemoveResult, error) {
+	_ = ctx
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return RequestRewriteRuleRemoveResult{}, err
+	}
+	if !cfg.RemoveRequestRewriteRule(strings.TrimSpace(in.Name)) {
+		return RequestRewriteRuleRemoveResult{}, fmt.Errorf("request rewrite rule %q not found", in.Name)
+	}
+	if err := cfg.Save(); err != nil {
+		return RequestRewriteRuleRemoveResult{}, err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return RequestRewriteRuleRemoveResult{}, fmt.Errorf("reload proxy config: %w", err)
+	}
+	return RequestRewriteRuleRemoveResult{OK: true}, nil
+}
+
+func (s *Service) ReorderRequestRewriteRules(ctx context.Context, in RequestRewriteRuleReorderInput) (RequestRewriteRuleReorderResult, error) {
+	_ = ctx
+	cfg, err := s.loadConfig()
+	if err != nil {
+		return RequestRewriteRuleReorderResult{}, err
+	}
+	if err := cfg.ReorderRequestRewriteRules(in.Names); err != nil {
+		return RequestRewriteRuleReorderResult{}, err
+	}
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return RequestRewriteRuleReorderResult{}, errs[0]
+	}
+	if err := cfg.Save(); err != nil {
+		return RequestRewriteRuleReorderResult{}, err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return RequestRewriteRuleReorderResult{}, fmt.Errorf("reload proxy config: %w", err)
+	}
+	return RequestRewriteRuleReorderResult{Rules: requestRewriteRuleViews(cfg.RequestRewriteRulesSnapshot())}, nil
+}
+
 func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (ProviderSaveResult, error) {
 	_ = ctx
 	if strings.TrimSpace(in.ID) == "" {
