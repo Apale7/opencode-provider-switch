@@ -83,6 +83,7 @@ func newProviderBaseURLLatencyCache(ttl time.Duration) *providerBaseURLLatencyCa
 }
 
 func newServerRuntime(cfg *config.Config, store routing.StateStore) *serverRuntime {
+	cfg.Server.FailoverStatusCodes = config.NormalizeFailoverStatusCodes(cfg.Server.FailoverStatusCodes)
 	firstByteTimeout := timeoutDuration(cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
 	responseHeaderTimeout := timeoutDuration(cfg.Server.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs)
 	transport := &http.Transport{
@@ -665,7 +666,7 @@ func (s *Server) tryOnce(
 		attemptTrace.ResponseHeaders = sanitizeHeaderMap(resp.Header)
 	}
 
-	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+	if isRetryableStatusCode(resp.StatusCode, state.cfg.Server.FailoverStatusCodes) {
 		failure = captureRetryableFailure(resp)
 		sanitizedBody := sanitizeResponseBody(resp.Header.Get("Content-Type"), failure.body)
 		if attemptTrace != nil {
@@ -808,6 +809,13 @@ func (s *Server) tryOnce(
 			return true, false, false, rerr, nil
 		}
 	}
+}
+
+func isRetryableStatusCode(statusCode int, failoverStatusCodes []int) bool {
+	if statusCode >= 500 {
+		return true
+	}
+	return slices.Contains(failoverStatusCodes, statusCode)
 }
 
 func jsonNumberToInt64(value any) (int64, bool) {
@@ -1126,6 +1134,8 @@ func classifyFailureReason(attempt TraceAttempt, retryable bool) routing.Failure
 			return routing.FailureRateLimited
 		case attempt.StatusCode >= 500:
 			return routing.FailureUpstream5xx
+		case attempt.StatusCode >= 400:
+			return routing.FailureUpstream4xx
 		case strings.Contains(attempt.Result, "timeout"):
 			return routing.FailureTimeout
 		case attempt.Result == "empty_response":

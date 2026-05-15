@@ -1343,6 +1343,195 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	}
 }
 
+func TestHandleResponsesFailsOverOnDefaultConfigured4xx(t *testing.T) {
+	t.Parallel()
+
+	for _, statusCode := range []int{http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests} {
+		statusCode := statusCode
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			t.Parallel()
+
+			calledSecond := false
+			first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(statusCode)
+				_, _ = w.Write([]byte(`{"error":{"message":"configured failover"}}`))
+			}))
+			defer first.Close()
+			second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calledSecond = true
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = w.Write([]byte("data: ok\n\n"))
+			}))
+			defer second.Close()
+
+			srv := New(&config.Config{
+				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+				Providers: []config.Provider{
+					{ID: "p1", BaseURL: first.URL + "/v1"},
+					{ID: "p2", BaseURL: second.URL + "/v1"},
+				},
+				Aliases: []config.Alias{{
+					Alias:   "gpt-5.4",
+					Enabled: true,
+					Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+				}},
+			})
+
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+			req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			srv.handleResponses(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+			}
+			if !calledSecond {
+				t.Fatal("second upstream was not called")
+			}
+			if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+				t.Fatalf("X-OCSWITCH-Attempt = %q, want 2", got)
+			}
+		})
+	}
+}
+
+func TestHandleResponsesRespectsCustomFailoverStatusCodes(t *testing.T) {
+	t.Parallel()
+
+	calledSecond := false
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad request"}}`))
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledSecond = true
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey, FailoverStatusCodes: []int{http.StatusBadRequest}},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1"},
+			{ID: "p2", BaseURL: second.URL + "/v1"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !calledSecond {
+		t.Fatal("second upstream was not called")
+	}
+}
+
+func TestHandleResponsesCanDisableConfigured4xxFailover(t *testing.T) {
+	t.Parallel()
+
+	calledSecond := false
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledSecond = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey, FailoverStatusCodes: []int{}},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1"},
+			{ID: "p2", BaseURL: second.URL + "/v1"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusTooManyRequests)
+	}
+	if calledSecond {
+		t.Fatal("second upstream should not be called")
+	}
+}
+
+func TestHandleResponsesAlwaysFailsOverOn5xx(t *testing.T) {
+	t.Parallel()
+
+	calledSecond := false
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"server error"}}`))
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledSecond = true
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey, FailoverStatusCodes: []int{}},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1"},
+			{ID: "p2", BaseURL: second.URL + "/v1"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !calledSecond {
+		t.Fatal("second upstream was not called")
+	}
+}
+
 func TestHandleResponsesReturnsLastRetryableFailure(t *testing.T) {
 	t.Parallel()
 
