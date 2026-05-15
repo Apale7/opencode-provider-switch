@@ -30,6 +30,10 @@ export function DeleteProvider(arg1) {
   return window['go']['desktop']['App']['DeleteProvider'](arg1);
 }
 
+export function DeleteRewriteRule(arg1) {
+  return window['go']['desktop']['App']['DeleteRewriteRule'](arg1);
+}
+
 export function DesktopPrefs() {
   return window['go']['desktop']['App']['DesktopPrefs']();
 }
@@ -94,12 +98,20 @@ export function RefreshProviderModels(arg1) {
   return window['go']['desktop']['App']['RefreshProviderModels'](arg1);
 }
 
+export function ReorderRewriteRules(arg1) {
+  return window['go']['desktop']['App']['ReorderRewriteRules'](arg1);
+}
+
 export function ReorderTargets(arg1) {
   return window['go']['desktop']['App']['ReorderTargets'](arg1);
 }
 
 export function RequestTraces(arg1) {
   return window['go']['desktop']['App']['RequestTraces'](arg1);
+}
+
+export function RewriteRules() {
+  return window['go']['desktop']['App']['RewriteRules']();
 }
 
 export function SaveAlias(arg1) {
@@ -122,12 +134,20 @@ export function SaveProxySettings(arg1) {
   return window['go']['desktop']['App']['SaveProxySettings'](arg1);
 }
 
+export function SaveRewriteRule(arg1) {
+  return window['go']['desktop']['App']['SaveRewriteRule'](arg1);
+}
+
 export function Service() {
   return window['go']['desktop']['App']['Service']();
 }
 
 export function SetProviderState(arg1) {
   return window['go']['desktop']['App']['SetProviderState'](arg1);
+}
+
+export function SetRewriteRuleState(arg1) {
+  return window['go']['desktop']['App']['SetRewriteRuleState'](arg1);
 }
 
 export function SetTargetState(arg1) {

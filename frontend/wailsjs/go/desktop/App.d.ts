@@ -18,6 +18,8 @@ export function DeleteAlias(arg1:string):Promise<void>;
 
 export function DeleteProvider(arg1:string):Promise<void>;
 
+export function DeleteRewriteRule(arg1:app.RequestRewriteRuleRemoveInput):Promise<app.RequestRewriteRuleRemoveResult>;
+
 export function DesktopPrefs():Promise<app.DesktopPrefsView>;
 
 export function DoctorRun():Promise<app.DoctorRunResult>;
@@ -50,9 +52,13 @@ export function ProxyStatus():Promise<app.ProxyStatusView>;
 
 export function RefreshProviderModels(arg1:app.ProviderRefreshModelsInput):Promise<app.ProviderSaveResult>;
 
+export function ReorderRewriteRules(arg1:app.RequestRewriteRuleReorderInput):Promise<app.RequestRewriteRuleReorderResult>;
+
 export function ReorderTargets(arg1:app.AliasTargetReorderInput):Promise<app.AliasView>;
 
 export function RequestTraces(arg1:number):Promise<Array<app.RequestTrace>>;
+
+export function RewriteRules():Promise<Array<app.RequestRewriteRuleView>>;
 
 export function SaveAlias(arg1:app.AliasUpsertInput):Promise<app.AliasView>;
 
@@ -64,9 +70,13 @@ export function SaveProvider(arg1:app.ProviderUpsertInput):Promise<app.ProviderS
 
 export function SaveProxySettings(arg1:app.ProxySettingsInput):Promise<app.ProxySettingsSaveResult>;
 
+export function SaveRewriteRule(arg1:app.RequestRewriteRuleInput):Promise<app.RequestRewriteRuleView>;
+
 export function Service():Promise<app.Service>;
 
 export function SetProviderState(arg1:app.ProviderStateInput):Promise<app.ProviderView>;
+
+export function SetRewriteRuleState(arg1:app.RequestRewriteRuleStateInput):Promise<app.RequestRewriteRuleView>;
 
 export function SetTargetState(arg1:app.AliasTargetInput):Promise<app.AliasView>;
 

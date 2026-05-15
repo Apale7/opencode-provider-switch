@@ -85,6 +85,26 @@ func (b *Bindings) ReorderAliasTargets(ctx context.Context, in app.AliasTargetRe
 	return b.service.ReorderAliasTargets(ctx, in)
 }
 
+func (b *Bindings) ListRequestRewriteRules(ctx context.Context) ([]app.RequestRewriteRuleView, error) {
+	return b.service.ListRequestRewriteRules(ctx)
+}
+
+func (b *Bindings) UpsertRequestRewriteRule(ctx context.Context, in app.RequestRewriteRuleInput) (app.RequestRewriteRuleView, error) {
+	return b.service.UpsertRequestRewriteRule(ctx, in)
+}
+
+func (b *Bindings) SetRequestRewriteRuleEnabled(ctx context.Context, in app.RequestRewriteRuleStateInput) (app.RequestRewriteRuleView, error) {
+	return b.service.SetRequestRewriteRuleEnabled(ctx, in)
+}
+
+func (b *Bindings) RemoveRequestRewriteRule(ctx context.Context, in app.RequestRewriteRuleRemoveInput) (app.RequestRewriteRuleRemoveResult, error) {
+	return b.service.RemoveRequestRewriteRule(ctx, in)
+}
+
+func (b *Bindings) ReorderRequestRewriteRules(ctx context.Context, in app.RequestRewriteRuleReorderInput) (app.RequestRewriteRuleReorderResult, error) {
+	return b.service.ReorderRequestRewriteRules(ctx, in)
+}
+
 func (b *Bindings) RunDoctor(ctx context.Context) (app.DoctorReport, error) {
 	return b.service.RunDoctor(ctx)
 }
@@ -205,6 +225,26 @@ func (b *Bindings) UnbindTarget(in app.AliasTargetInput) (app.AliasView, error) 
 
 func (b *Bindings) ReorderTargets(in app.AliasTargetReorderInput) (app.AliasView, error) {
 	return b.ReorderAliasTargets(context.Background(), in)
+}
+
+func (b *Bindings) RewriteRules() ([]app.RequestRewriteRuleView, error) {
+	return b.ListRequestRewriteRules(context.Background())
+}
+
+func (b *Bindings) SaveRewriteRule(in app.RequestRewriteRuleInput) (app.RequestRewriteRuleView, error) {
+	return b.UpsertRequestRewriteRule(context.Background(), in)
+}
+
+func (b *Bindings) SetRewriteRuleState(in app.RequestRewriteRuleStateInput) (app.RequestRewriteRuleView, error) {
+	return b.SetRequestRewriteRuleEnabled(context.Background(), in)
+}
+
+func (b *Bindings) DeleteRewriteRule(in app.RequestRewriteRuleRemoveInput) (app.RequestRewriteRuleRemoveResult, error) {
+	return b.RemoveRequestRewriteRule(context.Background(), in)
+}
+
+func (b *Bindings) ReorderRewriteRules(in app.RequestRewriteRuleReorderInput) (app.RequestRewriteRuleReorderResult, error) {
+	return b.ReorderRequestRewriteRules(context.Background(), in)
 }
 
 func (b *Bindings) Doctor() (app.DoctorReport, error) {

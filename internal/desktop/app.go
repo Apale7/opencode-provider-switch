@@ -232,6 +232,26 @@ func (a *App) ReorderTargets(in app.AliasTargetReorderInput) (app.AliasView, err
 	return a.bindings.ReorderAliasTargets(a.callContext(), in)
 }
 
+func (a *App) RewriteRules() ([]app.RequestRewriteRuleView, error) {
+	return a.bindings.ListRequestRewriteRules(a.callContext())
+}
+
+func (a *App) SaveRewriteRule(in app.RequestRewriteRuleInput) (app.RequestRewriteRuleView, error) {
+	return a.bindings.UpsertRequestRewriteRule(a.callContext(), in)
+}
+
+func (a *App) SetRewriteRuleState(in app.RequestRewriteRuleStateInput) (app.RequestRewriteRuleView, error) {
+	return a.bindings.SetRequestRewriteRuleEnabled(a.callContext(), in)
+}
+
+func (a *App) DeleteRewriteRule(in app.RequestRewriteRuleRemoveInput) (app.RequestRewriteRuleRemoveResult, error) {
+	return a.bindings.RemoveRequestRewriteRule(a.callContext(), in)
+}
+
+func (a *App) ReorderRewriteRules(in app.RequestRewriteRuleReorderInput) (app.RequestRewriteRuleReorderResult, error) {
+	return a.bindings.ReorderRequestRewriteRules(a.callContext(), in)
+}
+
 func (a *App) DoctorRun() (app.DoctorRunResult, error) {
 	report, err := a.bindings.RunDoctor(a.callContext())
 	return app.DoctorRunResult{Report: report, Error: appErrorString(err)}, nil
