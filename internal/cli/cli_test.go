@@ -1068,9 +1068,11 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	addCmd.SetArgs([]string{
 		"--name", "fast",
 		"--alias", "gpt-5.5-fast",
-		"--set", "serviceTier=priority",
-		"--set", "store=false",
-		"--set", `include=["reasoning.encrypted_content"]`,
+		"--provider", "p1",
+		"--provider", " p2 ",
+		"--op", "set:$.serviceTier=priority",
+		"--op", "set:$.store=false",
+		"--op", `set:$.include=["reasoning.encrypted_content"]`,
 	})
 	if err := addCmd.Execute(); err != nil {
 		t.Fatalf("execute rewrite add: %v", err)
@@ -1084,18 +1086,21 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	if rule == nil {
 		t.Fatal("rewrite rule fast not found")
 	}
-	if rule.Alias != "gpt-5.5-fast" || !rule.Enabled || rule.Override {
+	if rule.Alias != "gpt-5.5-fast" || strings.Join(rule.Providers, ",") != "p1,p2" || !rule.Enabled || rule.Override {
 		t.Fatalf("rule = %#v", rule)
 	}
-	if got := rule.Set["serviceTier"]; got != "priority" {
+	if len(rule.Ops) != 3 {
+		t.Fatalf("ops = %#v, want 3", rule.Ops)
+	}
+	if got := rewriteOpValue(rule.Ops, "$.serviceTier"); got != "priority" {
 		t.Fatalf("serviceTier = %#v", got)
 	}
-	if got := rule.Set["store"]; got != false {
+	if got := rewriteOpValue(rule.Ops, "$.store"); got != false {
 		t.Fatalf("store = %#v", got)
 	}
-	include, ok := rule.Set["include"].([]any)
+	include, ok := rewriteOpValue(rule.Ops, "$.include").([]any)
 	if !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
-		t.Fatalf("include = %#v", rule.Set["include"])
+		t.Fatalf("include = %#v", rewriteOpValue(rule.Ops, "$.include"))
 	}
 
 	listCmd := newRewriteListCmd()
@@ -1104,7 +1109,7 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	if err := listCmd.Execute(); err != nil {
 		t.Fatalf("execute rewrite list: %v", err)
 	}
-	if out := stdout.String(); !strings.Contains(out, "fast") || !strings.Contains(out, "serviceTier") {
+	if out := stdout.String(); !strings.Contains(out, "fast") || !strings.Contains(out, "providers=p1,p2") || !strings.Contains(out, "serviceTier") {
 		t.Fatalf("rewrite list output = %q", out)
 	}
 
@@ -1125,7 +1130,7 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	updateCmd.SetArgs([]string{
 		"--name", "fast",
 		"--alias", "gpt-5.5-fast",
-		"--set", "serviceTier=flex",
+		"--op", "set:$.serviceTier=flex",
 	})
 	if err := updateCmd.Execute(); err != nil {
 		t.Fatalf("execute rewrite update: %v", err)
@@ -1141,8 +1146,27 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	if updated.Enabled {
 		t.Fatalf("rule update re-enabled disabled rule: %#v", updated)
 	}
-	if got := updated.Set["serviceTier"]; got != "flex" {
+	if got := rewriteOpValue(updated.Ops, "$.serviceTier"); got != "flex" {
 		t.Fatalf("updated serviceTier = %#v, want flex", got)
+	}
+
+	colonPathCmd := newRewriteAddCmd()
+	colonPathCmd.SetArgs([]string{
+		"--name", "colon-path",
+		"--alias", "gpt-5.5-fast",
+		"--override",
+		"--op", `insert:$['a:b']:0="first"`,
+	})
+	if err := colonPathCmd.Execute(); err != nil {
+		t.Fatalf("execute rewrite quoted colon insert: %v", err)
+	}
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload after quoted colon insert: %v", err)
+	}
+	colonRule := cfg.FindRequestRewriteRule("colon-path")
+	if colonRule == nil || len(colonRule.Ops) != 1 || colonRule.Ops[0].Path != `$['a:b']` || colonRule.Ops[0].Index == nil || *colonRule.Ops[0].Index != 0 {
+		t.Fatalf("colon path rule = %#v", colonRule)
 	}
 
 	enableCmd := newRewriteEnableCmd()
@@ -1177,7 +1201,7 @@ func TestRewriteAddRejectsDeleteWithoutOverride(t *testing.T) {
 	configPath = ""
 
 	cmd := newRewriteAddCmd()
-	cmd.SetArgs([]string{"--name", "bad", "--alias", "chat", "--delete", "serviceTier"})
+	cmd.SetArgs([]string{"--name", "bad", "--alias", "chat", "--op", "delete:$.serviceTier"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected rewrite add validation error")
@@ -1185,6 +1209,15 @@ func TestRewriteAddRejectsDeleteWithoutOverride(t *testing.T) {
 	if !strings.Contains(err.Error(), "delete requires override") {
 		t.Fatalf("error = %q", err.Error())
 	}
+}
+
+func rewriteOpValue(ops []config.RequestRewriteOperation, path string) any {
+	for _, op := range ops {
+		if op.Path == path {
+			return op.Value
+		}
+	}
+	return nil
 }
 
 func TestImportedModelsDoNotBlockAliasBind(t *testing.T) {
