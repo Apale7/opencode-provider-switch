@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -109,6 +110,7 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 		FirstByteTimeoutMs:      22000,
 		RequestReadTimeoutMs:    33000,
 		StreamIdleTimeoutMs:     70000,
+		FailoverStatusCodes:     []int{403, 401, 401, 402, 429},
 		Routing: ProxyRoutingSettingsInput{
 			Strategy: "circuit-breaker",
 			Params:   json.RawMessage(`{"failureThreshold":3,"baseCooldownMs":45000,"maxCooldownMs":90000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":false,"rateLimitCooldownMs":12000}`),
@@ -128,6 +130,9 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 	if cfg.Server.ConnectTimeoutMs != 12000 || cfg.Server.ResponseHeaderTimeoutMs != 21000 || cfg.Server.FirstByteTimeoutMs != 22000 || cfg.Server.RequestReadTimeoutMs != 33000 || cfg.Server.StreamIdleTimeoutMs != 70000 {
 		t.Fatalf("persisted server settings = %#v", cfg.Server)
 	}
+	if !reflect.DeepEqual(cfg.Server.FailoverStatusCodes, []int{401, 402, 403, 429}) {
+		t.Fatalf("persisted failover status codes = %#v", cfg.Server.FailoverStatusCodes)
+	}
 	if cfg.Server.Routing.Strategy != routing.DefaultStrategy {
 		t.Fatalf("routing strategy = %q, want %q", cfg.Server.Routing.Strategy, routing.DefaultStrategy)
 	}
@@ -140,6 +145,33 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 	}
 	if got := params["countPostCommitErrors"]; got != false {
 		t.Fatalf("countPostCommitErrors = %#v, want false", got)
+	}
+}
+
+func TestSaveProxySettingsRejectsInvalidFailoverStatusCode(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	_, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{FailoverStatusCodes: []int{600}})
+	if err == nil || !strings.Contains(err.Error(), "server.failover_status_codes") {
+		t.Fatalf("SaveProxySettings() error = %v", err)
+	}
+}
+
+func TestSaveProxySettingsAllowsEmptyFailoverStatusCodes(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	result, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{FailoverStatusCodes: []int{}})
+	if err != nil {
+		t.Fatalf("SaveProxySettings() error = %v", err)
+	}
+	if len(result.Settings.FailoverStatusCodes) != 0 {
+		t.Fatalf("failover status codes = %#v, want empty", result.Settings.FailoverStatusCodes)
 	}
 }
 

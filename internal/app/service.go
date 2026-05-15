@@ -326,6 +326,10 @@ func (s *Service) SaveProxySettings(ctx context.Context, in ProxySettingsInput) 
 	cfg.Server.FirstByteTimeoutMs = normalizePositiveInt(in.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
 	cfg.Server.RequestReadTimeoutMs = normalizePositiveInt(in.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs)
 	cfg.Server.StreamIdleTimeoutMs = normalizePositiveInt(in.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
+	if err := config.ValidateFailoverStatusCodes(in.FailoverStatusCodes); err != nil {
+		return ProxySettingsSaveResult{}, err
+	}
+	cfg.Server.FailoverStatusCodes = config.NormalizeFailoverStatusCodes(in.FailoverStatusCodes)
 	normalizedRouting := routing.NormalizeConfig(routing.Config{Strategy: in.Routing.Strategy, Params: in.Routing.Params})
 	if err := routing.ValidateConfig(normalizedRouting); err != nil {
 		return ProxySettingsSaveResult{}, err
@@ -693,6 +697,7 @@ func proxySettingsView(server config.Server) ProxySettingsView {
 		FirstByteTimeoutMs:      normalizePositiveInt(server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs),
 		RequestReadTimeoutMs:    normalizePositiveInt(server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
 		StreamIdleTimeoutMs:     normalizePositiveInt(server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs),
+		FailoverStatusCodes:     config.NormalizeFailoverStatusCodes(server.FailoverStatusCodes),
 		Routing:                 routingSettingsView(server.Routing),
 	}
 }

@@ -31,6 +31,7 @@ type ProxySettingsView struct {
 	FirstByteTimeoutMs      int                      `json:"firstByteTimeoutMs"`
 	RequestReadTimeoutMs    int                      `json:"requestReadTimeoutMs"`
 	StreamIdleTimeoutMs     int                      `json:"streamIdleTimeoutMs"`
+	FailoverStatusCodes     []int                    `json:"failoverStatusCodes"`
 	Routing                 ProxyRoutingSettingsView `json:"routing"`
 }
 
@@ -40,6 +41,7 @@ type ProxySettingsInput struct {
 	FirstByteTimeoutMs      int                       `json:"firstByteTimeoutMs"`
 	RequestReadTimeoutMs    int                       `json:"requestReadTimeoutMs"`
 	StreamIdleTimeoutMs     int                       `json:"streamIdleTimeoutMs"`
+	FailoverStatusCodes     []int                     `json:"failoverStatusCodes"`
 	Routing                 ProxyRoutingSettingsInput `json:"routing"`
 }
 
