@@ -79,6 +79,54 @@ export type ConfigImportResult = {
   warnings?: string[]
 }
 
+export type RequestRewriteOperation = {
+  op: 'set' | 'delete' | 'append' | 'insert'
+  path: string
+  value?: unknown
+  index?: number
+}
+
+export type RequestRewriteRuleView = {
+  name: string
+  alias?: string
+  providers?: string[]
+  enabled: boolean
+  override: boolean
+  ops?: RequestRewriteOperation[]
+  legacy?: boolean
+  warnings?: string[]
+}
+
+export type RequestRewriteRuleInput = {
+  name: string
+  alias?: string
+  providers?: string[]
+  enabled: boolean
+  override: boolean
+  ops?: RequestRewriteOperation[]
+}
+
+export type RequestRewriteRuleStateInput = {
+  name: string
+  enabled: boolean
+}
+
+export type RequestRewriteRuleRemoveInput = {
+  name: string
+}
+
+export type RequestRewriteRuleReorderInput = {
+  names: string[]
+}
+
+export type RequestRewriteRuleRemoveResult = {
+  ok: boolean
+}
+
+export type RequestRewriteRuleReorderResult = {
+  rules: RequestRewriteRuleView[]
+}
+
 export type ProxyStatusView = {
   running: boolean
   bindAddress: string

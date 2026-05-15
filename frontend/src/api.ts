@@ -25,6 +25,13 @@ import type {
   ProxySettingsSaveResult,
   ProxySettingsView,
   ProxyStatusView,
+  RequestRewriteRuleInput,
+  RequestRewriteRuleRemoveInput,
+  RequestRewriteRuleRemoveResult,
+  RequestRewriteRuleReorderInput,
+  RequestRewriteRuleReorderResult,
+  RequestRewriteRuleStateInput,
+  RequestRewriteRuleView,
   RequestTrace,
   RequestTraceListInput,
   RequestTraceListResult,
@@ -203,6 +210,34 @@ export function reorderAliasTargets(input: AliasTargetReorderInput): Promise<Ali
   return isWails()
     ? bridge().ReorderTargets(input)
     : http<AliasView>('/api/aliases/reorder-targets', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function listRewriteRules(): Promise<RequestRewriteRuleView[]> {
+  return isWails() ? bridge().RewriteRules() : http<RequestRewriteRuleView[]>('/api/rewrite-rules')
+}
+
+export function saveRewriteRule(input: RequestRewriteRuleInput): Promise<RequestRewriteRuleView> {
+  return isWails()
+    ? bridge().SaveRewriteRule(input)
+    : http<RequestRewriteRuleView>('/api/rewrite-rules', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function setRewriteRuleState(input: RequestRewriteRuleStateInput): Promise<RequestRewriteRuleView> {
+  return isWails()
+    ? bridge().SetRewriteRuleState(input)
+    : http<RequestRewriteRuleView>('/api/rewrite-rules/state', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function deleteRewriteRule(input: RequestRewriteRuleRemoveInput): Promise<RequestRewriteRuleRemoveResult> {
+  return isWails()
+    ? bridge().DeleteRewriteRule(input)
+    : http<RequestRewriteRuleRemoveResult>('/api/rewrite-rules/delete', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function reorderRewriteRules(input: RequestRewriteRuleReorderInput): Promise<RequestRewriteRuleReorderResult> {
+  return isWails()
+    ? bridge().ReorderRewriteRules(input)
+    : http<RequestRewriteRuleReorderResult>('/api/rewrite-rules/reorder', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function getDesktopPrefs(): Promise<DesktopPrefsView> {

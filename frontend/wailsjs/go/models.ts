@@ -1370,6 +1370,171 @@ export namespace app {
 	}
 	
 	
+	export class RequestRewriteRuleInput {
+	    name: string;
+	    alias?: string;
+	    providers?: string[];
+	    enabled: boolean;
+	    override: boolean;
+	    ops?: config.RequestRewriteOperation[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestRewriteRuleInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.alias = source["alias"];
+	        this.providers = source["providers"];
+	        this.enabled = source["enabled"];
+	        this.override = source["override"];
+	        this.ops = this.convertValues(source["ops"], config.RequestRewriteOperation);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RequestRewriteRuleRemoveInput {
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestRewriteRuleRemoveInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	    }
+	}
+	export class RequestRewriteRuleRemoveResult {
+	    ok: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestRewriteRuleRemoveResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	    }
+	}
+	export class RequestRewriteRuleReorderInput {
+	    names: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestRewriteRuleReorderInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.names = source["names"];
+	    }
+	}
+	export class RequestRewriteRuleView {
+	    name: string;
+	    alias?: string;
+	    providers?: string[];
+	    enabled: boolean;
+	    override: boolean;
+	    ops?: config.RequestRewriteOperation[];
+	    legacy?: boolean;
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestRewriteRuleView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.alias = source["alias"];
+	        this.providers = source["providers"];
+	        this.enabled = source["enabled"];
+	        this.override = source["override"];
+	        this.ops = this.convertValues(source["ops"], config.RequestRewriteOperation);
+	        this.legacy = source["legacy"];
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RequestRewriteRuleReorderResult {
+	    rules: RequestRewriteRuleView[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestRewriteRuleReorderResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rules = this.convertValues(source["rules"], RequestRewriteRuleView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RequestRewriteRuleStateInput {
+	    name: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestRewriteRuleStateInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	
 	export class TraceAttempt {
 	    attempt: number;
 	    provider?: string;
@@ -1769,6 +1934,27 @@ export namespace app {
 	
 	
 	
+
+}
+
+export namespace config {
+	
+	export class RequestRewriteOperation {
+	    op: string;
+	    path: string;
+	    index?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestRewriteOperation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.op = source["op"];
+	        this.path = source["path"];
+	        this.index = source["index"];
+	    }
+	}
 
 }
 
