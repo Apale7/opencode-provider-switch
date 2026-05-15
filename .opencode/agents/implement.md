@@ -87,6 +87,16 @@ Read the task's prd.md and info.md:
 
 Run project's lint and typecheck commands to verify changes.
 
+### 5. Optional Local Audit
+
+Only if the user explicitly enabled milestone audits (for example: "enable local opencode audit", "run audit after each module", "启用本地审计", "每个模块后审计", or "每个功能模块完成后跑 audit"), invoke the `local-opencode-audit` skill after each completed feature module or final implementation batch.
+
+- Pause edits before invoking the audit.
+- Pass only requirements, changed files, key diff/line focus, and verification results.
+- Use Chinese for audit context and expected output when the user is using Chinese; keep exact paths, commands, flags, and code symbols unchanged.
+- Do not invoke for trivial/no-diff changes.
+- Do not invoke if `LOCAL_OPENCODE_AUDIT=1`.
+
 ---
 
 ## Report Format

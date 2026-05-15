@@ -87,6 +87,16 @@ Run project's lint and typecheck commands to verify changes.
 
 If failed, fix issues and re-run.
 
+### Step 5: Optional Local Audit
+
+Only if the user explicitly enabled milestone audits (for example: "enable local opencode audit", "run audit before finishing", "启用本地审计", "完成前审计", or "检查完成后跑 audit"), invoke the `local-opencode-audit` skill after self-fixes and verification are complete.
+
+- Use `dev` kind for code checks.
+- Pass requirements, changed files, key diff/line focus, and verification results.
+- Use Chinese for audit context and expected output when the user is using Chinese; keep exact paths, commands, flags, and code symbols unchanged.
+- Do not invoke for trivial/no-diff changes.
+- Do not invoke if `LOCAL_OPENCODE_AUDIT=1`.
+
 ---
 
 ## Completion Markers (Ralph Loop)

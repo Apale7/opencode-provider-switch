@@ -84,6 +84,16 @@ If fix introduces new issues:
 2. Use a more complete solution
 3. Re-verify
 
+### Step 5: Optional Local Audit
+
+Only if the user explicitly enabled milestone audits (for example: "enable local opencode audit", "run audit after each fix step", "启用本地审计", "每个修复步骤后审计", or "每步后跑 audit"), invoke the `local-opencode-audit` skill after a coherent fix batch is complete.
+
+- Pause edits before invoking the audit.
+- Pass the issue context, changed files, key diff/line focus, and verification results.
+- Use Chinese for audit context and expected output when the user is using Chinese; keep exact paths, commands, flags, and code symbols unchanged.
+- Do not invoke for trivial/no-diff changes.
+- Do not invoke if `LOCAL_OPENCODE_AUDIT=1`.
+
 ---
 
 ## Report Format

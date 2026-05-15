@@ -38,6 +38,14 @@ This directory contains all context files for the current task:
 3. **You don't need resume** - Hook injects complete context on each subagent call
 4. **You only need simple commands** - Tell subagent "start working" is enough
 
+## Optional Local Audit Propagation
+
+If the user explicitly enabled milestone audits (for example: "enable local opencode audit", "run audit after each module/step", "启用本地审计", "每个模块后审计", or "每步后跑 audit"), append this sentence to each implement/check/debug subagent prompt:
+
+`User explicitly enabled local-opencode-audit / 用户已显式启用本地审计. After each completed module or coherent step, invoke the local-opencode-audit skill with minimal context before moving on. Use Chinese for audit context/output when the user uses Chinese, while preserving exact paths, commands, flags, and code symbols. Do not invoke if LOCAL_OPENCODE_AUDIT=1.`
+
+Do not add this sentence unless the user explicitly enabled that flow.
+
 ---
 
 ## Startup Flow

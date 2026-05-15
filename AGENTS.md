@@ -24,3 +24,4 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 默认开启caveman ultra模式
 你可以使用子代理进行并发处理来加速任务执行速度，同时启用的子代理不要超过10个
 任何新增的UI都需要考虑i18n支持
+除非用户明确指出“这是简单任务”“快速完成”，否则你必须在每个功能模块/步骤完成后开启本地 opencode audit进行review，根据review结果反复执行"修改 -> review -> 修改......"的循环，直到review的结论是没有明显问题再执行下一个功能模块的开发或步骤的执行
