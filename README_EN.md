@@ -400,13 +400,18 @@ ocswitch --config PATH <command>
 
 ### Request Config Rewrites
 
-`rewrite` rules live in local `ocswitch` config under `request_rewrite_rules`. They add or rewrite top-level JSON fields on the outbound request sent to the upstream provider. Rules run in config order and can match the incoming alias, the resolved upstream model, or both. Use the bare alias name, for example `gpt-5.5-fast`, not `ocswitch/gpt-5.5-fast`.
+`rewrite` rules live in local `ocswitch` config under `request_rewrite_rules`. They use `ops` to add or rewrite JSONPath targets on the outbound request sent to the upstream provider. Rules run in config order and must match the incoming alias; they may also be limited to one or more providers from that alias's targets. Use the bare alias name, for example `gpt-5.5-fast`, not `ocswitch/gpt-5.5-fast`. Empty `providers` means every provider under that alias matches.
 
-By default `override=false`: rules only fill fields missing from the request, so caller-supplied values win. With `--override`, a rule may delete fields and replace existing values. Deletes only target top-level fields.
+Recommended flow: capture a real request first, then configure rules from the request JSON shown in `Network`. Start the proxy, send a request, open the desktop or server Web `Network` page, select that request, and inspect `Client request params` in the `Network inspector`. JSONPath supports an RFC 9535 singular subset: root `$`, dot names, bracket quoted names, and non-negative array indexes. Wildcard, filter, slice, union, recursive descent, and root-only mutation targets are not supported.
+
+By default `override=false`: `set` only fills missing object members, caller-supplied values win, and missing intermediate objects can be created. With `--override`, `set` may replace existing values and `delete`, `append`, and `insert` are allowed. `append`/`insert`/`delete` do not create missing paths; missing paths are no-ops.
+
+Legacy top-level `set` / `delete` config no longer runs. `doctor`, Web, and `rewrite list` warn about migration; CLI `--set` / `--delete` remain only as legacy prompts, so use `--op` for active rules.
 
 ```bash
-ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --set serviceTier=priority --set store=false --set 'include=["reasoning.encrypted_content"]'
-ocswitch rewrite add --name gpt-model --model gpt-5.5 --override --delete store --set parallel_tool_calls=false
+ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --op 'set:$.serviceTier="priority"' --op 'set:$.store=false' --op 'set:$.reasoning.effort="medium"'
+ocswitch rewrite add --name no-store --alias gpt-5.5 --provider provider-a --provider provider-b --override --op 'delete:$.store' --op 'append:$.include="reasoning.encrypted_content"'
+ocswitch rewrite add --name tool-first --alias gpt-5.5 --override --op 'insert:$.tools:0={"type":"web_search"}'
 ocswitch rewrite disable gpt-fast
 ocswitch rewrite list
 ```
@@ -420,21 +425,23 @@ Equivalent config snippet:
       "name": "gpt-fast",
       "alias": "gpt-5.5-fast",
       "enabled": true,
-      "set": {
-        "serviceTier": "priority",
-        "store": false,
-        "include": ["reasoning.encrypted_content"]
-      }
+      "ops": [
+        { "op": "set", "path": "$.serviceTier", "value": "priority" },
+        { "op": "set", "path": "$.store", "value": false },
+        { "op": "set", "path": "$.reasoning.effort", "value": "medium" }
+      ]
     },
     {
-      "name": "gpt-model",
-      "model": "gpt-5.5",
+      "name": "no-store",
+      "alias": "gpt-5.5",
+      "providers": ["provider-a", "provider-b"],
       "enabled": true,
       "override": true,
-      "set": {
-        "parallel_tool_calls": false
-      },
-      "delete": ["store"]
+      "ops": [
+        { "op": "delete", "path": "$.store" },
+        { "op": "append", "path": "$.include", "value": "reasoning.encrypted_content" },
+        { "op": "insert", "path": "$.tools", "index": 0, "value": { "type": "web_search" } }
+      ]
     }
   ]
 }

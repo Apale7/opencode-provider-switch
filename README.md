@@ -402,13 +402,18 @@ ocswitch --config PATH <command>
 
 ### 请求配置改写
 
-`rewrite` 规则保存在本地 `ocswitch` 配置的 `request_rewrite_rules` 中，用来给转发到上游的请求补充或改写顶层 JSON 字段。规则按配置顺序执行，可按请求里的 alias、解析后的上游 model，或两者一起匹配。alias 使用裸名，例如 `gpt-5.5-fast`，不是 `ocswitch/gpt-5.5-fast`。
+`rewrite` 规则保存在本地 `ocswitch` 配置的 `request_rewrite_rules` 中，用 `ops` 给转发到上游的请求补充或改写 JSONPath 路径。规则按配置顺序执行，必须匹配请求里的 alias；可以额外限制为 alias 目标中的一个或多个 provider。alias 使用裸名，例如 `gpt-5.5-fast`，不是 `ocswitch/gpt-5.5-fast`。`providers` 为空表示该 alias 下所有 provider 都生效。
 
-默认 `override=false`：只补充请求里缺失的字段，调用方传入的值优先。启用 `--override` 后，规则可以删除字段，并覆盖已有字段；删除只支持顶层字段。
+推荐先用一次真实请求采样，再按 `Network` 页面里的请求 JSON 配置规则：启动代理并发起请求，打开桌面或服务器 Web 的 `Network` 页，选中对应请求，在 `网络检查器` 里查看 `客户端请求参数`。JSONPath 支持 RFC 9535 singular 子集：根 `$`、点号名称、括号引用名称、非负数组索引；不支持 wildcard、filter、slice、union、recursive descent，也不能把根 `$` 作为改写目标。
+
+默认 `override=false`：`set` 只补充缺失对象成员，调用方传入的值优先，并可创建缺失的中间对象。启用 `--override` 后，`set` 可覆盖已有值，且允许 `delete`、`append`、`insert`。`append`/`insert`/`delete` 不创建缺失路径，路径缺失时为 no-op。
+
+旧版顶层 `set` / `delete` 配置不再生效。`doctor`、Web 和 `rewrite list` 会提示迁移；CLI 的 `--set` / `--delete` 只保留为 legacy 提示，请改用 `--op`。
 
 ```bash
-ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --set serviceTier=priority --set store=false --set 'include=["reasoning.encrypted_content"]'
-ocswitch rewrite add --name gpt-model --model gpt-5.5 --override --delete store --set parallel_tool_calls=false
+ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --op 'set:$.serviceTier="priority"' --op 'set:$.store=false' --op 'set:$.reasoning.effort="medium"'
+ocswitch rewrite add --name no-store --alias gpt-5.5 --provider provider-a --provider provider-b --override --op 'delete:$.store' --op 'append:$.include="reasoning.encrypted_content"'
+ocswitch rewrite add --name tool-first --alias gpt-5.5 --override --op 'insert:$.tools:0={"type":"web_search"}'
 ocswitch rewrite disable gpt-fast
 ocswitch rewrite list
 ```
@@ -422,21 +427,23 @@ ocswitch rewrite list
       "name": "gpt-fast",
       "alias": "gpt-5.5-fast",
       "enabled": true,
-      "set": {
-        "serviceTier": "priority",
-        "store": false,
-        "include": ["reasoning.encrypted_content"]
-      }
+      "ops": [
+        { "op": "set", "path": "$.serviceTier", "value": "priority" },
+        { "op": "set", "path": "$.store", "value": false },
+        { "op": "set", "path": "$.reasoning.effort", "value": "medium" }
+      ]
     },
     {
-      "name": "gpt-model",
-      "model": "gpt-5.5",
+      "name": "no-store",
+      "alias": "gpt-5.5",
+      "providers": ["provider-a", "provider-b"],
       "enabled": true,
       "override": true,
-      "set": {
-        "parallel_tool_calls": false
-      },
-      "delete": ["store"]
+      "ops": [
+        { "op": "delete", "path": "$.store" },
+        { "op": "append", "path": "$.include", "value": "reasoning.encrypted_content" },
+        { "op": "insert", "path": "$.tools", "index": 0, "value": { "type": "web_search" } }
+      ]
     }
   ]
 }
