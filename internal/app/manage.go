@@ -149,7 +149,8 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 		BaseURL:         baseURLs[0],
 		BaseURLs:        append([]string(nil), baseURLs...),
 		BaseURLStrategy: config.NormalizeProviderBaseURLStrategy(in.BaseURLStrategy),
-		APIKey:          in.APIKey,
+		APIKey:          firstProviderAPIKey(in.APIKey, in.APIKeys),
+		APIKeys:         providerAPIKeyRemainder(in.APIKey, in.APIKeys),
 		Headers:         normalizeProviderHeaders(in.Headers),
 		Disabled:        in.Disabled,
 	}
@@ -159,8 +160,9 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 		if provider.Name == "" {
 			provider.Name = cur.Name
 		}
-		if provider.APIKey == "" {
+		if len(provider.EffectiveAPIKeys()) == 0 && !in.ClearAPIKeys {
 			provider.APIKey = cur.APIKey
+			provider.APIKeys = append([]string(nil), cur.APIKeys...)
 		}
 		if len(provider.Headers) == 0 && !in.ClearHeaders && len(cur.Headers) > 0 {
 			provider.Headers = cloneHeaders(cur.Headers)
@@ -181,6 +183,9 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 	cfg.UpsertProvider(provider)
 	if err := cfg.Save(); err != nil {
 		return ProviderSaveResult{}, err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return ProviderSaveResult{}, fmt.Errorf("reload proxy config: %w", err)
 	}
 	return ProviderSaveResult{Provider: providerView(provider), Warnings: warnings}, nil
 }
@@ -205,6 +210,9 @@ func (s *Service) RefreshProviderModels(ctx context.Context, in ProviderRefreshM
 	if err := cfg.Save(); err != nil {
 		return ProviderSaveResult{}, err
 	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return ProviderSaveResult{}, fmt.Errorf("reload proxy config: %w", err)
+	}
 	return ProviderSaveResult{Provider: providerView(provider), Warnings: warnings}, nil
 }
 
@@ -223,7 +231,8 @@ func (s *Service) PingProviderBaseURL(ctx context.Context, in ProviderPingInput)
 		Protocol: protocol,
 		BaseURL:  baseURL,
 		BaseURLs: []string{baseURL},
-		APIKey:   in.APIKey,
+		APIKey:   firstProviderAPIKey(in.APIKey, in.APIKeys),
+		APIKeys:  providerAPIKeyRemainder(in.APIKey, in.APIKeys),
 		Headers:  normalizeProviderHeaders(in.Headers),
 	}
 	if id != "" {
@@ -239,8 +248,9 @@ func (s *Service) PingProviderBaseURL(ctx context.Context, in ProviderPingInput)
 			}
 			provider.BaseURL = baseURL
 			provider.BaseURLs = config.NormalizeProviderBaseURLs(baseURL, []string{baseURL})
-			if in.APIKey != "" {
-				provider.APIKey = in.APIKey
+			if len(config.NormalizeProviderAPIKeys(in.APIKey, in.APIKeys)) > 0 {
+				provider.APIKey = firstProviderAPIKey(in.APIKey, in.APIKeys)
+				provider.APIKeys = providerAPIKeyRemainder(in.APIKey, in.APIKeys)
 			}
 			if len(in.Headers) > 0 {
 				provider.Headers = normalizeProviderHeaders(in.Headers)
@@ -253,7 +263,7 @@ func (s *Service) PingProviderBaseURL(ctx context.Context, in ProviderPingInput)
 		return ProviderPingResult{}, fmt.Errorf("provider protocol is required")
 	}
 	startedAt := time.Now()
-	probe, err := opencode.ProbeProviderBaseURL(ctx, provider.Protocol, baseURL, provider.APIKey, provider.Headers)
+	probe, err := opencode.ProbeProviderBaseURLWithAuthFallback(ctx, provider.Protocol, baseURL, provider.EffectiveAPIKeys(), provider.Headers)
 	latency := time.Since(startedAt).Milliseconds()
 	result := ProviderPingResult{
 		ID:        id,
@@ -286,7 +296,13 @@ func (s *Service) RemoveProvider(ctx context.Context, id string) error {
 	if !cfg.RemoveProvider(strings.TrimSpace(id)) {
 		return fmt.Errorf("provider %q not found", id)
 	}
-	return cfg.Save()
+	if err := cfg.Save(); err != nil {
+		return err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return fmt.Errorf("reload proxy config: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) SetAliasTargetDisabled(ctx context.Context, in AliasTargetInput) (AliasView, error) {
@@ -321,6 +337,9 @@ func (s *Service) SetAliasTargetDisabled(ctx context.Context, in AliasTargetInpu
 	if err := cfg.Save(); err != nil {
 		return AliasView{}, err
 	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
+	}
 	return aliasView(cfg, updated), nil
 }
 
@@ -339,6 +358,9 @@ func (s *Service) SetProviderDisabled(ctx context.Context, in ProviderStateInput
 	cfg.UpsertProvider(updated)
 	if err := cfg.Save(); err != nil {
 		return ProviderView{}, err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return ProviderView{}, fmt.Errorf("reload proxy config: %w", err)
 	}
 	return providerView(updated), nil
 }
@@ -394,6 +416,9 @@ func (s *Service) ImportProviders(ctx context.Context, in ProviderImportInput) (
 		if err := cfg.Save(); err != nil {
 			return ProviderImportResult{}, err
 		}
+		if err := s.reloadRunningProxyConfig(cfg); err != nil {
+			return ProviderImportResult{}, fmt.Errorf("reload proxy config: %w", err)
+		}
 	}
 	return result, nil
 }
@@ -422,6 +447,9 @@ func (s *Service) UpsertAlias(ctx context.Context, in AliasUpsertInput) (AliasVi
 	if err := cfg.Save(); err != nil {
 		return AliasView{}, err
 	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
+	}
 	return aliasView(cfg, a), nil
 }
 
@@ -434,7 +462,13 @@ func (s *Service) RemoveAlias(ctx context.Context, name string) error {
 	if !cfg.RemoveAlias(strings.TrimSpace(name)) {
 		return fmt.Errorf("alias %q not found", name)
 	}
-	return cfg.Save()
+	if err := cfg.Save(); err != nil {
+		return err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return fmt.Errorf("reload proxy config: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) BindAliasTarget(ctx context.Context, in AliasTargetInput) (AliasView, error) {
@@ -469,6 +503,9 @@ func (s *Service) BindAliasTarget(ctx context.Context, in AliasTargetInput) (Ali
 	if err := cfg.Save(); err != nil {
 		return AliasView{}, err
 	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
+	}
 	current := cfg.FindAlias(alias)
 	if current == nil {
 		return AliasView{}, fmt.Errorf("alias %q not found", alias)
@@ -493,6 +530,9 @@ func (s *Service) UnbindAliasTarget(ctx context.Context, in AliasTargetInput) (A
 	}
 	if err := cfg.Save(); err != nil {
 		return AliasView{}, err
+	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
 	}
 	current := cfg.FindAlias(alias)
 	if current == nil {
@@ -526,6 +566,9 @@ func (s *Service) ReorderAliasTargets(ctx context.Context, in AliasTargetReorder
 	if err := cfg.Save(); err != nil {
 		return AliasView{}, err
 	}
+	if err := s.reloadRunningProxyConfig(cfg); err != nil {
+		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
+	}
 	current := cfg.FindAlias(alias)
 	if current == nil {
 		return AliasView{}, fmt.Errorf("alias %q not found", alias)
@@ -536,8 +579,24 @@ func (s *Service) ReorderAliasTargets(ctx context.Context, in AliasTargetReorder
 func providerConnectionEqual(a, b config.Provider) bool {
 	return config.ProviderBaseURLsEqual(a, b) &&
 		config.NormalizeProviderBaseURLStrategy(a.BaseURLStrategy) == config.NormalizeProviderBaseURLStrategy(b.BaseURLStrategy) &&
-		a.APIKey == b.APIKey &&
+		config.ProviderAPIKeysEqual(a, b) &&
 		reflect.DeepEqual(normalizeProviderHeaders(a.Headers), normalizeProviderHeaders(b.Headers))
+}
+
+func firstProviderAPIKey(primary string, apiKeys []string) string {
+	normalized := config.NormalizeProviderAPIKeys(primary, apiKeys)
+	if len(normalized) == 0 {
+		return ""
+	}
+	return normalized[0]
+}
+
+func providerAPIKeyRemainder(primary string, apiKeys []string) []string {
+	normalized := config.NormalizeProviderAPIKeys(primary, apiKeys)
+	if len(normalized) <= 1 {
+		return nil
+	}
+	return append([]string(nil), normalized[1:]...)
 }
 
 func normalizeProviderHeaders(in map[string]string) map[string]string {
@@ -568,6 +627,7 @@ func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProv
 		BaseURLs:        config.NormalizeProviderBaseURLs(ip.BaseURL, nil),
 		BaseURLStrategy: config.ProviderBaseURLStrategyOrdered,
 		APIKey:          ip.APIKey,
+		APIKeys:         nil,
 		Headers:         cloneHeaders(ip.Headers),
 		Models:          importedModels,
 		ModelsSource:    "imported",
@@ -624,7 +684,7 @@ func discoverProviderModels(provider *config.Provider, existing *config.Provider
 	if provider == nil {
 		return nil
 	}
-	models, probe, err := opencode.FetchProviderModelsWithFallback(provider.Protocol, provider.EffectiveBaseURLs(), provider.APIKey, provider.Headers)
+	models, probe, err := opencode.FetchProviderModelsWithAuthFallback(provider.Protocol, provider.EffectiveBaseURLs(), provider.EffectiveAPIKeys(), provider.Headers)
 	if probe != nil && probe.Reachable && probe.BaseURL != "" {
 		provider.BaseURL = probe.BaseURL
 	}

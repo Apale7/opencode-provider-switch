@@ -30,6 +30,14 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 		return ConfigImportResult{}, fmt.Errorf("config content is required")
 	}
 
+	topLevel, err := configTopLevelFields([]byte(content))
+	if err != nil {
+		return ConfigImportResult{}, err
+	}
+	if err := validateFullConfigImport(topLevel); err != nil {
+		return ConfigImportResult{}, err
+	}
+	serverAPIKeyExplicit := configContentHasExplicitServerAPIKey([]byte(content))
 	imported := config.Default()
 	if err := json.Unmarshal([]byte(content), imported); err != nil {
 		return ConfigImportResult{}, fmt.Errorf("parse config: %w", err)
@@ -40,7 +48,7 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 	if imported.Server.Port == 0 {
 		imported.Server.Port = 9982
 	}
-	if imported.Server.APIKey == "" {
+	if imported.Server.APIKey == "" && !serverAPIKeyExplicit {
 		imported.Server.APIKey = config.DefaultLocalAPIKey
 	}
 	if imported.Admin.Host == "" {
@@ -49,16 +57,22 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 	if imported.Admin.Port == 0 {
 		imported.Admin.Port = 9983
 	}
-	if errs := imported.Validate(); len(errs) > 0 {
-		return ConfigImportResult{}, errs[0]
-	}
 
 	cfg, err := s.loadConfig()
 	if err != nil {
 		return ConfigImportResult{}, err
 	}
+	if _, ok := topLevel["admin"]; !ok {
+		imported.Admin = cfg.Admin
+	}
 	if imported.Admin.APIKey == "" {
 		imported.Admin.APIKey = cfg.Admin.APIKey
+	}
+	if _, ok := topLevel["desktop"]; !ok {
+		imported.Desktop = cfg.Desktop
+	}
+	if _, ok := topLevel["request_rewrite_rules"]; !ok {
+		imported.RequestRewriteRules = cfg.RequestRewriteRulesSnapshot()
 	}
 	cfg.Server = imported.Server
 	cfg.Admin = imported.Admin
@@ -66,6 +80,9 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 	cfg.Providers = append([]config.Provider(nil), imported.Providers...)
 	cfg.Aliases = append([]config.Alias(nil), imported.Aliases...)
 	cfg.RequestRewriteRules = append([]config.RequestRewriteRule(nil), imported.RequestRewriteRules...)
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return ConfigImportResult{}, errs[0]
+	}
 	if err := cfg.Save(); err != nil {
 		return ConfigImportResult{}, err
 	}
@@ -103,4 +120,33 @@ func marshalConfigContent(cfg *config.Config) (string, error) {
 		return "", fmt.Errorf("marshal config: %w", err)
 	}
 	return string(append(data, '\n')), nil
+}
+
+func configTopLevelFields(data []byte) (map[string]json.RawMessage, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	return raw, nil
+}
+
+func validateFullConfigImport(raw map[string]json.RawMessage) error {
+	for _, field := range []string{"server", "providers", "aliases"} {
+		if _, ok := raw[field]; !ok {
+			return fmt.Errorf("import requires a full ocswitch config with %q", field)
+		}
+	}
+	return nil
+}
+
+func configContentHasExplicitServerAPIKey(data []byte) bool {
+	var raw struct {
+		Server *struct {
+			APIKey *string `json:"api_key"`
+		} `json:"server"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false
+	}
+	return raw.Server != nil && raw.Server.APIKey != nil
 }

@@ -94,7 +94,7 @@ export async function getMeta(): Promise<MetaView> {
   if (isWails()) {
     const data = await bridge().Meta()
     return {
-      version: data.version || 'dev',
+      version: data.version || '',
       shell: data.shell || 'wails',
       capabilities: { desktopPrefs: true, openCodeDirectSync: true, proxyControl: true },
     }

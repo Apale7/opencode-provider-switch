@@ -100,6 +100,45 @@ func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
 	}
 }
 
+func TestUpsertProviderCanClearAPIKeys(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+	ctx := context.Background()
+
+	_, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
+		ID:              "p1",
+		Protocol:        config.ProtocolOpenAIResponses,
+		BaseURL:         "https://example.com/v1",
+		BaseURLStrategy: config.ProviderBaseURLStrategyOrdered,
+		APIKeys:         []string{"sk-1", "sk-2"},
+		SkipModels:      true,
+	})
+	if err != nil {
+		t.Fatalf("UpsertProvider(create) error = %v", err)
+	}
+
+	_, err = svc.UpsertProvider(ctx, ProviderUpsertInput{
+		ID:              "p1",
+		Protocol:        config.ProtocolOpenAIResponses,
+		BaseURL:         "https://example.com/v1",
+		BaseURLStrategy: config.ProviderBaseURLStrategyOrdered,
+		ClearAPIKeys:    true,
+		SkipModels:      true,
+	})
+	if err != nil {
+		t.Fatalf("UpsertProvider(clear) error = %v", err)
+	}
+	providers, err := svc.ListProviders(ctx)
+	if err != nil {
+		t.Fatalf("ListProviders() error = %v", err)
+	}
+	if len(providers) != 1 || providers[0].APIKeyCount != 0 || providers[0].APIKeySet {
+		t.Fatalf("providers after clear = %#v", providers)
+	}
+}
+
 func TestSaveDesktopPrefsNormalizesUnknownThemeAndLanguage(t *testing.T) {
 	t.Parallel()
 
@@ -289,6 +328,101 @@ func TestSaveProxySettingsNormalizesNonPositiveValues(t *testing.T) {
 		cfg.Server.RequestReadTimeoutMs != config.DefaultRequestReadTimeoutMs ||
 		cfg.Server.StreamIdleTimeoutMs != config.DefaultStreamIdleTimeoutMs {
 		t.Fatalf("persisted server settings = %#v", cfg.Server)
+	}
+}
+
+func TestExportImportConfigPreservesOptionalConfigBlocks(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Desktop = config.Desktop{Theme: "dark", Language: "zh-CN"}
+	cfg.Providers = []config.Provider{{ID: "p1", BaseURL: "https://example.com/v1", APIKey: "sk-1", APIKeys: []string{"sk-2"}}}
+	cfg.Aliases = []config.Alias{{Alias: "chat", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "gpt", Enabled: true}}}}
+	cfg.RequestRewriteRules = []config.RequestRewriteRule{{Name: "rule1", Alias: "chat", Enabled: true, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.temperature", Value: float64(0.2), ValueSet: true}}}}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	exported, err := svc.ExportConfig(context.Background())
+	if err != nil {
+		t.Fatalf("ExportConfig() error = %v", err)
+	}
+	importPath := filepath.Join(t.TempDir(), "imported.json")
+	importSvc := NewService(importPath)
+	if _, err := importSvc.ImportConfig(context.Background(), ConfigImportInput{Content: exported.Content}); err != nil {
+		t.Fatalf("ImportConfig() error = %v", err)
+	}
+	imported, err := config.Load(importPath)
+	if err != nil {
+		t.Fatalf("config.Load(imported) error = %v", err)
+	}
+	if imported.Desktop.Language != "zh-CN" || imported.Desktop.Theme != "dark" {
+		t.Fatalf("imported desktop = %#v", imported.Desktop)
+	}
+	if len(imported.Providers) != 1 || imported.Providers[0].ID != "p1" || !reflect.DeepEqual(imported.Providers[0].EffectiveAPIKeys(), []string{"sk-1", "sk-2"}) {
+		t.Fatalf("imported providers = %#v", imported.Providers)
+	}
+	if len(imported.Aliases) != 1 || imported.Aliases[0].Alias != "chat" {
+		t.Fatalf("imported aliases = %#v", imported.Aliases)
+	}
+	if len(imported.RequestRewriteRules) != 1 || imported.RequestRewriteRules[0].Name != "rule1" {
+		t.Fatalf("imported rewrite rules = %#v", imported.RequestRewriteRules)
+	}
+}
+
+func TestImportConfigRejectsPartialConfig(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Desktop = config.Desktop{Theme: "dark", Language: "zh-CN"}
+	cfg.Providers = []config.Provider{{ID: "p1", BaseURL: "https://example.com/v1"}}
+	cfg.Aliases = []config.Alias{{Alias: "chat", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "gpt", Enabled: true}}}}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+	svc := NewService(path)
+
+	_, err = svc.ImportConfig(context.Background(), ConfigImportInput{Content: `{"server":{"host":"127.0.0.1","port":9982,"api_key":"ocswitch-local"}}`})
+	if err == nil || !strings.Contains(err.Error(), "full ocswitch config") {
+		t.Fatalf("ImportConfig(partial) error = %v, want full config error", err)
+	}
+	after, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load(after) error = %v", err)
+	}
+	if len(after.Providers) != 1 || len(after.Aliases) != 1 || after.Desktop.Language != "zh-CN" {
+		t.Fatalf("config changed after rejected import: providers=%#v aliases=%#v desktop=%#v", after.Providers, after.Aliases, after.Desktop)
+	}
+}
+
+func TestImportConfigPreservesExplicitEmptyServerAPIKey(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+	content := `{
+  "server": { "host": "127.0.0.1", "port": 9982, "api_key": "" },
+  "providers": [],
+  "aliases": []
+}`
+	if _, err := svc.ImportConfig(context.Background(), ConfigImportInput{Content: content}); err != nil {
+		t.Fatalf("ImportConfig() error = %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	if cfg.Server.APIKey != "" {
+		t.Fatalf("server api_key = %q, want explicit empty", cfg.Server.APIKey)
 	}
 }
 

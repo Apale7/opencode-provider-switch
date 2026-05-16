@@ -255,7 +255,7 @@ npm run build
 再回到仓库根目录构建桌面应用：
 
 ```bash
-wails build -tags desktop_wails
+wails build -tags desktop_wails -ldflags "-X main.version=v0.0.0"
 ```
 
 Windows 默认产物路径：

@@ -669,11 +669,28 @@ export namespace app {
 	        this.lastError = source["lastError"];
 	    }
 	}
+	export class TraceStoreStatus {
+	    mode: string;
+	    path?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TraceStoreStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.path = source["path"];
+	        this.error = source["error"];
+	    }
+	}
 	export class Overview {
 	    configPath: string;
 	    providerCount: number;
 	    aliasCount: number;
 	    availableAliases: string[];
+	    traceStore: TraceStoreStatus;
 	    proxy: ProxyStatusView;
 	    desktop: DesktopPrefsView;
 	
@@ -687,6 +704,7 @@ export namespace app {
 	        this.providerCount = source["providerCount"];
 	        this.aliasCount = source["aliasCount"];
 	        this.availableAliases = source["availableAliases"];
+	        this.traceStore = this.convertValues(source["traceStore"], TraceStoreStatus);
 	        this.proxy = this.convertValues(source["proxy"], ProxyStatusView);
 	        this.desktop = this.convertValues(source["desktop"], DesktopPrefsView);
 	    }
@@ -982,6 +1000,7 @@ export namespace app {
 	    protocol?: string;
 	    baseUrl: string;
 	    apiKey?: string;
+	    apiKeys?: string[];
 	    headers?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
@@ -994,6 +1013,7 @@ export namespace app {
 	        this.protocol = source["protocol"];
 	        this.baseUrl = source["baseUrl"];
 	        this.apiKey = source["apiKey"];
+	        this.apiKeys = source["apiKeys"];
 	        this.headers = source["headers"];
 	    }
 	}
@@ -1040,6 +1060,8 @@ export namespace app {
 	    baseUrlStrategy: string;
 	    apiKeySet: boolean;
 	    apiKeyMasked?: string;
+	    apiKeyCount: number;
+	    apiKeysMasked?: string[];
 	    headers?: Record<string, string>;
 	    models?: string[];
 	    modelsSource?: string;
@@ -1059,6 +1081,8 @@ export namespace app {
 	        this.baseUrlStrategy = source["baseUrlStrategy"];
 	        this.apiKeySet = source["apiKeySet"];
 	        this.apiKeyMasked = source["apiKeyMasked"];
+	        this.apiKeyCount = source["apiKeyCount"];
+	        this.apiKeysMasked = source["apiKeysMasked"];
 	        this.headers = source["headers"];
 	        this.models = source["models"];
 	        this.modelsSource = source["modelsSource"];
@@ -1119,6 +1143,8 @@ export namespace app {
 	    baseUrls?: string[];
 	    baseUrlStrategy: string;
 	    apiKey?: string;
+	    apiKeys?: string[];
+	    clearApiKeys: boolean;
 	    headers?: Record<string, string>;
 	    disabled: boolean;
 	    skipModels: boolean;
@@ -1137,6 +1163,8 @@ export namespace app {
 	        this.baseUrls = source["baseUrls"];
 	        this.baseUrlStrategy = source["baseUrlStrategy"];
 	        this.apiKey = source["apiKey"];
+	        this.apiKeys = source["apiKeys"];
+	        this.clearApiKeys = source["clearApiKeys"];
 	        this.headers = source["headers"];
 	        this.disabled = source["disabled"];
 	        this.skipModels = source["skipModels"];
@@ -1544,6 +1572,8 @@ export namespace app {
 	    provider?: string;
 	    model?: string;
 	    url?: string;
+	    apiKeyIndex?: number;
+	    apiKeyMasked?: string;
 	    startedAt: string;
 	    durationMs: number;
 	    firstByteMs?: number;
@@ -1568,6 +1598,8 @@ export namespace app {
 	        this.provider = source["provider"];
 	        this.model = source["model"];
 	        this.url = source["url"];
+	        this.apiKeyIndex = source["apiKeyIndex"];
+	        this.apiKeyMasked = source["apiKeyMasked"];
 	        this.startedAt = source["startedAt"];
 	        this.durationMs = source["durationMs"];
 	        this.firstByteMs = source["firstByteMs"];
@@ -1935,6 +1967,7 @@ export namespace app {
 		    return a;
 		}
 	}
+	
 	
 	
 	

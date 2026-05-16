@@ -197,6 +197,8 @@ type TraceAttempt struct {
 	Provider        string            `json:"provider,omitempty"`
 	Model           string            `json:"model,omitempty"`
 	URL             string            `json:"url,omitempty"`
+	APIKeyIndex     int               `json:"apiKeyIndex,omitempty"`
+	APIKeyMasked    string            `json:"apiKeyMasked,omitempty"`
 	StartedAt       string            `json:"startedAt"`
 	DurationMs      int64             `json:"durationMs"`
 	FirstByteMs     int64             `json:"firstByteMs,omitempty"`
@@ -275,6 +277,8 @@ func traceAttemptView(attempt proxy.TraceAttempt) TraceAttempt {
 		Provider:        attempt.Provider,
 		Model:           attempt.Model,
 		URL:             attempt.URL,
+		APIKeyIndex:     attempt.APIKeyIndex,
+		APIKeyMasked:    attempt.APIKeyMasked,
 		StartedAt:       formatTimestamp(attempt.StartedAt),
 		DurationMs:      attempt.DurationMs,
 		FirstByteMs:     attempt.FirstByteMs,
@@ -332,6 +336,8 @@ type ProviderView struct {
 	BaseURLStrategy string            `json:"baseUrlStrategy"`
 	APIKeySet       bool              `json:"apiKeySet"`
 	APIKeyMasked    string            `json:"apiKeyMasked,omitempty"`
+	APIKeyCount     int               `json:"apiKeyCount"`
+	APIKeysMasked   []string          `json:"apiKeysMasked,omitempty"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	Models          []string          `json:"models,omitempty"`
 	ModelsSource    string            `json:"modelsSource,omitempty"`
@@ -352,6 +358,7 @@ type ProviderPingInput struct {
 	Protocol string            `json:"protocol,omitempty"`
 	BaseURL  string            `json:"baseUrl"`
 	APIKey   string            `json:"apiKey,omitempty"`
+	APIKeys  []string          `json:"apiKeys,omitempty"`
 	Headers  map[string]string `json:"headers,omitempty"`
 }
 
@@ -603,6 +610,8 @@ type ProviderUpsertInput struct {
 	BaseURLs        []string          `json:"baseUrls,omitempty"`
 	BaseURLStrategy string            `json:"baseUrlStrategy"`
 	APIKey          string            `json:"apiKey,omitempty"`
+	APIKeys         []string          `json:"apiKeys,omitempty"`
+	ClearAPIKeys    bool              `json:"clearApiKeys"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	Disabled        bool              `json:"disabled"`
 	SkipModels      bool              `json:"skipModels"`

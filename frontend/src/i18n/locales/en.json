@@ -176,6 +176,19 @@
     "pingLatency": "{{latency}} ms",
     "pingUnreachable": "Unreachable",
     "apiKey": "API key",
+    "apiKeys": "API keys",
+    "addApiKey": "Add API key",
+    "replaceApiKeys": "Replace API keys",
+    "apiKeyUpstreamHint": "Upstream provider secrets are never shown in plaintext after save.",
+    "apiKeyCurrent": "Current saved keys",
+    "apiKeySavedMode": "Saved keys kept",
+    "apiKeyPendingMode": "Editing replacement",
+    "apiKeyReplaceHint": "Keep saved keys while editing other provider fields. To change them, replace the full list.",
+    "apiKeyPendingReplace": "Saving will replace every saved upstream API key with the list below.",
+    "apiKeyEmptyHint": "Add at least one upstream API key if this provider requires authentication.",
+    "apiKeyCount": "{{count}} · {{key}}",
+    "apiKeySummaryItem": "#{{index}} {{key}}",
+    "apiKeyDraftCount": "{{count}} key(s) pending save",
     "headers": "Headers",
     "models": "Models",
     "sourcePath": "Import path",
@@ -198,7 +211,8 @@
     "placeholderId": "provider-id",
     "placeholderName": "SU8",
     "placeholderBaseUrl": "https://example.com/v1",
-    "placeholderApiKey": "Leave blank to keep existing key when editing",
+    "placeholderApiKey": "Paste API key",
+    "placeholderApiKeyAdditional": "Additional key; blank is ignored",
     "placeholderHeaders": "X-Token=abc\nX-Workspace=my-team",
     "placeholderSourcePath": "Leave blank to use global OpenCode config",
     "statusSaved": "Saved provider {{id}}",
@@ -385,7 +399,9 @@
     "chainTitle": "Attempt chain",
     "attemptLabel": "Attempt {{attempt}}",
     "provider": "Provider",
-    "model": "Model"
+    "model": "Model",
+    "apiKey": "API key",
+    "apiKeyValue": "#{{index}} {{key}}"
   },
   "network": {
     "title": "Network detail",
@@ -418,7 +434,9 @@
     "requestParams": "Client request params",
     "responseHeaders": "Upstream response headers",
     "responseBody": "Upstream response body",
-    "attemptTitle": "Attempt {{attempt}} · {{provider}} / {{model}}"
+    "attemptTitle": "Attempt {{attempt}} · {{provider}} / {{model}}",
+    "apiKey": "API key",
+    "apiKeyValue": "#{{index}} {{key}}"
   },
   "health": {
     "title": "Provider health",

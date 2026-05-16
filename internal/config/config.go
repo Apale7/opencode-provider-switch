@@ -69,6 +69,7 @@ type Provider struct {
 	BaseURLs        []string          `json:"base_urls,omitempty"`
 	BaseURLStrategy string            `json:"base_url_strategy,omitempty"`
 	APIKey          string            `json:"api_key"`
+	APIKeys         []string          `json:"api_keys,omitempty"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	Models          []string          `json:"models,omitempty"`
 	ModelsSource    string            `json:"models_source,omitempty"`
@@ -150,6 +151,11 @@ func (p Provider) EffectiveBaseURLs() []string {
 	return NormalizeProviderBaseURLs(p.BaseURL, p.BaseURLs)
 }
 
+// EffectiveAPIKeys returns the provider's normalized upstream API key list.
+func (p Provider) EffectiveAPIKeys() []string {
+	return NormalizeProviderAPIKeys(p.APIKey, p.APIKeys)
+}
+
 // NormalizeProviderBaseURL canonicalizes equivalent /v1 roots for comparisons
 // and persisted config values.
 func NormalizeProviderBaseURL(baseURL string) string {
@@ -172,6 +178,26 @@ func NormalizeProviderBaseURLs(primary string, baseURLs []string) []string {
 		}
 		seen[normalized] = true
 		out = append(out, normalized)
+	}
+	return out
+}
+
+// NormalizeProviderAPIKeys canonicalizes, deduplicates, and preserves order.
+func NormalizeProviderAPIKeys(primary string, apiKeys []string) []string {
+	combined := make([]string, 0, len(apiKeys)+1)
+	if primary != "" {
+		combined = append(combined, primary)
+	}
+	combined = append(combined, apiKeys...)
+	seen := map[string]bool{}
+	out := make([]string, 0, len(combined))
+	for _, item := range combined {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
 	}
 	return out
 }
@@ -282,6 +308,7 @@ func Load(path string) (*Config, error) {
 	if len(data) == 0 {
 		return c, nil
 	}
+	serverAPIKeyExplicit := configHasExplicitServerAPIKey(data)
 	if err := json.Unmarshal(data, c); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
@@ -294,7 +321,7 @@ func Load(path string) (*Config, error) {
 	if c.Server.Port == 0 {
 		c.Server.Port = 9982
 	}
-	if c.Server.APIKey == "" {
+	if c.Server.APIKey == "" && !serverAPIKeyExplicit {
 		c.Server.APIKey = DefaultLocalAPIKey
 	}
 	normalizeAdmin(&c.Admin)
@@ -303,6 +330,18 @@ func Load(path string) (*Config, error) {
 	normalizeServerRouting(&c.Server)
 	c.path = path
 	return c, nil
+}
+
+func configHasExplicitServerAPIKey(data []byte) bool {
+	var raw struct {
+		Server *struct {
+			APIKey *string `json:"api_key"`
+		} `json:"server"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false
+	}
+	return raw.Server != nil && raw.Server.APIKey != nil
 }
 
 // Path returns the on-disk path of this config.
@@ -749,6 +788,19 @@ func (c *Config) Validate() []error {
 		if err := ValidateProviderBaseURLStrategy(p.BaseURLStrategy); err != nil {
 			errs = append(errs, fmt.Errorf("provider %q %s", p.ID, err))
 		}
+		seenAPIKeys := map[string]bool{}
+		for _, apiKey := range p.APIKeys {
+			trimmed := strings.TrimSpace(apiKey)
+			if trimmed == "" {
+				errs = append(errs, fmt.Errorf("provider %q has empty api_keys entry", p.ID))
+				continue
+			}
+			if seenAPIKeys[trimmed] {
+				errs = append(errs, fmt.Errorf("provider %q has duplicate api_keys entry", p.ID))
+				continue
+			}
+			seenAPIKeys[trimmed] = true
+		}
 		seenModels := map[string]bool{}
 		for _, model := range p.Models {
 			trimmed := strings.TrimSpace(model)
@@ -957,6 +1009,15 @@ func cloneProvider(p Provider) Provider {
 	} else {
 		p.BaseURLs = nil
 	}
+	apiKeys := NormalizeProviderAPIKeys(p.APIKey, p.APIKeys)
+	if len(apiKeys) > 0 {
+		p.APIKey = apiKeys[0]
+	}
+	if len(apiKeys) > 1 {
+		p.APIKeys = cloneStrings(apiKeys[1:])
+	} else {
+		p.APIKeys = nil
+	}
 	p.Headers = cloneStringMap(p.Headers)
 	p.Models = cloneStrings(p.Models)
 	return p
@@ -983,12 +1044,28 @@ func normalizeProviders(providers []Provider) {
 		} else {
 			providers[i].BaseURLs = nil
 		}
+		apiKeys := NormalizeProviderAPIKeys(providers[i].APIKey, providers[i].APIKeys)
+		if len(apiKeys) > 0 {
+			providers[i].APIKey = apiKeys[0]
+		} else {
+			providers[i].APIKey = strings.TrimSpace(providers[i].APIKey)
+		}
+		if len(apiKeys) > 1 {
+			providers[i].APIKeys = cloneStrings(apiKeys[1:])
+		} else {
+			providers[i].APIKeys = nil
+		}
 	}
 }
 
 // ProviderBaseURLsEqual compares normalized ordered base URL lists.
 func ProviderBaseURLsEqual(a Provider, b Provider) bool {
 	return slices.Equal(a.EffectiveBaseURLs(), b.EffectiveBaseURLs())
+}
+
+// ProviderAPIKeysEqual compares normalized ordered API key lists.
+func ProviderAPIKeysEqual(a Provider, b Provider) bool {
+	return slices.Equal(a.EffectiveAPIKeys(), b.EffectiveAPIKeys())
 }
 
 func normalizeAliases(aliases []Alias) {

@@ -616,6 +616,11 @@ func resolveConfigPath(path string) string {
 }
 
 func providerView(provider config.Provider) ProviderView {
+	apiKeys := provider.EffectiveAPIKeys()
+	maskedKeys := make([]string, 0, len(apiKeys))
+	for _, apiKey := range apiKeys {
+		maskedKeys = append(maskedKeys, maskKey(apiKey))
+	}
 	return ProviderView{
 		ID:              provider.ID,
 		Name:            provider.Name,
@@ -623,13 +628,22 @@ func providerView(provider config.Provider) ProviderView {
 		BaseURL:         provider.BaseURL,
 		BaseURLs:        append([]string(nil), provider.EffectiveBaseURLs()...),
 		BaseURLStrategy: config.NormalizeProviderBaseURLStrategy(provider.BaseURLStrategy),
-		APIKeySet:       provider.APIKey != "",
-		APIKeyMasked:    maskKey(provider.APIKey),
+		APIKeySet:       len(apiKeys) > 0,
+		APIKeyMasked:    firstMaskedKey(maskedKeys),
+		APIKeyCount:     len(apiKeys),
+		APIKeysMasked:   maskedKeys,
 		Headers:         cloneHeaders(provider.Headers),
 		Models:          append([]string(nil), provider.Models...),
 		ModelsSource:    provider.ModelsSource,
 		Disabled:        provider.Disabled,
 	}
+}
+
+func firstMaskedKey(keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0]
 }
 
 func aliasView(cfg *config.Config, alias config.Alias) AliasView {

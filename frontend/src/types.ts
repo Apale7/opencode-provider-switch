@@ -140,6 +140,8 @@ export type TraceAttempt = {
   provider?: string
   model?: string
   url?: string
+  apiKeyIndex?: number
+  apiKeyMasked?: string
   startedAt: string
   durationMs: number
   firstByteMs?: number
@@ -341,6 +343,8 @@ export type ProviderView = {
   baseUrlStrategy: ProviderBaseURLStrategy
   apiKeySet: boolean
   apiKeyMasked?: string
+  apiKeyCount: number
+  apiKeysMasked?: string[]
   headers?: Record<string, string>
   models?: string[]
   modelsSource?: string
@@ -361,6 +365,7 @@ export type ProviderPingInput = {
   protocol?: ProviderProtocol
   baseUrl: string
   apiKey?: string
+  apiKeys?: string[]
   headers?: Record<string, string>
 }
 
@@ -381,6 +386,8 @@ export type ProviderUpsertInput = {
   baseUrls?: string[]
   baseUrlStrategy: ProviderBaseURLStrategy
   apiKey?: string
+  apiKeys?: string[]
+  clearApiKeys: boolean
   headers?: Record<string, string>
   disabled: boolean
   skipModels: boolean

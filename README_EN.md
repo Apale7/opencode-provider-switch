@@ -253,7 +253,7 @@ npm run build
 Then build the desktop app from the repository root:
 
 ```bash
-wails build -tags desktop_wails
+wails build -tags desktop_wails -ldflags "-X main.version=v0.0.0"
 ```
 
 Default Windows output path:

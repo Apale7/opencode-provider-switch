@@ -16,11 +16,11 @@ type ModelListResponse struct {
 }
 
 type ProviderBaseURLProbe struct {
-	BaseURL     string `json:"baseUrl"`
-	LatencyMs   int64  `json:"latencyMs"`
-	Reachable   bool   `json:"reachable"`
-	StatusCode  int    `json:"statusCode,omitempty"`
-	Error       string `json:"error,omitempty"`
+	BaseURL    string `json:"baseUrl"`
+	LatencyMs  int64  `json:"latencyMs"`
+	Reachable  bool   `json:"reachable"`
+	StatusCode int    `json:"statusCode,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 func FetchProviderModels(protocol, baseURL, apiKey string, headers map[string]string) ([]string, error) {
@@ -67,6 +67,10 @@ func FetchProviderModelsDetailed(ctx context.Context, protocol, baseURL, apiKey 
 }
 
 func FetchProviderModelsWithFallback(protocol string, baseURLs []string, apiKey string, headers map[string]string) ([]string, *ProviderBaseURLProbe, error) {
+	return FetchProviderModelsWithAuthFallback(protocol, baseURLs, []string{apiKey}, headers)
+}
+
+func FetchProviderModelsWithAuthFallback(protocol string, baseURLs []string, apiKeys []string, headers map[string]string) ([]string, *ProviderBaseURLProbe, error) {
 	urls := make([]string, 0, len(baseURLs))
 	for _, item := range baseURLs {
 		if trimmed := strings.TrimSpace(item); trimmed != "" {
@@ -76,22 +80,25 @@ func FetchProviderModelsWithFallback(protocol string, baseURLs []string, apiKey 
 	if len(urls) == 0 {
 		return nil, nil, fmt.Errorf("missing base_url")
 	}
+	keys := normalizeAPIKeys(apiKeys)
 	var lastProbe *ProviderBaseURLProbe
 	var lastErr error
 	var reachableProbe *ProviderBaseURLProbe
 	for _, baseURL := range urls {
-		models, probe, err := FetchProviderModelsDetailed(context.Background(), protocol, baseURL, apiKey, headers)
-		if err == nil {
-			if len(models) > 0 {
-				return models, probe, nil
+		for _, apiKey := range keys {
+			models, probe, err := FetchProviderModelsDetailed(context.Background(), protocol, baseURL, apiKey, headers)
+			if err == nil {
+				if len(models) > 0 {
+					return models, probe, nil
+				}
+				if reachableProbe == nil {
+					reachableProbe = probe
+				}
+				continue
 			}
-			if reachableProbe == nil {
-				reachableProbe = probe
-			}
-			continue
+			lastProbe = probe
+			lastErr = err
 		}
-		lastProbe = probe
-		lastErr = err
 	}
 	if reachableProbe != nil {
 		return []string{}, reachableProbe, nil
@@ -99,7 +106,38 @@ func FetchProviderModelsWithFallback(protocol string, baseURLs []string, apiKey 
 	return nil, lastProbe, lastErr
 }
 
+func normalizeAPIKeys(apiKeys []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(apiKeys))
+	for _, apiKey := range apiKeys {
+		trimmed := strings.TrimSpace(apiKey)
+		if seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
 func ProbeProviderBaseURL(ctx context.Context, protocol, baseURL, apiKey string, headers map[string]string) (*ProviderBaseURLProbe, error) {
 	_, probe, err := FetchProviderModelsDetailed(ctx, protocol, baseURL, apiKey, headers)
 	return probe, err
+}
+
+func ProbeProviderBaseURLWithAuthFallback(ctx context.Context, protocol, baseURL string, apiKeys []string, headers map[string]string) (*ProviderBaseURLProbe, error) {
+	var lastProbe *ProviderBaseURLProbe
+	var lastErr error
+	for _, apiKey := range normalizeAPIKeys(apiKeys) {
+		_, probe, err := FetchProviderModelsDetailed(ctx, protocol, baseURL, apiKey, headers)
+		if err == nil || (probe != nil && probe.Reachable) {
+			return probe, err
+		}
+		lastProbe = probe
+		lastErr = err
+	}
+	return lastProbe, lastErr
 }

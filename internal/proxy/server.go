@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +50,11 @@ type anthropicError struct {
 }
 
 type protocolErrorWriter func(http.ResponseWriter, int, string, string)
+
+type authContext struct {
+	unrestricted bool
+	reason       string
+}
 
 // Server is the local ocswitch HTTP proxy.
 type Server struct {
@@ -209,7 +215,7 @@ func (s *Server) orderedProviderBaseURLs(ctx context.Context, provider *config.P
 		missing = append(missing, baseURL)
 	}
 	for _, baseURL := range missing {
-		probe, _ := opencode.ProbeProviderBaseURL(ctx, provider.Protocol, baseURL, provider.APIKey, provider.Headers)
+		probe, _ := opencode.ProbeProviderBaseURL(ctx, provider.Protocol, baseURL, firstProviderAPIKey(provider), provider.Headers)
 		s.baseURLLatencyCache.put(provider.ID, baseURL, probe)
 		if probe != nil && probe.Reachable {
 			scored = append(scored, scoredBaseURL{baseURL: baseURL, latency: probe.LatencyMs, ok: true})
@@ -293,12 +299,13 @@ func (s *Server) ListenAndServeWithReady(ctx context.Context, ready chan<- error
 // does not rely on this, but clients sometimes probe it for connectivity.
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	state := s.currentRuntime()
-	if !s.authorize(state, r) {
-		writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", "unauthorized")
+	auth := s.authorize(state, r)
+	if auth.reason != "" {
+		writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", auth.reason)
 		return
 	}
 	data := []map[string]any{}
-	for _, aliasName := range state.cfg.AvailableAliasNames() {
+	for _, aliasName := range s.availableAliasNamesForAuth(state, auth) {
 		data = append(data, map[string]any{
 			"id":       aliasName,
 			"object":   "model",
@@ -309,20 +316,55 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
 }
 
-// authorize enforces the static local api key when one is configured.
-func (s *Server) authorize(state *serverRuntime, r *http.Request) bool {
-	expected := state.cfg.Server.APIKey
-	if expected == "" {
-		return true
+func (s *Server) authorize(state *serverRuntime, r *http.Request) authContext {
+	legacy := strings.TrimSpace(state.cfg.Server.APIKey)
+	raw, ok, reason := requestAPIKey(r)
+	if reason != "" {
+		return authContext{reason: reason}
 	}
-	h := r.Header.Get("Authorization")
-	if strings.HasPrefix(h, "Bearer ") {
-		return strings.TrimPrefix(h, "Bearer ") == expected
+	if legacy == "" {
+		return authContext{unrestricted: true}
 	}
-	if k := r.Header.Get("X-Api-Key"); k != "" {
-		return k == expected
+	if !ok {
+		return authContext{reason: "missing api key"}
 	}
-	return false
+	if legacy != "" && constantTimeEqual(raw, legacy) {
+		return authContext{unrestricted: true}
+	}
+	return authContext{reason: "unknown api key"}
+}
+
+func requestAPIKey(r *http.Request) (string, bool, string) {
+	bearer := ""
+	if h := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(h, "Bearer ") {
+		bearer = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+	}
+	headerKey := strings.TrimSpace(r.Header.Get("X-Api-Key"))
+	if bearer != "" && headerKey != "" && bearer != headerKey {
+		return "", false, "conflicting api keys"
+	}
+	if bearer != "" {
+		return bearer, true, ""
+	}
+	if headerKey != "" {
+		return headerKey, true, ""
+	}
+	return "", false, ""
+}
+
+func constantTimeEqual(a, b string) bool {
+	if a == "" || b == "" || len(a) != len(b) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+func (s *Server) availableAliasNamesForAuth(state *serverRuntime, _ authContext) []string {
+	return state.cfg.AvailableAliasNames()
+}
+
+func (s *Server) availableTargetsForAuth(state *serverRuntime, _ authContext, alias config.Alias) []config.Target {
+	return state.cfg.AvailableTargets(alias)
 }
 
 var reqCounter uint64
@@ -350,8 +392,9 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		writeProtocolError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
-	if !s.authorize(state, r) {
-		writeProtocolError(w, http.StatusUnauthorized, "invalid_api_key", "unauthorized")
+	auth := s.authorize(state, r)
+	if auth.reason != "" {
+		writeProtocolError(w, http.StatusUnauthorized, "invalid_api_key", auth.reason)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 50<<20))
@@ -420,11 +463,11 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
 		return
 	}
-	targets := state.cfg.AvailableTargets(*alias)
+	targets := s.availableTargetsForAuth(state, auth, *alias)
 	if len(targets) == 0 {
 		s.logger.Printf("req=%d alias=%q has no available targets", reqID, aliasName)
-		trace.Error = fmt.Sprintf("alias %q has no available targets", aliasName)
-		writeProtocolError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("alias %q has no available targets", aliasName))
+		trace.Error = fmt.Sprintf("alias %q not found", aliasName)
+		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q not found", aliasName))
 		return
 	}
 
@@ -501,6 +544,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 
 		handled, success, retryable, upstreamErr, failure := s.tryProviderBaseURLs(state, r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
 		attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+		attemptTrace.Attempt = len(trace.Attempts) + 1
 		trace.Attempts = append(trace.Attempts, attemptTrace)
 		trace.FinalProvider = p.ID
 		trace.FinalModel = t.Model
@@ -584,30 +628,111 @@ func (s *Server) tryProviderBaseURLs(
 	if len(baseURLs) == 0 {
 		return false, false, false, fmt.Errorf("provider %q has no base URLs", provider.ID), nil
 	}
+	apiKeys := providerAPIKeyOptions(provider, traceID(trace))
 	var lastRetryable *upstreamFailure
 	var lastErr error
-	for index, baseURL := range baseURLs {
-		providerCopy := *provider
-		providerCopy.BaseURL = baseURL
-		if attemptTrace != nil {
-			attemptTrace.URL = strings.TrimRight(baseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
-		}
-		handled, success, retryable, err, failure = s.tryOnce(state, ctx, protocol, w, clientReq, &providerCopy, target, body, aliasName, attempt, failoverCount, attemptTrace, trace)
-		if handled || success || !retryable {
-			if success {
-				s.baseURLLatencyCache.put(provider.ID, baseURL, &opencode.ProviderBaseURLProbe{BaseURL: baseURL, Reachable: true, LatencyMs: attemptTrace.FirstByteMs, StatusCode: attemptTrace.StatusCode})
+	for baseURLIndex, baseURL := range baseURLs {
+		for apiKeyPosition, apiKey := range apiKeys {
+			if baseURLIndex > 0 || apiKeyPosition > 0 {
+				resetRetryTraceAttempt(attemptTrace)
 			}
-			return handled, success, retryable, err, failure
-		}
-		lastErr = err
-		if failure != nil {
-			lastRetryable = failure
-		}
-		if index == len(baseURLs)-1 {
-			break
+			currentAttempt := attempt
+			if trace != nil {
+				currentAttempt = len(trace.Attempts) + 1
+			}
+			providerCopy := *provider
+			providerCopy.BaseURL = baseURL
+			providerCopy.APIKey = apiKey.Value
+			providerCopy.APIKeys = nil
+			if attemptTrace != nil {
+				attemptTrace.URL = strings.TrimRight(baseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
+				attemptTrace.APIKeyIndex = 0
+				attemptTrace.APIKeyMasked = ""
+				if apiKey.Value != "" {
+					attemptTrace.APIKeyIndex = apiKey.Index
+					attemptTrace.APIKeyMasked = maskSensitiveValue(apiKey.Value)
+				}
+			}
+			handled, success, retryable, err, failure = s.tryOnce(state, ctx, protocol, w, clientReq, &providerCopy, target, body, aliasName, currentAttempt, failoverCount, attemptTrace, trace)
+			if handled || success || !retryable {
+				if success {
+					s.baseURLLatencyCache.put(provider.ID, baseURL, &opencode.ProviderBaseURLProbe{BaseURL: baseURL, Reachable: true, LatencyMs: attemptTrace.FirstByteMs, StatusCode: attemptTrace.StatusCode})
+				}
+				return handled, success, retryable, err, failure
+			}
+			lastErr = err
+			if failure != nil {
+				lastRetryable = failure
+			}
+			if baseURLIndex == len(baseURLs)-1 && apiKeyPosition == len(apiKeys)-1 {
+				break
+			}
+			if attemptTrace != nil && trace != nil {
+				failedAttempt := *attemptTrace
+				failedAttempt.Attempt = len(trace.Attempts) + 1
+				failedAttempt.DurationMs = time.Since(failedAttempt.StartedAt).Milliseconds()
+				trace.Attempts = append(trace.Attempts, failedAttempt)
+			}
 		}
 	}
 	return false, false, true, lastErr, lastRetryable
+}
+
+func resetRetryTraceAttempt(attempt *TraceAttempt) {
+	if attempt == nil {
+		return
+	}
+	attempt.StartedAt = time.Now()
+	attempt.DurationMs = 0
+	attempt.FirstByteMs = 0
+	attempt.StatusCode = 0
+	attempt.Success = false
+	attempt.Retryable = false
+	attempt.Skipped = false
+	attempt.Result = "pending"
+	attempt.Error = ""
+	attempt.RequestHeaders = nil
+	attempt.ResponseHeaders = nil
+	attempt.ResponseBody = ""
+}
+
+type providerAPIKeyOption struct {
+	Index int
+	Value string
+}
+
+func providerAPIKeyOptions(provider *config.Provider, requestID uint64) []providerAPIKeyOption {
+	if provider == nil {
+		return []providerAPIKeyOption{{}}
+	}
+	keys := provider.EffectiveAPIKeys()
+	if len(keys) == 0 {
+		return []providerAPIKeyOption{{}}
+	}
+	items := make([]providerAPIKeyOption, 0, len(keys))
+	for index, key := range keys {
+		items = append(items, providerAPIKeyOption{Index: index + 1, Value: key})
+	}
+	if len(items) <= 1 || requestID == 0 {
+		return items
+	}
+	offset := int((requestID - 1) % uint64(len(items)))
+	return append(items[offset:], items[:offset]...)
+}
+
+func firstProviderAPIKey(provider *config.Provider) string {
+	options := providerAPIKeyOptions(provider, 0)
+	if len(options) == 0 {
+		return ""
+	}
+	return options[0].Value
+}
+
+func traceID(trace *RequestTrace) uint64 {
+	if trace == nil {
+		return 0
+	}
+	return trace.ID
 }
 
 // tryOnce proxies one attempt. Returns (handled, success, retryable, err, failure).

@@ -1173,6 +1173,7 @@ func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {
 		Attempt     int    `json:"attempt"`
 		Provider    string `json:"provider,omitempty"`
 		Model       string `json:"model,omitempty"`
+		APIKeyIndex int    `json:"apiKeyIndex,omitempty"`
 		DurationMs  int64  `json:"durationMs"`
 		FirstByteMs int64  `json:"firstByteMs,omitempty"`
 		StatusCode  int    `json:"statusCode,omitempty"`
@@ -1190,6 +1191,7 @@ func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {
 			Attempt:     row.Attempt,
 			Provider:    row.Provider,
 			Model:       row.Model,
+			APIKeyIndex: row.APIKeyIndex,
 			DurationMs:  row.DurationMs,
 			FirstByteMs: row.FirstByteMs,
 			StatusCode:  row.StatusCode,

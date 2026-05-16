@@ -100,7 +100,8 @@ type ProviderFormState = {
   protocol: ProviderProtocol
   baseUrls: string[]
   baseUrlStrategy: ProviderBaseURLStrategy
-  apiKey: string
+  apiKeys: string[]
+  apiKeysDirty: boolean
   headersText: string
   disabled: boolean
   skipModels: boolean
@@ -155,6 +156,17 @@ const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switc
 const protocolOptions: ProviderProtocol[] = ['openai-responses', 'anthropic-messages', 'openai-compatible']
 const defaultFailoverStatusCodes = [401, 402, 403, 429]
 
+function formatVersionBadge(version: string, fallback: string): string {
+  const trimmed = version.trim()
+  if (!trimmed) {
+    return fallback
+  }
+  if (trimmed === 'dev' || trimmed.startsWith('dev-') || trimmed.startsWith('v')) {
+    return trimmed
+  }
+  return `v${trimmed}`
+}
+
 const emptyPrefs: DesktopPrefsView = {
   launchAtLogin: false,
   autoStartProxy: false,
@@ -199,7 +211,8 @@ const emptyProviderForm: ProviderFormState = {
   protocol: 'openai-responses',
   baseUrls: [''],
   baseUrlStrategy: 'ordered',
-  apiKey: '',
+  apiKeys: [''],
+  apiKeysDirty: false,
   headersText: '',
   disabled: false,
   skipModels: false,
@@ -383,6 +396,22 @@ function selectedTraceModel(providerId: string, providers: ProviderView[]): stri
 function providerDisplayLabel(providerId: string, providers: ProviderView[]): string {
   const provider = providers.find((item) => item.id === providerId)
   return provider?.name ? `${providerId} (${provider.name})` : providerId
+}
+
+function localDateTimeInputValue(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function toggleString(list: string[], value: string, checked: boolean): string[] {
+  if (checked) {
+    return list.includes(value) ? list : [...list, value]
+  }
+  return list.filter((item) => item !== value)
 }
 
 function rewriteRuleProviderOptions(alias: AliasView | null, providers: ProviderView[]): RewriteRuleProviderOption[] {
@@ -938,7 +967,8 @@ function providerFormFromView(provider: ProviderView): ProviderFormState {
     protocol: provider.protocol,
     baseUrls: provider.baseUrls && provider.baseUrls.length > 0 ? [...provider.baseUrls] : [provider.baseUrl],
     baseUrlStrategy: provider.baseUrlStrategy || 'ordered',
-    apiKey: '',
+    apiKeys: [''],
+    apiKeysDirty: false,
     headersText: headersTextFromMap(provider.headers),
     disabled: provider.disabled,
     skipModels: false,
@@ -1006,6 +1036,18 @@ function desktopPrefsSaveStatus(result: DesktopPrefsSaveResult): string {
 
 function proxySettingsSaveStatus(result: ProxySettingsSaveResult): string {
   return withWarnings(i18n.t('messages.saved'), result.warnings)
+}
+
+function providerApiKeySummary(provider: ProviderView | null, form: ProviderFormState, t: (key: string, options?: Record<string, unknown>) => string): string {
+	const masked = provider?.apiKeysMasked?.length ? provider.apiKeysMasked : provider?.apiKeyMasked ? [provider.apiKeyMasked] : []
+	if (masked.length > 0) {
+		return masked.map((item, index) => t('providers.apiKeySummaryItem', { index: index + 1, key: item })).join('\n')
+	}
+	const draftCount = form.apiKeys.map((item) => item.trim()).filter(Boolean).length
+	if (draftCount > 0) {
+		return t('providers.apiKeyDraftCount', { count: draftCount })
+	}
+	return t('providers.apiKeyNotSet')
 }
 
 function formatFailoverStatusCodes(statusCodes: number[] | undefined): string {
@@ -1888,19 +1930,19 @@ export default function App() {
     setLoading(true)
     setPrefsStatus(i18n.t('messages.refreshing'))
     try {
-      const [metaData, overviewData, providerData, aliasData, rewriteRuleData, proxySettingsData] = await Promise.all([
-        getMeta(),
-        getOverview(),
-        listProviders(),
-        listAliases(),
-        listRewriteRules(),
-        getProxySettings(),
-      ])
+		const [metaData, overviewData, providerData, aliasData, rewriteRuleData, proxySettingsData] = await Promise.all([
+			getMeta(),
+			getOverview(),
+			listProviders(),
+			listAliases(),
+			listRewriteRules(),
+			getProxySettings(),
+		])
       setMeta(metaData)
       setOverview(overviewData)
       setProviders(providerData)
       setAliases(aliasData)
-      setRewriteRules(rewriteRuleData)
+		setRewriteRules(rewriteRuleData)
       if (syncDesktopPrefs) {
         setPrefs(overviewData.desktop)
       }
@@ -1966,12 +2008,14 @@ export default function App() {
 
   const resolvedTheme = resolveThemePreference(prefs.theme, systemTheme)
   const resolvedLanguage = resolveLanguagePreference(prefs.language, systemLanguage as LanguagePreference)
-  const providerSearch = providerQuery.trim().toLowerCase()
-  const aliasSearch = aliasQuery.trim().toLowerCase()
-  const filteredProviders = providers.filter((provider) => providerMatches(provider, providerSearch, providerFilter))
-  const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch))
-  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null
-  const selectedAlias = aliases.find((alias) => alias.alias === selectedAliasId) || null
+	const providerSearch = providerQuery.trim().toLowerCase()
+	const aliasSearch = aliasQuery.trim().toLowerCase()
+	const filteredProviders = providers.filter((provider) => providerMatches(provider, providerSearch, providerFilter))
+	const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch))
+	const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null
+	const selectedAlias = aliases.find((alias) => alias.alias === selectedAliasId) || null
+	const providerHasStoredApiKeys = (selectedProvider?.apiKeyCount || 0) > 0
+	const providerApiKeyReplaceMode = !providerHasStoredApiKeys || providerForm.apiKeysDirty
 	const targetAlias = aliases.find((alias) => alias.alias === targetForm.alias.trim()) || null
 	const providerDetailOpen = providerDetailMode !== 'empty'
 	const aliasDetailOpen = aliasDetailMode !== 'empty'
@@ -2305,7 +2349,7 @@ export default function App() {
     setAliasForm(emptyAliasForm)
   }
 
-  function resetRewriteRuleForm(aliasName = '') {
+	function resetRewriteRuleForm(aliasName = '') {
     setEditingRewriteRuleName('')
     setRewriteRuleForm(aliasName ? rewriteRuleFormForAlias(aliasName) : emptyRewriteRuleForm)
   }
@@ -2386,6 +2430,33 @@ export default function App() {
 		setDraggingProviderBaseUrlIndex(null)
 	}
 
+	function updateProviderApiKey(index: number, value: string) {
+		setProviderForm((current) => ({
+			...current,
+			apiKeys: current.apiKeys.map((item, itemIndex) => itemIndex === index ? value : item),
+			apiKeysDirty: true,
+		}))
+	}
+
+	function startProviderApiKeyReplacement() {
+		setProviderForm((current) => ({
+			...current,
+			apiKeys: [''],
+			apiKeysDirty: true,
+		}))
+	}
+
+	function addProviderApiKey() {
+		setProviderForm((current) => ({ ...current, apiKeys: [...current.apiKeys, ''], apiKeysDirty: true }))
+	}
+
+	function removeProviderApiKey(index: number) {
+		setProviderForm((current) => {
+			const next = current.apiKeys.filter((_, itemIndex) => itemIndex !== index)
+			return { ...current, apiKeys: next.length > 0 ? next : [''], apiKeysDirty: true }
+		})
+	}
+
   function selectAliasDetail(alias: AliasView) {
     closeRewriteRuleModal()
     setSelectedAliasId(alias.alias)
@@ -2406,7 +2477,7 @@ export default function App() {
     setRewriteRuleStatus(i18n.t('rewriteRules.statusEditing', { name: rule.name }))
   }
 
-  function openRewriteRuleCreateModal(aliasName: string) {
+	function openRewriteRuleCreateModal(aliasName: string) {
     resetRewriteRuleForm(aliasName)
     setActiveModal('rewrite-rule')
   }
@@ -2577,9 +2648,9 @@ export default function App() {
         setPrefsStatus(i18n.t('settings.serverAppearanceOnly'))
         return
       }
-      const saved = await saveDesktopPrefs(prefs)
-      setPrefs(saved.prefs)
-      await refreshAll()
+	  const saved = await saveDesktopPrefs(prefs)
+	  setPrefs(saved.prefs)
+	  await refreshAll({ syncDesktopPrefs: true })
       setPrefsStatus(desktopPrefsSaveStatus(saved))
     } catch (error) {
       setPrefsStatus(formatError(error))
@@ -2804,15 +2875,18 @@ export default function App() {
   async function onSaveProvider(event: FormEvent) {
     event.preventDefault()
     setProviderStatus(i18n.t('messages.saving'))
-    try {
-      const input: ProviderUpsertInput = {
+	try {
+	  const trimmedAPIKeys = providerForm.apiKeys.map((item) => item.trim()).filter(Boolean)
+	  const input: ProviderUpsertInput = {
         id: providerForm.id.trim(),
         name: providerForm.name.trim(),
         protocol: providerForm.protocol,
         baseUrl: providerForm.baseUrls.map((item) => item.trim()).find(Boolean) || '',
         baseUrls: providerForm.baseUrls.map((item) => item.trim()).filter(Boolean),
         baseUrlStrategy: providerForm.baseUrlStrategy,
-        apiKey: providerForm.apiKey,
+		apiKey: providerForm.apiKeysDirty ? trimmedAPIKeys[0] || '' : '',
+		apiKeys: providerForm.apiKeysDirty ? trimmedAPIKeys : undefined,
+		clearApiKeys: providerForm.apiKeysDirty && trimmedAPIKeys.length === 0,
         headers: parseHeadersText(providerForm.headersText),
         disabled: providerForm.disabled,
         skipModels: providerForm.skipModels,
@@ -3270,12 +3344,12 @@ export default function App() {
     }
   }
 
-  async function onCopyText(value: string, message: string) {
+  async function onCopyText(value: string, message: string, setStatus = setSyncStatus) {
     try {
       await window.navigator.clipboard.writeText(value)
-      setSyncStatus(message)
+      setStatus(message)
     } catch (error) {
-      setSyncStatus(formatError(error))
+      setStatus(formatError(error))
     }
   }
 
@@ -3293,9 +3367,9 @@ export default function App() {
       await onDeleteAlias(intent.alias)
       return
     }
-    if (intent.kind === 'delete-rewrite-rule') {
-      await onDeleteRewriteRule(intent.name)
-      return
+	if (intent.kind === 'delete-rewrite-rule') {
+		await onDeleteRewriteRule(intent.name)
+		return
     }
     await onUnbindTarget(intent.alias, intent.provider, intent.model)
   }
@@ -3305,8 +3379,8 @@ export default function App() {
       ? t('confirm.deleteProviderTitle')
       : confirmIntent.kind === 'delete-alias'
         ? t('confirm.deleteAliasTitle')
-        : confirmIntent.kind === 'delete-rewrite-rule'
-          ? t('confirm.deleteRewriteRuleTitle')
+			: confirmIntent.kind === 'delete-rewrite-rule'
+			? t('confirm.deleteRewriteRuleTitle')
           : t('confirm.unbindTargetTitle')
     : ''
 
@@ -3322,8 +3396,8 @@ export default function App() {
       ? t('messages.confirmDeleteProvider', { id: confirmIntent.id })
       : confirmIntent.kind === 'delete-alias'
         ? t('messages.confirmDeleteAlias', { alias: confirmIntent.alias })
-        : confirmIntent.kind === 'delete-rewrite-rule'
-          ? t('messages.confirmDeleteRewriteRule', { name: confirmIntent.name })
+			: confirmIntent.kind === 'delete-rewrite-rule'
+			? t('messages.confirmDeleteRewriteRule', { name: confirmIntent.name })
           : t('messages.confirmUnbindTarget', {
               alias: confirmIntent.alias,
               provider: confirmIntent.provider,
@@ -3341,6 +3415,7 @@ export default function App() {
   const logDetailTitleId = useId()
   const networkDetailTitleId = useId()
   const confirmTitleId = useId()
+  const versionBadge = formatVersionBadge(meta.version, t('app.dev'))
 
   if (authRequired) {
     return (
@@ -3394,7 +3469,7 @@ export default function App() {
             <h1>{t('app.brand')}</h1>
           </div>
           <div className="brand-meta">
-            <span className="badge">v{meta.version || t('app.dev')}</span>
+            <span className="badge">{versionBadge}</span>
           </div>
         </div>
 
@@ -3665,7 +3740,11 @@ export default function App() {
                       </div>
                       <div className="resource-meta-item">
                         <span className="resource-meta-label">{t('providers.cardApiKey')}</span>
-                        <span className="resource-meta-value">{provider.apiKeyMasked || t('providers.apiKeyNotSet')}</span>
+                        <span className="resource-meta-value">
+                          {provider.apiKeyCount
+                            ? t('providers.apiKeyCount', { count: provider.apiKeyCount, key: provider.apiKeyMasked || '' })
+                            : t('providers.apiKeyNotSet')}
+                        </span>
                       </div>
                     </div>
                   </article>
@@ -3801,6 +3880,8 @@ export default function App() {
             </article>
           </section>
         ) : null}
+
+
 
         {activeTab === 'sync' ? (
           <section className="tab-layout sync-layout">
@@ -4875,6 +4956,11 @@ export default function App() {
                     <p className="subtle detail-hero-subtle detail-hero-prewrap">{providerBaseUrlSummary(selectedProvider, providerForm, t)}</p>
                   </div>
                   <div className="detail-hero-card">
+                    <span className="meta-label">{t('providers.apiKeys')}</span>
+                    <strong>{selectedProvider?.apiKeyCount || providerForm.apiKeys.map((item) => item.trim()).filter(Boolean).length || 0}</strong>
+                    <p className="subtle detail-hero-subtle detail-hero-prewrap">{providerApiKeySummary(selectedProvider, providerForm, t)}</p>
+                  </div>
+                  <div className="detail-hero-card">
                     <span className="meta-label">{t('status.status')}</span>
                     <strong>{providerForm.disabled ? t('status.disabled') : t('status.enabled')}</strong>
                   </div>
@@ -4992,7 +5078,8 @@ export default function App() {
                                   id: providerForm.id.trim() || undefined,
                                   protocol: providerForm.protocol,
                                   baseUrl: normalizedBaseUrl,
-                                  apiKey: providerForm.apiKey,
+                                  apiKey: providerForm.apiKeys.map((item) => item.trim()).find(Boolean) || '',
+                                  apiKeys: providerForm.apiKeys.map((item) => item.trim()).filter(Boolean),
                                   headers: parseHeadersText(providerForm.headersText),
                                 })}
                                 disabled={!normalizedBaseUrl}
@@ -5022,15 +5109,52 @@ export default function App() {
                         </div>
                       </div>
                     </fieldset>
-                    <label className="detail-form-span">
-                      <span>{t('providers.apiKey')}</span>
-                      <input
-                        type="text"
-                        value={providerForm.apiKey}
-                        onChange={(event) => setProviderForm((current) => ({ ...current, apiKey: event.target.value }))}
-                        placeholder={t('providers.placeholderApiKey')}
-                      />
-                    </label>
+					<fieldset className="detail-form-span provider-apikey-fieldset">
+					  <legend>{t('providers.apiKeys')}</legend>
+					  <div className="detail-section-header provider-apikey-header">
+						<div>
+						  <p className="subtle">{t('providers.apiKeyUpstreamHint')}</p>
+						</div>
+						<span className="badge outline">{providerApiKeyReplaceMode ? t('providers.apiKeyPendingMode') : t('providers.apiKeySavedMode')}</span>
+					  </div>
+					  <div className="provider-apikey-summary">
+						<span className="meta-label">{t('providers.apiKeyCurrent')}</span>
+						<p>{providerApiKeySummary(selectedProvider, providerForm, t)}</p>
+					  </div>
+					  {providerHasStoredApiKeys && !providerForm.apiKeysDirty ? (
+						<div className="provider-apikey-actions">
+						  <p className="subtle">{t('providers.apiKeyReplaceHint')}</p>
+						  <button type="button" onClick={startProviderApiKeyReplacement}>{t('providers.replaceApiKeys')}</button>
+						</div>
+					  ) : null}
+					  {providerApiKeyReplaceMode ? (
+						<div className="provider-apikey-edit-list">
+						  <p className="subtle tone-warning">{providerHasStoredApiKeys ? t('providers.apiKeyPendingReplace') : t('providers.apiKeyEmptyHint')}</p>
+						  {providerForm.apiKeys.map((apiKey, index) => (
+							<div className="provider-apikey-edit-row" key={index}>
+							  <span className="provider-baseurl-index">#{index + 1}</span>
+							  <input
+								type="text"
+								value={apiKey}
+								onChange={(event) => updateProviderApiKey(index, event.target.value)}
+								placeholder={t(index === 0 ? 'providers.placeholderApiKey' : 'providers.placeholderApiKeyAdditional')}
+							  />
+							  <button
+								type="button"
+								className="danger ghost-danger"
+								onClick={() => removeProviderApiKey(index)}
+								disabled={providerForm.apiKeys.length === 1}
+							  >
+								{t('actions.delete')}
+							  </button>
+							</div>
+						  ))}
+						  <div className="toolbar provider-apikey-actions">
+							<button type="button" onClick={addProviderApiKey}>{t('providers.addApiKey')}</button>
+						  </div>
+						</div>
+					  ) : null}
+					</fieldset>
                     <label className="detail-form-span">
                       <span>{t('providers.headers')}</span>
                       <textarea
@@ -5818,6 +5942,10 @@ export default function App() {
                             <span>{attempt.model || '-'}</span>
                           </div>
                           <div>
+                            <span className="meta-label">{t('log.apiKey')}</span>
+                            <span>{attempt.apiKeyMasked ? t('log.apiKeyValue', { index: attempt.apiKeyIndex || '-', key: attempt.apiKeyMasked }) : '-'}</span>
+                          </div>
+                          <div>
                             <span className="meta-label">{t('log.status')}</span>
                             <span>{attempt.statusCode || '-'}</span>
                           </div>
@@ -5913,6 +6041,10 @@ export default function App() {
                           <div>
                             <dt>{t('network.statusCode')}</dt>
                             <dd>{attempt.statusCode || '-'}</dd>
+                          </div>
+                          <div>
+                            <dt>{t('network.apiKey')}</dt>
+                            <dd>{attempt.apiKeyMasked ? t('network.apiKeyValue', { index: attempt.apiKeyIndex || '-', key: attempt.apiKeyMasked }) : '-'}</dd>
                           </div>
                           <div>
                             <dt>{t('network.firstByte')}</dt>

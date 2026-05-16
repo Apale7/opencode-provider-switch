@@ -94,7 +94,7 @@ jobs:
 
       - name: Build desktop app
         if: matrix.name != 'linux-server'
-        run: wails build -tags desktop_wails
+        run: wails build -tags desktop_wails -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.tag_name }}"
 
       - name: Build server binary
         if: matrix.name == 'linux-server'

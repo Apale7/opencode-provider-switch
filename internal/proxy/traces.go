@@ -107,6 +107,8 @@ type TraceAttempt struct {
 	Provider        string            `json:"provider,omitempty"`
 	Model           string            `json:"model,omitempty"`
 	URL             string            `json:"url,omitempty"`
+	APIKeyIndex     int               `json:"apiKeyIndex,omitempty"`
+	APIKeyMasked    string            `json:"apiKeyMasked,omitempty"`
 	StartedAt       time.Time         `json:"startedAt"`
 	DurationMs      int64             `json:"durationMs"`
 	FirstByteMs     int64             `json:"firstByteMs,omitempty"`
@@ -332,22 +334,22 @@ var redactedPayloadKeys = map[string]bool{
 	"api_key":       true,
 	"apikey":        true,
 	"authorization": true,
-	"content":      true,
-	"credential":   true,
-	"credentials":  true,
-	"input":        true,
-	"instructions": true,
-	"key":          true,
-	"messages":     true,
-	"output":       true,
-	"output_text":  true,
-	"password":     true,
-	"prompt":       true,
-	"response":     true,
-	"secret":       true,
-	"text":         true,
-	"token":        true,
-	"x-api-key":    true,
+	"content":       true,
+	"credential":    true,
+	"credentials":   true,
+	"input":         true,
+	"instructions":  true,
+	"key":           true,
+	"messages":      true,
+	"output":        true,
+	"output_text":   true,
+	"password":      true,
+	"prompt":        true,
+	"response":      true,
+	"secret":        true,
+	"text":          true,
+	"token":         true,
+	"x-api-key":     true,
 }
 
 func sanitizeHeaderMap(header http.Header) map[string]string {

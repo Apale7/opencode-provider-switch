@@ -9,6 +9,7 @@ import (
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 	"github.com/Apale7/opencode-provider-switch/internal/desktop"
+	appversion "github.com/Apale7/opencode-provider-switch/internal/version"
 )
 
 var version = "dev"
@@ -21,7 +22,7 @@ func main() {
 
 	err := desktop.Run(desktop.RunOptions{
 		ConfigPath:  *configPath,
-		Version:     version,
+		Version:     appversion.Resolve(version),
 		ListenAddr:  *listenAddr,
 		OpenBrowser: !*noOpen,
 	})

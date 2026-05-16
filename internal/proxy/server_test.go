@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -39,6 +40,23 @@ func TestHandleResponsesWritesOpenAIErrorForMissingAlias(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
 	assertOpenAIError(t, rr.Body.Bytes(), "model_not_found", "invalid_request_error", `alias "missing" not found`)
+}
+
+func TestProxyAPIKeyAuthRejectsConflictingHeaders(t *testing.T) {
+	t.Parallel()
+
+	srv := New(&config.Config{Server: config.Server{APIKey: "legacy-key"}})
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer legacy-key")
+	req.Header.Set("X-Api-Key", "other-key")
+	rr := httptest.NewRecorder()
+
+	srv.handleModels(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+	assertOpenAIError(t, rr.Body.Bytes(), "invalid_api_key", "invalid_request_error", "conflicting api keys")
 }
 
 func TestHandleMessagesWritesAnthropicErrorForMissingAlias(t *testing.T) {
@@ -521,6 +539,129 @@ func TestHandleResponsesSkipsOpenCircuitOnNextRequest(t *testing.T) {
 	}
 	if latest.Attempts[1].Provider != "p2" || !latest.Attempts[1].Success {
 		t.Fatalf("latest second attempt = %#v", latest.Attempts[1])
+	}
+}
+
+func TestHandleResponsesRotatesProviderAPIKeys(t *testing.T) {
+	atomic.StoreUint64(&reqCounter, 0)
+
+	seen := make([]string, 0, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", APIKey: "sk-first", APIKeys: []string{"sk-second"}}},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		}},
+	})
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ocswitch/gpt-5.4","stream":true}`))
+		req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		rr := httptest.NewRecorder()
+		srv.handleResponses(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("response %d status = %d, want %d", i+1, rr.Code, http.StatusOK)
+		}
+	}
+
+	if !slices.Equal(seen, []string{"Bearer sk-first", "Bearer sk-second"}) {
+		t.Fatalf("seen auth headers = %#v", seen)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if got := traces[0].Attempts[0].APIKeyIndex; got != 2 {
+		t.Fatalf("latest api key index = %d, want 2", got)
+	}
+	if got := traces[0].Attempts[0].APIKeyMasked; got == "" || strings.Contains(got, "second") {
+		t.Fatalf("latest masked api key = %q", got)
+	}
+}
+
+func TestHandleResponsesRetriesNextAPIKeyForSameProvider(t *testing.T) {
+	atomic.StoreUint64(&reqCounter, 0)
+
+	seen := []string{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		if len(seen) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", APIKey: "sk-first", APIKeys: []string{"sk-second"}}},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ocswitch/gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if !slices.Equal(seen, []string{"Bearer sk-first", "Bearer sk-second"}) {
+		t.Fatalf("seen auth headers = %#v", seen)
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 2", got)
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Failover-Count"); got != "0" {
+		t.Fatalf("X-OCSWITCH-Failover-Count = %q, want 0", got)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces[0].Attempts) != 2 {
+		t.Fatalf("trace attempts = %d, want 2", len(traces[0].Attempts))
+	}
+	if got := traces[0].Attempts[0].APIKeyIndex; got != 1 {
+		t.Fatalf("first trace api key index = %d, want 1", got)
+	}
+	if got := traces[0].Attempts[0].Attempt; got != 1 {
+		t.Fatalf("first trace attempt = %d, want 1", got)
+	}
+	if got := traces[0].Attempts[0].StatusCode; got != http.StatusTooManyRequests {
+		t.Fatalf("first trace status = %d, want %d", got, http.StatusTooManyRequests)
+	}
+	if !traces[0].Attempts[0].Retryable {
+		t.Fatalf("first trace retryable = false, want true")
+	}
+	if got := traces[0].Attempts[1].APIKeyIndex; got != 2 {
+		t.Fatalf("second trace api key index = %d, want 2", got)
+	}
+	if got := traces[0].Attempts[1].Attempt; got != 2 {
+		t.Fatalf("second trace attempt = %d, want 2", got)
+	}
+	if !traces[0].Attempts[1].Success {
+		t.Fatalf("second trace success = false, want true")
 	}
 }
 
