@@ -165,7 +165,7 @@ func TestHandleResponsesAppliesRequestRewriteRules(t *testing.T) {
 			{Name: "disabled", Alias: "gpt-5.5-fast", Enabled: false, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.disabled_field", Value: true, ValueSet: true}}},
 			{Name: "other-alias", Alias: "other", Enabled: true, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.other_field", Value: true, ValueSet: true}}},
 			{Name: "alias-add", Alias: "gpt-5.5-fast", Enabled: true, Ops: []config.RequestRewriteOperation{
-				{Op: config.RequestRewriteOpSet, Path: "$.serviceTier", Value: "priority", ValueSet: true},
+				{Op: config.RequestRewriteOpSet, Path: "$.service_tier", Value: "priority", ValueSet: true},
 				{Op: config.RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true},
 			}},
 			{Name: "provider-override", Alias: "gpt-5.5-fast", Providers: []string{"p1"}, Enabled: true, Override: true, Ops: []config.RequestRewriteOperation{
@@ -176,7 +176,7 @@ func TestHandleResponsesAppliesRequestRewriteRules(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5-fast","stream":false,"serviceTier":"standard","reasoningEffort":"low","parallel_tool_calls":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5-fast","stream":false,"service_tier":"standard","reasoningEffort":"low","parallel_tool_calls":true}`))
 	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -189,8 +189,8 @@ func TestHandleResponsesAppliesRequestRewriteRules(t *testing.T) {
 	if got := seenPayload["model"]; got != "gpt-5.5" {
 		t.Fatalf("model = %#v, want resolved upstream model", got)
 	}
-	if got := seenPayload["serviceTier"]; got != "standard" {
-		t.Fatalf("serviceTier = %#v, want request value", got)
+	if got := seenPayload["service_tier"]; got != "standard" {
+		t.Fatalf("service_tier = %#v, want request value", got)
 	}
 	if got := seenPayload["store"]; got != false {
 		t.Fatalf("store = %#v, want false", got)

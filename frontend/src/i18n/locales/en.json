@@ -627,7 +627,7 @@
     "ops": "Operations",
     "placeholderName": "gpt-fast",
     "placeholderAlias": "gpt-5.5-fast",
-    "placeholderOps": "set:$.serviceTier=\"priority\"\nset:$.store=false\nappend:$.include=\"reasoning.encrypted_content\"\ninsert:$.messages:0={\"role\":\"system\",\"content\":\"hello\"}\ndelete:$.metadata.trace",
+    "placeholderOps": "set:$.service_tier=\"priority\"\nset:$.store=false\nappend:$.include=\"reasoning.encrypted_content\"\ninsert:$.messages:0={\"role\":\"system\",\"content\":\"hello\"}\ndelete:$.metadata.trace",
     "opsHint": "Supported JSONPath subset: $, dot names, bracket quoted names, and non-negative array indexes. Values use JSON.parse, falling back to string for set/append/insert.",
     "opsFillHint": "Fill mode only allows set operations. Enable override before using delete, append, or insert.",
     "legacyEditWarning": "Legacy set/delete config is skipped by backend. This editor starts with empty ops; save only after adding migrated op lines.",

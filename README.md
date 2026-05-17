@@ -411,7 +411,7 @@ ocswitch --config PATH <command>
 旧版顶层 `set` / `delete` 配置不再生效。`doctor`、Web 和 `rewrite list` 会提示迁移；CLI 的 `--set` / `--delete` 只保留为 legacy 提示，请改用 `--op`。
 
 ```bash
-ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --op 'set:$.serviceTier="priority"' --op 'set:$.store=false' --op 'set:$.reasoning.effort="medium"'
+ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --op 'set:$.service_tier="priority"' --op 'set:$.store=false' --op 'set:$.reasoning.effort="medium"'
 ocswitch rewrite add --name no-store --alias gpt-5.5 --provider provider-a --provider provider-b --override --op 'delete:$.store' --op 'append:$.include="reasoning.encrypted_content"'
 ocswitch rewrite add --name tool-first --alias gpt-5.5 --override --op 'insert:$.tools:0={"type":"web_search"}'
 ocswitch rewrite disable gpt-fast
@@ -428,7 +428,7 @@ ocswitch rewrite list
       "alias": "gpt-5.5-fast",
       "enabled": true,
       "ops": [
-        { "op": "set", "path": "$.serviceTier", "value": "priority" },
+        { "op": "set", "path": "$.service_tier", "value": "priority" },
         { "op": "set", "path": "$.store", "value": false },
         { "op": "set", "path": "$.reasoning.effort", "value": "medium" }
       ]

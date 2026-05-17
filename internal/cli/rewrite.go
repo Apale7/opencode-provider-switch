@@ -23,9 +23,9 @@ Rules match the incoming alias and optional selected target providers after alia
 routing. New rules use --op with RFC 9535 JSONPath paths and op-layer mutation
 semantics. Existing set/delete config is legacy, skipped at runtime, and must be
 migrated to ops.`,
-		Example: `  ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --op set:$.serviceTier=priority
+		Example: `  ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --op set:$.service_tier=priority
   ocswitch rewrite add --name no-store --alias gpt-5.5 --provider provider-a --override --op set:$.store=false
-  ocswitch rewrite add --name strip-tier --alias gpt-5.5-fast --override --op delete:$.serviceTier
+  ocswitch rewrite add --name strip-tier --alias gpt-5.5-fast --override --op delete:$.service_tier
   ocswitch rewrite add --name include --alias gpt-5.5 --override --op append:$.include="reasoning.encrypted_content"
   ocswitch rewrite list`,
 	}

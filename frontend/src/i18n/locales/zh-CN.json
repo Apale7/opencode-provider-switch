@@ -627,7 +627,7 @@
     "ops": "操作行",
     "placeholderName": "gpt-fast",
     "placeholderAlias": "gpt-5.5-fast",
-    "placeholderOps": "set:$.serviceTier=\"priority\"\nset:$.store=false\nappend:$.include=\"reasoning.encrypted_content\"\ninsert:$.messages:0={\"role\":\"system\",\"content\":\"hello\"}\ndelete:$.metadata.trace",
+    "placeholderOps": "set:$.service_tier=\"priority\"\nset:$.store=false\nappend:$.include=\"reasoning.encrypted_content\"\ninsert:$.messages:0={\"role\":\"system\",\"content\":\"hello\"}\ndelete:$.metadata.trace",
     "opsHint": "支持的 JSONPath 子集：$、点号名称、括号引用名称、非负数组索引。set/append/insert 的值用 JSON.parse 解析，失败则按字符串保存。",
     "opsFillHint": "补缺模式只允许 set 操作。使用 delete、append 或 insert 前必须开启覆盖。",
     "legacyEditWarning": "后端会跳过旧 set/delete 配置。编辑器从空 ops 开始；请先填入迁移后的 op 行再保存。",

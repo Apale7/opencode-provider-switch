@@ -972,14 +972,14 @@ func TestRequestRewriteRulesUpsertListReorderAndPersist(t *testing.T) {
 		Alias:   "chat-fast",
 		Enabled: true,
 		Ops: []config.RequestRewriteOperation{
-			{Op: config.RequestRewriteOpSet, Path: "$.serviceTier", Value: "priority", ValueSet: true},
+			{Op: config.RequestRewriteOpSet, Path: "$.service_tier", Value: "priority", ValueSet: true},
 			{Op: config.RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true},
 		},
 	})
 	if err != nil {
 		t.Fatalf("UpsertRequestRewriteRule(first) error = %v", err)
 	}
-	if first.Name != "fast-tier" || !first.Enabled || requestRewriteOpValue(first.Ops, "$.serviceTier") != "priority" {
+	if first.Name != "fast-tier" || !first.Enabled || requestRewriteOpValue(first.Ops, "$.service_tier") != "priority" {
 		t.Fatalf("first rule view = %#v", first)
 	}
 

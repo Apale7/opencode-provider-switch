@@ -329,7 +329,7 @@ func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 			Alias:   "gpt-5.5-fast",
 			Enabled: true,
 			Ops: []RequestRewriteOperation{
-				{Op: RequestRewriteOpSet, Path: "$.serviceTier", Value: "priority", ValueSet: true},
+				{Op: RequestRewriteOpSet, Path: "$.service_tier", Value: "priority", ValueSet: true},
 				{Op: RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true},
 				{Op: RequestRewriteOpSet, Path: "$.reasoning.effort", Value: "medium", ValueSet: true},
 				{Op: RequestRewriteOpSet, Path: `$['meta:data']`, Value: "ok", ValueSet: true},
@@ -378,14 +378,14 @@ func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 
 	payload := map[string]any{
 		"model":               "gpt-5.5",
-		"serviceTier":         "standard",
+		"service_tier":        "standard",
 		"parallel_tool_calls": true,
 		"include":             []any{"base"},
 		"tools":               []any{map[string]any{"type": "function"}},
 	}
 	loaded.ApplyRequestRewriteRules("gpt-5.5-fast", "p1", "gpt-5.5", payload)
-	if got := payload["serviceTier"]; got != "standard" {
-		t.Fatalf("serviceTier = %#v, want request value", got)
+	if got := payload["service_tier"]; got != "standard" {
+		t.Fatalf("service_tier = %#v, want request value", got)
 	}
 	if got := payload["store"]; got != false {
 		t.Fatalf("store = %#v, want false", got)

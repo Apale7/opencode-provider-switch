@@ -409,7 +409,7 @@ By default `override=false`: `set` only fills missing object members, caller-sup
 Legacy top-level `set` / `delete` config no longer runs. `doctor`, Web, and `rewrite list` warn about migration; CLI `--set` / `--delete` remain only as legacy prompts, so use `--op` for active rules.
 
 ```bash
-ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --op 'set:$.serviceTier="priority"' --op 'set:$.store=false' --op 'set:$.reasoning.effort="medium"'
+ocswitch rewrite add --name gpt-fast --alias gpt-5.5-fast --op 'set:$.service_tier="priority"' --op 'set:$.store=false' --op 'set:$.reasoning.effort="medium"'
 ocswitch rewrite add --name no-store --alias gpt-5.5 --provider provider-a --provider provider-b --override --op 'delete:$.store' --op 'append:$.include="reasoning.encrypted_content"'
 ocswitch rewrite add --name tool-first --alias gpt-5.5 --override --op 'insert:$.tools:0={"type":"web_search"}'
 ocswitch rewrite disable gpt-fast
@@ -426,7 +426,7 @@ Equivalent config snippet:
       "alias": "gpt-5.5-fast",
       "enabled": true,
       "ops": [
-        { "op": "set", "path": "$.serviceTier", "value": "priority" },
+        { "op": "set", "path": "$.service_tier", "value": "priority" },
         { "op": "set", "path": "$.store", "value": false },
         { "op": "set", "path": "$.reasoning.effort", "value": "medium" }
       ]

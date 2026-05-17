@@ -1070,7 +1070,7 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 		"--alias", "gpt-5.5-fast",
 		"--provider", "p1",
 		"--provider", " p2 ",
-		"--op", "set:$.serviceTier=priority",
+		"--op", "set:$.service_tier=priority",
 		"--op", "set:$.store=false",
 		"--op", `set:$.include=["reasoning.encrypted_content"]`,
 	})
@@ -1092,8 +1092,8 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	if len(rule.Ops) != 3 {
 		t.Fatalf("ops = %#v, want 3", rule.Ops)
 	}
-	if got := rewriteOpValue(rule.Ops, "$.serviceTier"); got != "priority" {
-		t.Fatalf("serviceTier = %#v", got)
+	if got := rewriteOpValue(rule.Ops, "$.service_tier"); got != "priority" {
+		t.Fatalf("service_tier = %#v", got)
 	}
 	if got := rewriteOpValue(rule.Ops, "$.store"); got != false {
 		t.Fatalf("store = %#v", got)
@@ -1109,7 +1109,7 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	if err := listCmd.Execute(); err != nil {
 		t.Fatalf("execute rewrite list: %v", err)
 	}
-	if out := stdout.String(); !strings.Contains(out, "fast") || !strings.Contains(out, "providers=p1,p2") || !strings.Contains(out, "serviceTier") {
+	if out := stdout.String(); !strings.Contains(out, "fast") || !strings.Contains(out, "providers=p1,p2") || !strings.Contains(out, "service_tier") {
 		t.Fatalf("rewrite list output = %q", out)
 	}
 
@@ -1130,7 +1130,7 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	updateCmd.SetArgs([]string{
 		"--name", "fast",
 		"--alias", "gpt-5.5-fast",
-		"--op", "set:$.serviceTier=flex",
+		"--op", "set:$.service_tier=flex",
 	})
 	if err := updateCmd.Execute(); err != nil {
 		t.Fatalf("execute rewrite update: %v", err)
@@ -1146,8 +1146,8 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	if updated.Enabled {
 		t.Fatalf("rule update re-enabled disabled rule: %#v", updated)
 	}
-	if got := rewriteOpValue(updated.Ops, "$.serviceTier"); got != "flex" {
-		t.Fatalf("updated serviceTier = %#v, want flex", got)
+	if got := rewriteOpValue(updated.Ops, "$.service_tier"); got != "flex" {
+		t.Fatalf("updated service_tier = %#v, want flex", got)
 	}
 
 	colonPathCmd := newRewriteAddCmd()
@@ -1201,7 +1201,7 @@ func TestRewriteAddRejectsDeleteWithoutOverride(t *testing.T) {
 	configPath = ""
 
 	cmd := newRewriteAddCmd()
-	cmd.SetArgs([]string{"--name", "bad", "--alias", "chat", "--op", "delete:$.serviceTier"})
+	cmd.SetArgs([]string{"--name", "bad", "--alias", "chat", "--op", "delete:$.service_tier"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected rewrite add validation error")
