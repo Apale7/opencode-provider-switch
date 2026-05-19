@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.5.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.4.1...v1.5.0) (2026-05-19)
+
+
+### Features
+
+* add provider key rotation ([bea08ab](https://github.com/Apale7/opencode-provider-switch/commit/bea08ab5307097d018039f0b38bdc40a5b7c14c3))
+* **app:** expose failover status settings ([68a3c0b](https://github.com/Apale7/opencode-provider-switch/commit/68a3c0b5f277d0a0928b24307cfb3aae03fe4af5))
+* **app:** expose rewrite ops services ([13ca2f8](https://github.com/Apale7/opencode-provider-switch/commit/13ca2f84d37b8d249931b0c502f6e1a531410932))
+* **cli:** migrate rewrite commands to ops ([bb3e8b4](https://github.com/Apale7/opencode-provider-switch/commit/bb3e8b4b255d321070fe625fa9b2221795444b79))
+* **config:** add failover status config ([63c4ed6](https://github.com/Apale7/opencode-provider-switch/commit/63c4ed6aa739c702f7286bcec4387f3cb0747c47))
+* **config:** add request rewrite ops ([8faf686](https://github.com/Apale7/opencode-provider-switch/commit/8faf686bf9e4aae5d20a8e6fb626777fa803bdb0))
+* **desktop:** expose rewrite rule bindings ([5a698a3](https://github.com/Apale7/opencode-provider-switch/commit/5a698a3d0055cdb5b582f87486a6c9caedd52b64))
+* **i18n:** add rewrite rule strings ([e7fd55d](https://github.com/Apale7/opencode-provider-switch/commit/e7fd55d6a3b2d04cec6065a98516a0088eb920ca))
+* **proxy:** apply request rewrite ops ([b54aa19](https://github.com/Apale7/opencode-provider-switch/commit/b54aa19ba1bb89f53a9b75b8e9a2084dfcb06e5b))
+* **proxy:** retry configured status codes ([0f4cbd0](https://github.com/Apale7/opencode-provider-switch/commit/0f4cbd0ec3759ecc49ad454ebe7b532adc66e887))
+* **ui:** add failover status settings ([42ff7bb](https://github.com/Apale7/opencode-provider-switch/commit/42ff7bb25c9a540fe40b88449e4751052c42f318))
+* **ui:** add rewrite rule API types ([767e4ff](https://github.com/Apale7/opencode-provider-switch/commit/767e4ff2714be134d347362b62814e07bb0863d8))
+* **ui:** add rewrite rule editor ([3c0b291](https://github.com/Apale7/opencode-provider-switch/commit/3c0b2910f39b13be74c9c86ec32c78839f1b8e4d))
+* **webadmin:** expose rewrite rule endpoints ([2d76ccc](https://github.com/Apale7/opencode-provider-switch/commit/2d76ccc138b2d211199a8b87fc76da03f66bca74))
+
+
+### Bug Fixes
+
+* align rewrite field and icons ([4e0adfb](https://github.com/Apale7/opencode-provider-switch/commit/4e0adfb382591d69a5ffa68b782376d256476e70))
+* **proxy:** redact trace payload secrets ([5b256c9](https://github.com/Apale7/opencode-provider-switch/commit/5b256c9c5c5b06b445e8969e5e7a3fdfc2fab1f3))
+
+
+### Performance Improvements
+
+* **proxy:** optimize trace aggregation ([40cbe44](https://github.com/Apale7/opencode-provider-switch/commit/40cbe44e388ff7da900cb978f2da463de5978413))
+* **proxy:** speed up trace health queries ([c30479a](https://github.com/Apale7/opencode-provider-switch/commit/c30479a5aa6c9dd4b3c98669662225c2cef76ca4))
+
 ## [1.4.1](https://github.com/Apale7/opencode-provider-switch/compare/v1.4.0...v1.4.1) (2026-05-08)
 
 
