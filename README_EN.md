@@ -1,8 +1,21 @@
 # opencode-provider-switch (`ocswitch`)
 
-`ocswitch` is a provider switcher for OpenCode. OpenCode sees one stable model name, for example `ocswitch/gpt-5.4`; `ocswitch` routes that alias to one or more upstream `provider/model` targets and fails over to the next target when the first attempt fails before first byte.
+`ocswitch` is a local AI provider switcher originally designed for OpenCode auto-configuration. OpenCode sees one stable model name, for example `ocswitch/gpt-5.4`; `ocswitch` routes that alias to one or more upstream `provider/model` targets and fails over to the next target when the first attempt fails before first byte.
 
-Supported protocols: OpenAI Responses, Anthropic Messages, and OpenAI-compatible Chat Completions. Streaming, request logs, network traces, and configurable routing strategies are supported. The default routing strategy is `circuit-breaker`.
+Under the hood it is a local compatible-protocol proxy, so it is not limited to OpenCode. Any client that can manually configure an OpenAI / Anthropic compatible base URL, API key, and model name can talk to the `ocswitch` proxy directly. The difference is that non-OpenCode clients are not configured automatically; you must enter the proxy URL, proxy API key, and alias model name yourself.
+
+Supported protocols: OpenAI Responses, Anthropic Messages, and OpenAI-compatible Chat Completions. Streaming, request logs, network traces, upstream API-key rotation, and configurable routing strategies are supported. The default routing strategy is `circuit-breaker`.
+
+## Compatibility: OpenCode and Other Clients
+
+| Client type | Supported | Configuration | Notes |
+| --- | --- | --- | --- |
+| OpenCode | Yes | `ocswitch opencode sync`, or generated config from the desktop/server `Sync` page | Can write or generate OpenCode config automatically. Model names are usually `ocswitch/<alias>`. |
+| Other OpenAI Responses clients | Yes | Manually set base URL to `http://127.0.0.1:9982/v1`, API key to `server.api_key`, and call `/v1/responses` | Request `model` should be an alias, for example `gpt-5.4` or `ocswitch/gpt-5.4`. |
+| Other OpenAI Chat Completions clients | Yes | Manually use the same base URL and API key, then call `/v1/chat/completions` | Configure the provider/alias protocol as `openai-compatible`. |
+| Other Anthropic Messages clients | Yes | Manually use the same proxy address and API key, then call `/v1/messages` | Configure the provider/alias protocol as `anthropic-messages`. |
+
+Automatic sync is OpenCode-only. For non-OpenCode clients, treat `ocswitch` as a normal local proxy service.
 
 ## Three Usage Modes
 
@@ -32,7 +45,7 @@ Release assets also include a Linux amd64 server archive: `ocswitch-server-linux
 
 ## Mode 1: CLI Only
 
-CLI-only mode is for users who prefer commands, scripts, or headless environments. It opens no web UI and provides no desktop tray. You manage providers, aliases, and OpenCode config with commands, then run `ocswitch serve` to start the local proxy.
+CLI-only mode is for users who prefer commands, scripts, or headless environments. It opens no web UI and provides no desktop tray. You manage providers, aliases, and optional OpenCode config with commands, then run `ocswitch serve` to start the local proxy. Non-OpenCode clients can skip `opencode sync` and connect to the proxy manually.
 
 Using an agent for this mode is recommended. The CLI flow has several steps and it is easy to miss `doctor`, `opencode sync`, or default-model switching. Give the agent your provider list, target aliases, and OpenCode config target; ask it to inspect `ocswitch --help`, generate commands, run dry-run first, then execute. Do not paste real API keys into public chats; local agents can use environment variables, private files, or interactive input for secrets.
 
@@ -162,7 +175,7 @@ After `ocswitch opencode sync`, OpenCode should show `ocswitch/<alias>`, for exa
 
 ### 6. Test the proxy directly
 
-You can test without OpenCode:
+You can test without OpenCode. This is also useful for checking connectivity from other clients:
 
 ```bash
 curl -sN -X POST http://127.0.0.1:9982/v1/responses \
@@ -172,6 +185,14 @@ curl -sN -X POST http://127.0.0.1:9982/v1/responses \
 ```
 
 The request body `model` can be the bare alias, such as `gpt-5.4`; `ocswitch/gpt-5.4` is also accepted.
+
+For other clients, manually configure:
+
+- Base URL: `http://127.0.0.1:9982/v1`
+- API key: `server.api_key`; the default local value is `ocswitch-local`
+- Model: an alias such as `gpt-5.4`; if the client expects a provider prefix, `ocswitch/gpt-5.4` also works
+
+If the client only supports Chat Completions, configure the provider/alias protocol as `openai-compatible`. If the client uses Anthropic Messages, configure it as `anthropic-messages`.
 
 ## Mode 2: Server Web Admin
 
@@ -235,7 +256,7 @@ The desktop app is for managing providers, aliases, sync, logs, and desktop pref
 
 Current desktop capabilities:
 
-- Sidebar tabs: `Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Sync` / `Settings`
+- Sidebar tabs: `Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Health` / `Sync` / `Settings`
 - UI language preference: `en-US` / `zh-CN` / `system`
 - Theme preference: `light` / `dark` / `system`
 - `Settings` can edit proxy timeouts, routing strategy, and strategy-specific parameters
@@ -294,6 +315,21 @@ ocswitch provider add --id <id> --base-url <url-with-/v1> --skip-models
 ```
 
 To clear a saved upstream API key, pass `--api-key ""`. To clear extra headers, pass `--clear-headers`.
+
+The desktop app and server web admin can store multiple upstream API keys for one provider. In the config file, the first key is stored as `api_key` and additional keys are stored in `api_keys`. The proxy rotates the starting key across requests and, before first byte, may continue with another key from the same provider after a retryable failure. This is for upstream quota spreading or temporary single-key failures; it does not change the local downstream `server.api_key` used by clients.
+
+```json
+{
+  "providers": [
+    {
+      "id": "provider-a",
+      "base_url": "https://provider-a.example/v1",
+      "api_key": "sk-first",
+      "api_keys": ["sk-second", "sk-third"]
+    }
+  ]
+}
+```
 
 Common provider commands:
 
@@ -358,16 +394,16 @@ Retryable failover cases:
 - Connect failure
 - DNS / network error
 - Upstream timeout or disconnect before first byte
-- Upstream `429`
 - Upstream `5xx`
+- Upstream status codes listed in `server.failover_status_codes`; defaults are `401` / `402` / `403` / `429`
 
 No failover:
 
 - Alias missing, disabled, or without routable targets
-- Upstream `400` / `401` / `403` / `404`
+- Upstream `4xx` not configured as retryable, such as default `400` / `404`
 - Error after response bytes have already started
 
-The default `circuit-breaker` strategy temporarily skips a provider after consecutive retryable failures, then probes it in half-open mode after cooldown. Failure thresholds, cooldowns, backoff, half-open concurrency, and related parameters can be changed in desktop `Settings` or config `server.routing`.
+The default `circuit-breaker` strategy temporarily skips a provider after consecutive retryable failures, then probes it in half-open mode after cooldown. Failure thresholds, cooldowns, backoff, half-open concurrency, and related parameters can be changed in desktop `Settings` or config `server.routing`. Extra HTTP status codes that trigger failover can be changed in `Settings` or `server.failover_status_codes`; clearing the list keeps only `5xx` failover.
 
 ### Debug headers
 

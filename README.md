@@ -2,9 +2,22 @@
 
 English README: `README_EN.md`
 
-`ocswitch` 是给 OpenCode 使用的 provider switcher：你在 OpenCode 里只选择一个稳定模型名，例如 `ocswitch/gpt-5.4`，`ocswitch` 再把这个 alias 路由到一个或多个上游 `provider/model`，并在首字节前失败时按顺序切换到下一个上游。
+`ocswitch` 是本地 AI provider switcher，最初为 OpenCode 自动配置场景设计：你在 OpenCode 里只选择一个稳定模型名，例如 `ocswitch/gpt-5.4`，`ocswitch` 再把这个 alias 路由到一个或多个上游 `provider/model`，并在首字节前失败时按顺序切换到下一个上游。
 
-当前支持 OpenAI Responses、Anthropic Messages、OpenAI-compatible Chat Completions 协议，支持流式响应、请求日志、网络 trace 和可配置路由策略。默认路由策略是 `circuit-breaker`。
+它本质上是一个本地兼容协议代理，所以不只限于 OpenCode。任何能手动配置 OpenAI / Anthropic 兼容 base URL、API key 和模型名的客户端，都可以直接连到 `ocswitch` 代理使用；区别是非 OpenCode 客户端不会自动写入配置，需要你自己在客户端里填代理地址、代理 API key 和 alias 模型名。
+
+当前支持 OpenAI Responses、Anthropic Messages、OpenAI-compatible Chat Completions 协议，支持流式响应、请求日志、网络 trace、上游多 API key 轮换和可配置路由策略。默认路由策略是 `circuit-breaker`。
+
+## 适用范围：OpenCode 与其他客户端
+
+| 客户端类型 | 能否使用 | 配置方式 | 注意事项 |
+| --- | --- | --- | --- |
+| OpenCode | 可以 | `ocswitch opencode sync` 或桌面/服务器版 `Sync` 页面生成配置 | 支持自动写入或生成 OpenCode 配置，模型名通常是 `ocswitch/<alias>` |
+| 其他支持 OpenAI Responses 的客户端 | 可以 | 手动设置 base URL 为 `http://127.0.0.1:9982/v1`，API key 为 `server.api_key`，请求 `/v1/responses` | 请求体 `model` 使用 alias，例如 `gpt-5.4` 或 `ocswitch/gpt-5.4` |
+| 其他支持 OpenAI Chat Completions 的客户端 | 可以 | 手动设置同一个 base URL 和 API key，走 `/v1/chat/completions` | provider/alias 的协议需配置为 `openai-compatible` |
+| 其他支持 Anthropic Messages 的客户端 | 可以 | 手动设置同一个代理地址和 API key，走 `/v1/messages` | provider/alias 的协议需配置为 `anthropic-messages` |
+
+自动同步只针对 OpenCode。非 OpenCode 客户端不会被 `ocswitch` 自动修改配置；把它当作普通本地代理服务接入即可。
 
 ## 三种使用方式
 
@@ -34,7 +47,7 @@ go run ./cmd/ocswitch --help
 
 ## 模式一：仅使用 CLI
 
-CLI 模式适合喜欢命令行、脚本化配置或在无桌面环境中运行的人。它不会打开 Web UI，也不会提供桌面托盘；你用命令维护 provider、alias 和 OpenCode 配置，然后用 `ocswitch serve` 启动本地代理。
+CLI 模式适合喜欢命令行、脚本化配置或在无桌面环境中运行的人。它不会打开 Web UI，也不会提供桌面托盘；你用命令维护 provider、alias 和可选的 OpenCode 配置，然后用 `ocswitch serve` 启动本地代理。非 OpenCode 客户端可跳过 `opencode sync`，直接手动连接代理。
 
 推荐让 agent 辅助设置。CLI 模式步骤多，容易漏掉 `doctor`、`opencode sync` 或默认模型切换；可以把 provider 清单、目标 alias 和希望同步到哪个 OpenCode 配置文件告诉 agent，让 agent 先查看 `ocswitch --help`，再生成并执行命令。注意不要把真实 API key 发到公共聊天；本机 agent 可用环境变量、私有配置文件或交互输入处理密钥。
 
@@ -164,7 +177,7 @@ ocswitch-local
 
 ### 6. 直接验证代理
 
-不经过 OpenCode，也可以直接请求本地代理：
+不经过 OpenCode，也可以直接请求本地代理。这个方式同样适合其他客户端的连通性验证：
 
 ```bash
 curl -sN -X POST http://127.0.0.1:9982/v1/responses \
@@ -174,6 +187,14 @@ curl -sN -X POST http://127.0.0.1:9982/v1/responses \
 ```
 
 请求体里的 `model` 可以写 alias 本身，例如 `gpt-5.4`；也兼容 `ocswitch/gpt-5.4`。
+
+其他客户端手动配置时通常填写：
+
+- Base URL：`http://127.0.0.1:9982/v1`
+- API key：`server.api_key`，默认本地值是 `ocswitch-local`
+- Model：alias 名，例如 `gpt-5.4`；如果客户端要求 provider 前缀，也可用 `ocswitch/gpt-5.4`
+
+如果客户端只支持 Chat Completions，请把对应 provider/alias 配成 `openai-compatible` 协议；如果客户端走 Anthropic Messages，请配成 `anthropic-messages` 协议。
 
 ## 模式二：服务器版 Web 管理后台
 
@@ -237,7 +258,7 @@ ocswitch.example.com {
 
 当前桌面界面提供：
 
-- 左侧导航页签：`Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Sync` / `Settings`
+- 左侧导航页签：`Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Health` / `Sync` / `Settings`
 - 中英文界面切换：`en-US` / `zh-CN` / `system`
 - 主题偏好：`light` / `dark` / `system`
 - 在 `Settings` 中配置代理超时、路由策略和策略参数
@@ -296,6 +317,21 @@ ocswitch provider add --id <id> --base-url <url-with-/v1> --skip-models
 ```
 
 如果要清空已保存的上游 API key，显式传 `--api-key ""`。如果要清空额外 header，显式传 `--clear-headers`。
+
+桌面应用和服务器版 Web 的 Provider 页面可以保存多枚上游 API key。配置文件里第一枚保存在 `api_key`，更多 key 保存在 `api_keys` 数组；代理会按请求轮换起始 key，并在首字节前遇到可重试失败时继续尝试同一 provider 的其他 key。这个能力用于上游 key 配额分摊或单个 key 临时异常兜底，不会改变下游客户端使用的本地 `server.api_key`。
+
+```json
+{
+  "providers": [
+    {
+      "id": "provider-a",
+      "base_url": "https://provider-a.example/v1",
+      "api_key": "sk-first",
+      "api_keys": ["sk-second", "sk-third"]
+    }
+  ]
+}
+```
 
 常用 provider 命令：
 
@@ -360,16 +396,16 @@ ocswitch --config /path/to/config.json doctor
 - 连接失败
 - DNS / 网络错误
 - 上游在返回首字节前超时或断开
-- 上游返回 `429`
 - 上游返回 `5xx`
+- 上游返回配置在 `server.failover_status_codes` 里的状态码，默认是 `401` / `402` / `403` / `429`
 
 不会切换的情况：
 
 - alias 不存在、被禁用或没有可用 target
-- 上游返回 `400` / `401` / `403` / `404`
+- 上游返回未配置为可切换的 `4xx`，例如默认下的 `400` / `404`
 - 响应已经开始向客户端写出后才出错
 
-默认 `circuit-breaker` 策略会在 provider 连续出现可重试失败后，冷却一段时间并临时跳过它；冷却结束后再以半开探测方式恢复。失败阈值、冷却时间、回退倍率、半开并发等参数可在桌面 `Settings` 或配置文件 `server.routing` 中调整。
+默认 `circuit-breaker` 策略会在 provider 连续出现可重试失败后，冷却一段时间并临时跳过它；冷却结束后再以半开探测方式恢复。失败阈值、冷却时间、回退倍率、半开并发等参数可在桌面 `Settings` 或配置文件 `server.routing` 中调整。额外触发切换的 HTTP 状态码可在 `Settings` 或 `server.failover_status_codes` 中调整；清空列表表示只保留 `5xx` 切换。
 
 ### 调试响应头
 
