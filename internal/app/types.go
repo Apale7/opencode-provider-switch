@@ -123,29 +123,31 @@ func routingSettingsView(cfg routing.Config) ProxyRoutingSettingsView {
 }
 
 type RequestTrace struct {
-	ID             uint64            `json:"id"`
-	StartedAt      string            `json:"startedAt"`
-	FinishedAt     string            `json:"finishedAt,omitempty"`
-	DurationMs     int64             `json:"durationMs"`
-	FirstByteMs    int64             `json:"firstByteMs,omitempty"`
-	Usage          TraceUsage        `json:"usage,omitempty"`
-	InputTokens    int64             `json:"inputTokens,omitempty"`
-	OutputTokens   int64             `json:"outputTokens,omitempty"`
-	Protocol       string            `json:"protocol"`
-	RawModel       string            `json:"rawModel,omitempty"`
-	Alias          string            `json:"alias,omitempty"`
-	Stream         bool              `json:"stream"`
-	Success        bool              `json:"success"`
-	StatusCode     int               `json:"statusCode,omitempty"`
-	Error          string            `json:"error,omitempty"`
-	FinalProvider  string            `json:"finalProvider,omitempty"`
-	FinalModel     string            `json:"finalModel,omitempty"`
-	FinalURL       string            `json:"finalUrl,omitempty"`
-	Failover       bool              `json:"failover"`
-	AttemptCount   int               `json:"attemptCount"`
-	RequestHeaders map[string]string `json:"requestHeaders,omitempty"`
-	RequestParams  any               `json:"requestParams,omitempty"`
-	Attempts       []TraceAttempt    `json:"attempts"`
+	ID                    uint64            `json:"id"`
+	StartedAt             string            `json:"startedAt"`
+	FinishedAt            string            `json:"finishedAt,omitempty"`
+	DurationMs            int64             `json:"durationMs"`
+	FirstByteMs           int64             `json:"firstByteMs,omitempty"`
+	FirstTokenMs          int64             `json:"firstTokenMs,omitempty"`
+	Usage                 TraceUsage        `json:"usage,omitempty"`
+	InputTokens           int64             `json:"inputTokens,omitempty"`
+	OutputTokens          int64             `json:"outputTokens,omitempty"`
+	GeneratedOutputTokens int64             `json:"generatedOutputTokens,omitempty"`
+	Protocol              string            `json:"protocol"`
+	RawModel              string            `json:"rawModel,omitempty"`
+	Alias                 string            `json:"alias,omitempty"`
+	Stream                bool              `json:"stream"`
+	Success               bool              `json:"success"`
+	StatusCode            int               `json:"statusCode,omitempty"`
+	Error                 string            `json:"error,omitempty"`
+	FinalProvider         string            `json:"finalProvider,omitempty"`
+	FinalModel            string            `json:"finalModel,omitempty"`
+	FinalURL              string            `json:"finalUrl,omitempty"`
+	Failover              bool              `json:"failover"`
+	AttemptCount          int               `json:"attemptCount"`
+	RequestHeaders        map[string]string `json:"requestHeaders,omitempty"`
+	RequestParams         any               `json:"requestParams,omitempty"`
+	Attempts              []TraceAttempt    `json:"attempts"`
 }
 
 type TraceUsage struct {
@@ -204,6 +206,7 @@ type TraceAttempt struct {
 	StartedAt       string            `json:"startedAt"`
 	DurationMs      int64             `json:"durationMs"`
 	FirstByteMs     int64             `json:"firstByteMs,omitempty"`
+	FirstTokenMs    int64             `json:"firstTokenMs,omitempty"`
 	StatusCode      int               `json:"statusCode,omitempty"`
 	Success         bool              `json:"success"`
 	Retryable       bool              `json:"retryable"`
@@ -222,29 +225,31 @@ func requestTraceView(trace proxy.RequestTrace) RequestTrace {
 		attempts = append(attempts, traceAttemptView(attempt))
 	}
 	return RequestTrace{
-		ID:             trace.ID,
-		StartedAt:      formatTimestamp(trace.StartedAt),
-		FinishedAt:     formatTimestamp(trace.FinishedAt),
-		DurationMs:     trace.DurationMs,
-		FirstByteMs:    trace.FirstByteMs,
-		Usage:          traceUsageView(trace.Usage),
-		InputTokens:    trace.InputTokens,
-		OutputTokens:   trace.OutputTokens,
-		Protocol:       trace.Protocol,
-		RawModel:       trace.RawModel,
-		Alias:          trace.Alias,
-		Stream:         trace.Stream,
-		Success:        trace.Success,
-		StatusCode:     trace.StatusCode,
-		Error:          trace.Error,
-		FinalProvider:  trace.FinalProvider,
-		FinalModel:     trace.FinalModel,
-		FinalURL:       trace.FinalURL,
-		Failover:       trace.Failover,
-		AttemptCount:   trace.AttemptCount,
-		RequestHeaders: trace.RequestHeaders,
-		RequestParams:  trace.RequestParams,
-		Attempts:       attempts,
+		ID:                    trace.ID,
+		StartedAt:             formatTimestamp(trace.StartedAt),
+		FinishedAt:            formatTimestamp(trace.FinishedAt),
+		DurationMs:            trace.DurationMs,
+		FirstByteMs:           trace.FirstByteMs,
+		FirstTokenMs:          trace.FirstTokenMs,
+		Usage:                 traceUsageView(trace.Usage),
+		InputTokens:           trace.InputTokens,
+		OutputTokens:          trace.OutputTokens,
+		GeneratedOutputTokens: trace.GeneratedOutputTokens,
+		Protocol:              trace.Protocol,
+		RawModel:              trace.RawModel,
+		Alias:                 trace.Alias,
+		Stream:                trace.Stream,
+		Success:               trace.Success,
+		StatusCode:            trace.StatusCode,
+		Error:                 trace.Error,
+		FinalProvider:         trace.FinalProvider,
+		FinalModel:            trace.FinalModel,
+		FinalURL:              trace.FinalURL,
+		Failover:              trace.Failover,
+		AttemptCount:          trace.AttemptCount,
+		RequestHeaders:        trace.RequestHeaders,
+		RequestParams:         trace.RequestParams,
+		Attempts:              attempts,
 	}
 }
 
@@ -284,6 +289,7 @@ func traceAttemptView(attempt proxy.TraceAttempt) TraceAttempt {
 		StartedAt:       formatTimestamp(attempt.StartedAt),
 		DurationMs:      attempt.DurationMs,
 		FirstByteMs:     attempt.FirstByteMs,
+		FirstTokenMs:    attempt.FirstTokenMs,
 		StatusCode:      attempt.StatusCode,
 		Success:         attempt.Success,
 		Retryable:       attempt.Retryable,

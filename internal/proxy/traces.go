@@ -62,29 +62,31 @@ type TraceStore struct {
 }
 
 type RequestTrace struct {
-	ID             uint64            `json:"id"`
-	StartedAt      time.Time         `json:"startedAt"`
-	FinishedAt     time.Time         `json:"finishedAt,omitempty"`
-	DurationMs     int64             `json:"durationMs"`
-	FirstByteMs    int64             `json:"firstByteMs,omitempty"`
-	Usage          TraceUsage        `json:"usage,omitempty"`
-	InputTokens    int64             `json:"inputTokens,omitempty"`
-	OutputTokens   int64             `json:"outputTokens,omitempty"`
-	Protocol       string            `json:"protocol,omitempty"`
-	RawModel       string            `json:"rawModel,omitempty"`
-	Alias          string            `json:"alias,omitempty"`
-	Stream         bool              `json:"stream"`
-	Success        bool              `json:"success"`
-	StatusCode     int               `json:"statusCode,omitempty"`
-	Error          string            `json:"error,omitempty"`
-	FinalProvider  string            `json:"finalProvider,omitempty"`
-	FinalModel     string            `json:"finalModel,omitempty"`
-	FinalURL       string            `json:"finalUrl,omitempty"`
-	Failover       bool              `json:"failover"`
-	AttemptCount   int               `json:"attemptCount"`
-	RequestHeaders map[string]string `json:"requestHeaders,omitempty"`
-	RequestParams  any               `json:"requestParams,omitempty"`
-	Attempts       []TraceAttempt    `json:"attempts"`
+	ID                    uint64            `json:"id"`
+	StartedAt             time.Time         `json:"startedAt"`
+	FinishedAt            time.Time         `json:"finishedAt,omitempty"`
+	DurationMs            int64             `json:"durationMs"`
+	FirstByteMs           int64             `json:"firstByteMs,omitempty"`
+	FirstTokenMs          int64             `json:"firstTokenMs,omitempty"`
+	Usage                 TraceUsage        `json:"usage,omitempty"`
+	InputTokens           int64             `json:"inputTokens,omitempty"`
+	OutputTokens          int64             `json:"outputTokens,omitempty"`
+	GeneratedOutputTokens int64             `json:"generatedOutputTokens,omitempty"`
+	Protocol              string            `json:"protocol,omitempty"`
+	RawModel              string            `json:"rawModel,omitempty"`
+	Alias                 string            `json:"alias,omitempty"`
+	Stream                bool              `json:"stream"`
+	Success               bool              `json:"success"`
+	StatusCode            int               `json:"statusCode,omitempty"`
+	Error                 string            `json:"error,omitempty"`
+	FinalProvider         string            `json:"finalProvider,omitempty"`
+	FinalModel            string            `json:"finalModel,omitempty"`
+	FinalURL              string            `json:"finalUrl,omitempty"`
+	Failover              bool              `json:"failover"`
+	AttemptCount          int               `json:"attemptCount"`
+	RequestHeaders        map[string]string `json:"requestHeaders,omitempty"`
+	RequestParams         any               `json:"requestParams,omitempty"`
+	Attempts              []TraceAttempt    `json:"attempts"`
 }
 
 type TraceUsage struct {
@@ -112,6 +114,7 @@ type TraceAttempt struct {
 	StartedAt       time.Time         `json:"startedAt"`
 	DurationMs      int64             `json:"durationMs"`
 	FirstByteMs     int64             `json:"firstByteMs,omitempty"`
+	FirstTokenMs    int64             `json:"firstTokenMs,omitempty"`
 	StatusCode      int               `json:"statusCode,omitempty"`
 	Success         bool              `json:"success"`
 	Retryable       bool              `json:"retryable"`

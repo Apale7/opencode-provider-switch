@@ -1581,6 +1581,7 @@ export namespace app {
 	    startedAt: string;
 	    durationMs: number;
 	    firstByteMs?: number;
+	    firstTokenMs?: number;
 	    statusCode?: number;
 	    success: boolean;
 	    retryable: boolean;
@@ -1607,6 +1608,7 @@ export namespace app {
 	        this.startedAt = source["startedAt"];
 	        this.durationMs = source["durationMs"];
 	        this.firstByteMs = source["firstByteMs"];
+	        this.firstTokenMs = source["firstTokenMs"];
 	        this.statusCode = source["statusCode"];
 	        this.success = source["success"];
 	        this.retryable = source["retryable"];
@@ -1659,9 +1661,11 @@ export namespace app {
 	    finishedAt?: string;
 	    durationMs: number;
 	    firstByteMs?: number;
+	    firstTokenMs?: number;
 	    usage?: TraceUsage;
 	    inputTokens?: number;
 	    outputTokens?: number;
+	    generatedOutputTokens?: number;
 	    protocol: string;
 	    rawModel?: string;
 	    alias?: string;
@@ -1689,9 +1693,11 @@ export namespace app {
 	        this.finishedAt = source["finishedAt"];
 	        this.durationMs = source["durationMs"];
 	        this.firstByteMs = source["firstByteMs"];
+	        this.firstTokenMs = source["firstTokenMs"];
 	        this.usage = this.convertValues(source["usage"], TraceUsage);
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];
+	        this.generatedOutputTokens = source["generatedOutputTokens"];
 	        this.protocol = source["protocol"];
 	        this.rawModel = source["rawModel"];
 	        this.alias = source["alias"];

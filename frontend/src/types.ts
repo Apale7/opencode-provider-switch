@@ -146,6 +146,7 @@ export type TraceAttempt = {
   startedAt: string
   durationMs: number
   firstByteMs?: number
+  firstTokenMs?: number
   statusCode?: number
   success: boolean
   retryable: boolean
@@ -179,9 +180,11 @@ export type RequestTrace = {
   finishedAt?: string
   durationMs: number
   firstByteMs?: number
+  firstTokenMs?: number
   usage?: TraceUsage
   inputTokens?: number
   outputTokens?: number
+  generatedOutputTokens?: number
   protocol: ProviderProtocol
   rawModel?: string
   alias?: string

@@ -45,6 +45,23 @@ func (u tokenUsage) projectOutputTokens() int64 {
 	return *u.outputTokens
 }
 
+func (u tokenUsage) projectGeneratedOutputTokens() int64 {
+	if u.rawOutputTokens != nil && *u.rawOutputTokens > 0 {
+		return *u.rawOutputTokens
+	}
+	output := int64(0)
+	if u.outputTokens != nil {
+		output += *u.outputTokens
+	}
+	if u.reasoningTokens != nil {
+		output += *u.reasoningTokens
+	}
+	if output > 0 {
+		return output
+	}
+	return 0
+}
+
 func (u tokenUsage) hasData() bool {
 	return u.rawInputTokens != nil ||
 		u.rawOutputTokens != nil ||

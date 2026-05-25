@@ -1409,18 +1409,45 @@ function usagePrecisionBadgeClass(precision?: string): string {
   }
 }
 
+function traceGeneratedOutputTokens(trace: RequestTrace): number | null {
+	if (typeof trace.generatedOutputTokens === 'number' && trace.generatedOutputTokens > 0) {
+		return trace.generatedOutputTokens
+	}
+	if (typeof trace.usage?.rawOutputTokens === 'number' && trace.usage.rawOutputTokens > 0) {
+		return trace.usage.rawOutputTokens
+	}
+	const outputTokens = trace.usage?.outputTokens ?? trace.outputTokens
+	const reasoningTokens = trace.usage?.reasoningTokens
+	const generated = (outputTokens || 0) + (reasoningTokens || 0)
+	if (generated > 0) {
+		return generated
+	}
+	return null
+}
+
+function traceGenerationDurationMs(trace: RequestTrace): number | null {
+	if (typeof trace.firstTokenMs !== 'number' || trace.firstTokenMs <= 0 || !trace.durationMs || trace.durationMs <= trace.firstTokenMs) {
+		return null
+	}
+	return trace.durationMs - trace.firstTokenMs
+}
+
 function formatTokenRate(trace: RequestTrace): string {
-  if (!trace.outputTokens || trace.outputTokens <= 0 || !trace.durationMs || trace.durationMs <= 0) {
+  const tokens = traceGeneratedOutputTokens(trace)
+  const generationDuration = traceGenerationDurationMs(trace)
+  if (!tokens || !generationDuration) {
     return '-'
   }
-  return `${((trace.outputTokens * 1000) / trace.durationMs).toFixed(1)} token/s`
+  return `${((tokens * 1000) / generationDuration).toFixed(1)} token/s`
 }
 
 function formatCompactTokenRate(trace: RequestTrace): string {
-	if (!trace.outputTokens || trace.outputTokens <= 0 || !trace.durationMs || trace.durationMs <= 0) {
+	const tokens = traceGeneratedOutputTokens(trace)
+	const generationDuration = traceGenerationDurationMs(trace)
+	if (!tokens || !generationDuration) {
 		return '-'
 	}
-	return `${((trace.outputTokens * 1000) / trace.durationMs).toFixed(2)} tok/s`
+	return `${((tokens * 1000) / generationDuration).toFixed(2)} tok/s`
 }
 
 function traceTotalTokens(trace: RequestTrace): number | null {
@@ -1428,7 +1455,7 @@ function traceTotalTokens(trace: RequestTrace): number | null {
 		return trace.usage.rawTotalTokens
 	}
 	const inputTokens = trace.inputTokens ?? trace.usage?.inputTokens ?? trace.usage?.rawInputTokens
-	const outputTokens = trace.outputTokens ?? trace.usage?.outputTokens ?? trace.usage?.rawOutputTokens
+	const outputTokens = traceGeneratedOutputTokens(trace) ?? trace.outputTokens ?? trace.usage?.outputTokens ?? trace.usage?.rawOutputTokens
 	if (typeof inputTokens === 'number' || typeof outputTokens === 'number') {
 		return (inputTokens || 0) + (outputTokens || 0)
 	}
@@ -4129,14 +4156,18 @@ export default function App() {
 									<div className="trace-table-cell" role="cell" data-label={t('log.tablePerformance')}>
 										<div className="trace-table-metric">
 											<span className="trace-mono">
-												{`${formatCompactDuration(trace.firstByteMs)} / ${formatCompactDuration(trace.durationMs)} / ${formatCompactTokenRate(trace)}`}
+											{`${formatCompactDuration(trace.firstTokenMs)} / ${formatCompactDuration(trace.durationMs)} / ${formatCompactTokenRate(trace)}`}
 											</span>
 											<TraceInfoPopover label={t('log.performanceInfo')}>
 												<dl className="trace-popover-list">
-													<div>
-														<dt>{t('log.firstByte')}</dt>
-														<dd className="trace-mono">{formatCompactDuration(trace.firstByteMs)}</dd>
-													</div>
+												<div>
+													<dt>{t('log.firstByte')}</dt>
+													<dd className="trace-mono">{formatCompactDuration(trace.firstByteMs)}</dd>
+												</div>
+												<div>
+													<dt>{t('log.firstToken')}</dt>
+													<dd className="trace-mono">{formatCompactDuration(trace.firstTokenMs)}</dd>
+												</div>
 													<div>
 														<dt>{t('log.totalTime')}</dt>
 														<dd className="trace-mono">{formatCompactDuration(trace.durationMs)}</dd>
@@ -4166,10 +4197,14 @@ export default function App() {
 														<dt>{t('log.inputTokens')}</dt>
 														<dd className="trace-mono">{formatTokenCount(trace.inputTokens)}</dd>
 													</div>
-													<div>
-														<dt>{t('log.outputTokens')}</dt>
-														<dd className="trace-mono">{formatTokenCount(trace.outputTokens)}</dd>
-													</div>
+												<div>
+													<dt>{t('log.outputTokens')}</dt>
+													<dd className="trace-mono">{formatTokenCount(trace.outputTokens)}</dd>
+												</div>
+												<div>
+													<dt>{t('log.generatedOutputTokens')}</dt>
+													<dd className="trace-mono">{formatTokenCount(traceGeneratedOutputTokens(trace) ?? undefined)}</dd>
+												</div>
 													<div>
 														<dt>{t('log.cacheReadTokens')}</dt>
 														<dd className="trace-mono">{formatUsageText(trace.usage?.cacheReadTokens)}</dd>
@@ -5858,10 +5893,14 @@ export default function App() {
                     <dt>{t('log.startedAt')}</dt>
                     <dd>{formatDateTime(selectedLogTrace.startedAt)}</dd>
                   </div>
-                  <div>
-                    <dt>{t('log.firstByte')}</dt>
-                    <dd>{formatDuration(selectedLogTrace.firstByteMs)}</dd>
-                  </div>
+					<div>
+						<dt>{t('log.firstByte')}</dt>
+						<dd>{formatDuration(selectedLogTrace.firstByteMs)}</dd>
+					</div>
+					<div>
+						<dt>{t('log.firstToken')}</dt>
+						<dd>{formatDuration(selectedLogTrace.firstTokenMs)}</dd>
+					</div>
                   <div>
                     <dt>{t('log.stream')}</dt>
                     <dd>{selectedLogTrace.stream ? t('status.yes') : t('status.no')}</dd>
@@ -5874,10 +5913,14 @@ export default function App() {
                     <dt>{t('log.inputTokens')}</dt>
                     <dd>{formatTokenCount(selectedLogTrace.inputTokens)}</dd>
                   </div>
-                  <div>
-                    <dt>{t('log.outputTokens')}</dt>
-                    <dd>{formatTokenCount(selectedLogTrace.outputTokens)}</dd>
-                  </div>
+					<div>
+						<dt>{t('log.outputTokens')}</dt>
+						<dd>{formatTokenCount(selectedLogTrace.outputTokens)}</dd>
+					</div>
+					<div>
+						<dt>{t('log.generatedOutputTokens')}</dt>
+						<dd>{formatTokenCount(traceGeneratedOutputTokens(selectedLogTrace) ?? undefined)}</dd>
+					</div>
                   <div>
                     <dt>{t('log.outputRate')}</dt>
                     <dd>{formatTokenRate(selectedLogTrace)}</dd>

@@ -440,6 +440,14 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 				}
 			}
 		}
+		if trace.FirstTokenMs == 0 {
+			for _, attempt := range trace.Attempts {
+				if attempt.FirstTokenMs > 0 {
+					trace.FirstTokenMs = attempt.StartedAt.Sub(trace.StartedAt).Milliseconds() + attempt.FirstTokenMs
+					break
+				}
+			}
+		}
 		if err := s.traces.Add(context.Background(), trace); err != nil {
 			s.logger.Printf("req=%d trace persist failed: %v", reqID, err)
 		}
@@ -552,6 +560,9 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		trace.StatusCode = attemptTrace.StatusCode
 		if trace.FirstByteMs == 0 {
 			trace.FirstByteMs = attemptTrace.FirstByteMs
+		}
+		if trace.FirstTokenMs == 0 && attemptTrace.FirstTokenMs > 0 {
+			trace.FirstTokenMs = attemptTrace.StartedAt.Sub(trace.StartedAt).Milliseconds() + attemptTrace.FirstTokenMs
 		}
 		feedback := routing.AttemptFeedback{
 			Candidate:       decision.Candidate,
@@ -685,6 +696,7 @@ func resetRetryTraceAttempt(attempt *TraceAttempt) {
 	attempt.StartedAt = time.Now()
 	attempt.DurationMs = 0
 	attempt.FirstByteMs = 0
+	attempt.FirstTokenMs = 0
 	attempt.StatusCode = 0
 	attempt.Success = false
 	attempt.Retryable = false
@@ -856,6 +868,19 @@ func (s *Server) tryOnce(
 	if trace != nil && trace.FirstByteMs == 0 && attemptTrace != nil {
 		trace.FirstByteMs = attemptTrace.FirstByteMs
 	}
+	recordFirstToken := func() {
+		if attemptTrace == nil || attemptTrace.FirstTokenMs > 0 {
+			return
+		}
+		attemptStartedAt := attemptTrace.StartedAt
+		if attemptStartedAt.IsZero() {
+			attemptStartedAt = startedAt
+		}
+		attemptTrace.FirstTokenMs = positiveDurationMs(time.Since(attemptStartedAt))
+		if trace != nil && trace.FirstTokenMs == 0 {
+			trace.FirstTokenMs = positiveDurationMs(time.Since(trace.StartedAt))
+		}
+	}
 
 	isEventStream := false
 	streamIdleTimeout := timeoutDuration(state.cfg.Server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
@@ -878,6 +903,9 @@ func (s *Server) tryOnce(
 			classifier:       sseState,
 			precommitStarted: time.Now(),
 		})
+		if precommit.firstTokenWorth {
+			recordFirstToken()
+		}
 		if precommitErr != nil {
 			if trace != nil {
 				applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "upstream stream ended before downstream commit"))
@@ -934,6 +962,9 @@ func (s *Server) tryOnce(
 		}
 		if isEventStream && !firstChunkClassified {
 			signal := sseState.Add(firstChunk)
+			if signal.firstTokenWorth {
+				recordFirstToken()
+			}
 			if signal.terminal {
 				if _, werr := w.Write(firstChunk); werr != nil {
 					if trace != nil {
@@ -983,7 +1014,11 @@ func (s *Server) tryOnce(
 			usageCollector.Add(buf[:n])
 			terminal := false
 			if isEventStream {
-				terminal = sseState.Add(buf[:n]).terminal
+				signal := sseState.Add(buf[:n])
+				if signal.firstTokenWorth {
+					recordFirstToken()
+				}
+				terminal = signal.terminal
 			}
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				if trace != nil {
@@ -1076,9 +1111,10 @@ type ssePrecommitInput struct {
 }
 
 type ssePrecommitResult struct {
-	buffered bytes.Buffer
-	terminal bool
-	result   string
+	buffered        bytes.Buffer
+	terminal        bool
+	firstTokenWorth bool
+	result          string
 }
 
 func (s *Server) runSSEPrecommitBuffer(in ssePrecommitInput) (ssePrecommitResult, error) {
@@ -1095,6 +1131,7 @@ func (s *Server) runSSEPrecommitBuffer(in ssePrecommitInput) (ssePrecommitResult
 			in.usageCollector.Add(in.firstChunk)
 		}
 		signal := in.classifier.Add(in.firstChunk)
+		result.firstTokenWorth = result.firstTokenWorth || signal.firstTokenWorth
 		if signal.terminal {
 			result.terminal = true
 			return result, nil
@@ -1119,6 +1156,7 @@ func (s *Server) runSSEPrecommitBuffer(in ssePrecommitInput) (ssePrecommitResult
 				in.usageCollector.Add(chunk)
 			}
 			signal := in.classifier.Add(chunk)
+			result.firstTokenWorth = result.firstTokenWorth || signal.firstTokenWorth
 			if signal.terminal {
 				result.terminal = true
 				return result, nil
@@ -1195,6 +1233,7 @@ func applyUsageToTrace(trace *RequestTrace, usage tokenUsage) {
 	}
 	trace.InputTokens = usage.projectInputTokens()
 	trace.OutputTokens = usage.projectOutputTokens()
+	trace.GeneratedOutputTokens = usage.projectGeneratedOutputTokens()
 }
 
 func usageForStreamFailure(collector usageCollector, note string) tokenUsage {
@@ -1354,6 +1393,14 @@ func nonNegativeDuration(value int) time.Duration {
 		value = 0
 	}
 	return time.Duration(value) * time.Millisecond
+}
+
+func positiveDurationMs(value time.Duration) int64 {
+	ms := value.Milliseconds()
+	if ms <= 0 {
+		return 1
+	}
+	return ms
 }
 
 func minDuration(a time.Duration, b time.Duration) time.Duration {

@@ -12,8 +12,9 @@ import (
 const ssePrecommitBufferCapBytes = 256 << 10
 
 type sseStreamSignal struct {
-	commitWorth bool
-	terminal    bool
+	commitWorth     bool
+	firstTokenWorth bool
+	terminal        bool
 }
 
 type sseStreamState struct {
@@ -45,6 +46,7 @@ func (s *sseStreamState) Add(chunk []byte) sseStreamSignal {
 		frame := parseSSEFrame(rawFrame)
 		frameSignal := classifySSEFrame(s.protocol, frame)
 		signal.commitWorth = signal.commitWorth || frameSignal.commitWorth
+		signal.firstTokenWorth = signal.firstTokenWorth || frameSignal.firstTokenWorth
 		signal.terminal = signal.terminal || frameSignal.terminal
 	}
 }
@@ -113,15 +115,20 @@ func classifyOpenAIResponsesSSEFrame(frame sseFrame) sseStreamSignal {
 	if signal, known := classifyOpenAIResponsesOutputFrame(typeName, payload); known {
 		return signal
 	}
+	if openAIResponsesSemanticTokenPayloadHasOutput(payload) {
+		return sseStreamSignal{commitWorth: true, firstTokenWorth: true}
+	}
 	return sseStreamSignal{commitWorth: true}
 }
 
 func classifyOpenAIResponsesOutputFrame(eventName string, payload map[string]any) (sseStreamSignal, bool) {
 	switch eventName {
-	case "response.output_text.delta", "response.function_call_arguments.delta":
-		return sseStreamSignal{commitWorth: mapHasNonEmptyString(payload, "delta", "text", "arguments")}, true
+	case "response.output_text.delta", "response.function_call_arguments.delta", "response.reasoning.delta", "response.reasoning_summary.delta", "response.output_text.annotation.added":
+		worth := openAIResponsesSemanticTokenPayloadHasOutput(payload)
+		return sseStreamSignal{commitWorth: worth, firstTokenWorth: worth}, true
 	case "response.output_item.added", "response.output_item.done":
-		return sseStreamSignal{commitWorth: true}, true
+		worth := openAIResponsesItemHasOutput(payload)
+		return sseStreamSignal{commitWorth: true, firstTokenWorth: worth}, true
 	default:
 		return sseStreamSignal{}, false
 	}
@@ -140,7 +147,7 @@ func classifyOpenAICompatibleSSEFrame(frame sseFrame) sseStreamSignal {
 		return sseStreamSignal{commitWorth: true}
 	}
 	if openAICompatibleChunkHasOutput(payload) {
-		return sseStreamSignal{commitWorth: true}
+		return sseStreamSignal{commitWorth: true, firstTokenWorth: true}
 	}
 	if openAICompatibleChunkIsMetadataOnly(payload) {
 		return sseStreamSignal{}
@@ -171,11 +178,12 @@ func classifyAnthropicSSEFrame(frame sseFrame) sseStreamSignal {
 		return sseStreamSignal{commitWorth: true}
 	}
 	if frame.event == "content_block_delta" || frame.event == "input_json_delta" {
-		return sseStreamSignal{commitWorth: !ok || anthropicContentBlockHasOutput(payload)}
+		worth := ok && anthropicContentBlockHasOutput(payload)
+		return sseStreamSignal{commitWorth: !ok || worth, firstTokenWorth: worth}
 	}
 	if frame.event == "message_delta" {
 		if ok && anthropicMessageDeltaHasOutput(payload) {
-			return sseStreamSignal{commitWorth: true}
+			return sseStreamSignal{commitWorth: true, firstTokenWorth: true}
 		}
 		return sseStreamSignal{}
 	}
@@ -183,7 +191,8 @@ func classifyAnthropicSSEFrame(frame sseFrame) sseStreamSignal {
 		return sseStreamSignal{commitWorth: true}
 	}
 	if typeName == "content_block_delta" || typeName == "input_json_delta" {
-		return sseStreamSignal{commitWorth: anthropicContentBlockHasOutput(payload)}
+		worth := anthropicContentBlockHasOutput(payload)
+		return sseStreamSignal{commitWorth: worth, firstTokenWorth: worth}
 	}
 	if !ok {
 		return sseStreamSignal{commitWorth: true}
@@ -213,7 +222,7 @@ func openAICompatibleChunkHasOutput(payload map[string]any) bool {
 		if len(delta) == 0 {
 			continue
 		}
-		if content, ok := delta["content"].(string); ok && content != "" {
+		if mapHasNonEmptyString(delta, "content", "reasoning", "thinking", "reasoning_content") {
 			return true
 		}
 		if toolCalls, ok := delta["tool_calls"].([]any); ok && openAICompatibleToolCallsHaveOutput(toolCalls) {
@@ -235,8 +244,13 @@ func openAICompatibleChunkIsMetadataOnly(payload map[string]any) bool {
 		delta, _ := choice["delta"].(map[string]any)
 		for key, value := range delta {
 			switch key {
-			case "role", "content", "tool_calls", "function_call":
+			case "role", "content", "tool_calls", "function_call", "reasoning", "thinking", "reasoning_content":
 				if key == "content" {
+					if text, ok := value.(string); ok && text != "" {
+						return false
+					}
+				}
+				if key == "reasoning" || key == "thinking" || key == "reasoning_content" {
 					if text, ok := value.(string); ok && text != "" {
 						return false
 					}
@@ -288,7 +302,7 @@ func openAICompatibleToolCallsHaveOutput(toolCalls []any) bool {
 }
 
 func openAIResponsesItemHasOutput(payload map[string]any) bool {
-	if mapHasNonEmptyString(payload, "delta", "text", "arguments", "output_text") {
+	if mapHasNonEmptyString(payload, "delta", "text", "arguments", "output_text", "reasoning", "thinking", "summary") {
 		return true
 	}
 	if content, ok := payload["content"].([]any); ok && sseContentArrayHasOutput(content) {
@@ -298,7 +312,7 @@ func openAIResponsesItemHasOutput(payload map[string]any) bool {
 	if len(item) == 0 {
 		return false
 	}
-	if mapHasNonEmptyString(item, "text", "output_text", "arguments") {
+	if mapHasNonEmptyString(item, "text", "output_text", "arguments", "reasoning", "thinking", "summary") {
 		return true
 	}
 	if content, ok := item["content"].([]any); ok && sseContentArrayHasOutput(content) {
@@ -311,13 +325,26 @@ func openAIResponsesItemHasOutput(payload map[string]any) bool {
 	return false
 }
 
+func openAIResponsesSemanticTokenPayloadHasOutput(payload map[string]any) bool {
+	if mapHasNonEmptyString(payload, "delta", "text", "arguments", "output_text", "reasoning", "thinking", "summary") {
+		return true
+	}
+	if item, _ := payload["item"].(map[string]any); len(item) > 0 && openAIResponsesItemHasOutput(map[string]any{"item": item}) {
+		return true
+	}
+	if content, ok := payload["content"].([]any); ok && sseContentArrayHasOutput(content) {
+		return true
+	}
+	return false
+}
+
 func sseContentArrayHasOutput(content []any) bool {
 	for _, item := range content {
 		contentItem, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		if mapHasNonEmptyString(contentItem, "text", "output_text", "refusal", "partial_json") {
+		if mapHasNonEmptyString(contentItem, "text", "output_text", "refusal", "partial_json", "reasoning", "thinking", "summary") {
 			return true
 		}
 		if nonEmptyJSONObject(contentItem["input"]) {

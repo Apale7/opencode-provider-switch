@@ -675,6 +675,9 @@ func TestHandleResponsesCapturesFinalOpenAIUsageFromCompletedEvent(t *testing.T)
 			"event: response.created",
 			`data: {"type":"response.created","response":{"id":"resp_123"}}`,
 			"",
+			"event: response.output_text.delta",
+			`data: {"type":"response.output_text.delta","delta":"hi"}`,
+			"",
 			"event: response.completed",
 			`data: {"type":"response.completed","response":{"usage":{"input_tokens":120,"input_tokens_details":{"cached_tokens":20},"output_tokens":45,"output_tokens_details":{"reasoning_tokens":5}}}}`,
 			"",
@@ -716,6 +719,29 @@ func TestHandleResponsesCapturesFinalOpenAIUsageFromCompletedEvent(t *testing.T)
 	if traces[0].OutputTokens != 40 {
 		t.Fatalf("trace output tokens = %d, want 40", traces[0].OutputTokens)
 	}
+	if traces[0].GeneratedOutputTokens != 45 {
+		t.Fatalf("trace generated output tokens = %d, want 45", traces[0].GeneratedOutputTokens)
+	}
+	if traces[0].FirstTokenMs <= 0 || traces[0].Attempts[0].FirstTokenMs <= 0 {
+		t.Fatalf("first token trace/attempt = %d/%d, want positive", traces[0].FirstTokenMs, traces[0].Attempts[0].FirstTokenMs)
+	}
+}
+
+func TestApplyUsageToTraceProjectsGeneratedOutputTokens(t *testing.T) {
+	rawOutput := int64(45)
+	output := int64(40)
+	reasoning := int64(5)
+	trace := RequestTrace{}
+	applyUsageToTrace(&trace, tokenUsage{rawOutputTokens: &rawOutput, outputTokens: &output, reasoningTokens: &reasoning})
+	if trace.OutputTokens != 40 || trace.GeneratedOutputTokens != 45 {
+		t.Fatalf("projected tokens = output:%d generated:%d, want 40/45", trace.OutputTokens, trace.GeneratedOutputTokens)
+	}
+
+	trace = RequestTrace{}
+	applyUsageToTrace(&trace, tokenUsage{outputTokens: &output, reasoningTokens: &reasoning})
+	if trace.OutputTokens != 40 || trace.GeneratedOutputTokens != 45 {
+		t.Fatalf("fallback projected tokens = output:%d generated:%d, want 40/45", trace.OutputTokens, trace.GeneratedOutputTokens)
+	}
 }
 
 func TestSQLiteTraceStoreRoundTripsUsageJSON(t *testing.T) {
@@ -742,13 +768,15 @@ func TestSQLiteTraceStoreRoundTripsUsageJSON(t *testing.T) {
 	cacheRead := int64(20)
 
 	trace := RequestTrace{
-		ID:           1,
-		StartedAt:    time.Now().UTC(),
-		DurationMs:   123,
-		Protocol:     config.ProtocolOpenAIResponses,
-		Success:      true,
-		InputTokens:  input,
-		OutputTokens: output,
+		ID:                    1,
+		StartedAt:             time.Now().UTC(),
+		DurationMs:            123,
+		FirstTokenMs:          25,
+		Protocol:              config.ProtocolOpenAIResponses,
+		Success:               true,
+		InputTokens:           input,
+		OutputTokens:          output,
+		GeneratedOutputTokens: rawOutput,
 		Usage: TraceUsage{
 			RawInputTokens:  &rawInput,
 			RawOutputTokens: &rawOutput,
@@ -793,8 +821,8 @@ func TestSQLiteTraceStoreRoundTripsUsageJSON(t *testing.T) {
 	if len(got.Usage.Notes) != 1 || got.Usage.Notes[0] != "final completed event" {
 		t.Fatalf("usage notes = %#v, want preserved note", got.Usage.Notes)
 	}
-	if got.InputTokens != 100 || got.OutputTokens != 40 {
-		t.Fatalf("projected tokens = %d/%d, want 100/40", got.InputTokens, got.OutputTokens)
+	if got.InputTokens != 100 || got.OutputTokens != 40 || got.GeneratedOutputTokens != 45 || got.FirstTokenMs != 25 {
+		t.Fatalf("projected fields = input:%d output:%d generated:%d firstToken:%d, want 100/40/45/25", got.InputTokens, got.OutputTokens, got.GeneratedOutputTokens, got.FirstTokenMs)
 	}
 }
 
@@ -1897,8 +1925,8 @@ func TestSSEStreamStateClassifiesSplitFramesAndTerminals(t *testing.T) {
 	if signal := state.Add([]byte("event: response.output_text.delta\ndata: {\"type\":")); signal.commitWorth || signal.terminal {
 		t.Fatalf("partial frame signal = %#v, want none", signal)
 	}
-	if signal := state.Add([]byte("\"response.output_text.delta\",\"delta\":\"hi\"}\n\n")); !signal.commitWorth || signal.terminal {
-		t.Fatalf("completed content frame signal = %#v, want commit-worthy", signal)
+	if signal := state.Add([]byte("\"response.output_text.delta\",\"delta\":\"hi\"}\n\n")); !signal.commitWorth || !signal.firstTokenWorth || signal.terminal {
+		t.Fatalf("completed content frame signal = %#v, want commit-worthy first token", signal)
 	}
 	if signal := newSSEStreamState(config.ProtocolOpenAICompatible).Add([]byte("data: [DONE]\n\n")); !signal.terminal || signal.commitWorth {
 		t.Fatalf("OpenAI-compatible DONE signal = %#v, want terminal", signal)
@@ -1908,6 +1936,37 @@ func TestSSEStreamStateClassifiesSplitFramesAndTerminals(t *testing.T) {
 	}
 	if signal := newSSEStreamState(config.ProtocolAnthropicMessages).Add([]byte("event: message_stop\n\n")); !signal.terminal || signal.commitWorth {
 		t.Fatalf("Anthropic empty stop signal = %#v, want terminal", signal)
+	}
+}
+
+func TestSSEStreamStateSeparatesCommitWorthFromFirstToken(t *testing.T) {
+	created := newSSEStreamState(config.ProtocolOpenAIResponses).Add([]byte("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"))
+	if created.commitWorth || created.firstTokenWorth || created.terminal {
+		t.Fatalf("created signal = %#v, want no signal", created)
+	}
+	emptyItem := newSSEStreamState(config.ProtocolOpenAIResponses).Add([]byte("event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"message\"}}\n\n"))
+	if !emptyItem.commitWorth || emptyItem.firstTokenWorth || emptyItem.terminal {
+		t.Fatalf("empty item signal = %#v, want commit without first token", emptyItem)
+	}
+	responseReasoning := newSSEStreamState(config.ProtocolOpenAIResponses).Add([]byte("event: response.reasoning.delta\ndata: {\"type\":\"response.reasoning.delta\",\"delta\":\"think\"}\n\n"))
+	if !responseReasoning.commitWorth || !responseReasoning.firstTokenWorth || responseReasoning.terminal {
+		t.Fatalf("responses reasoning signal = %#v, want first token", responseReasoning)
+	}
+	compatibleRole := newSSEStreamState(config.ProtocolOpenAICompatible).Add([]byte("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n"))
+	if compatibleRole.commitWorth || compatibleRole.firstTokenWorth || compatibleRole.terminal {
+		t.Fatalf("compatible role signal = %#v, want metadata only", compatibleRole)
+	}
+	compatibleReasoning := newSSEStreamState(config.ProtocolOpenAICompatible).Add([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think\"}}]}\n\n"))
+	if !compatibleReasoning.commitWorth || !compatibleReasoning.firstTokenWorth || compatibleReasoning.terminal {
+		t.Fatalf("compatible reasoning signal = %#v, want first token", compatibleReasoning)
+	}
+	anthropicStart := newSSEStreamState(config.ProtocolAnthropicMessages).Add([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"text\"}}\n\n"))
+	if !anthropicStart.commitWorth || anthropicStart.firstTokenWorth || anthropicStart.terminal {
+		t.Fatalf("anthropic block start signal = %#v, want commit without first token", anthropicStart)
+	}
+	anthropicDelta := newSSEStreamState(config.ProtocolAnthropicMessages).Add([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hi\"}}\n\n"))
+	if !anthropicDelta.commitWorth || !anthropicDelta.firstTokenWorth || anthropicDelta.terminal {
+		t.Fatalf("anthropic delta signal = %#v, want first token", anthropicDelta)
 	}
 }
 

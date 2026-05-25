@@ -76,8 +76,10 @@ CREATE TABLE IF NOT EXISTS request_traces (
 	finished_at TEXT,
 	duration_ms INTEGER NOT NULL DEFAULT 0,
 	first_byte_ms INTEGER NOT NULL DEFAULT 0,
+	first_token_ms INTEGER NOT NULL DEFAULT 0,
 	input_tokens INTEGER NOT NULL DEFAULT 0,
 	output_tokens INTEGER NOT NULL DEFAULT 0,
+	generated_output_tokens INTEGER NOT NULL DEFAULT 0,
 	protocol TEXT NOT NULL DEFAULT '',
 	raw_model TEXT NOT NULL DEFAULT '',
 	alias TEXT NOT NULL DEFAULT '',
@@ -107,6 +109,7 @@ CREATE TABLE IF NOT EXISTS request_trace_attempts (
 	model TEXT NOT NULL DEFAULT '',
 	duration_ms INTEGER NOT NULL DEFAULT 0,
 	first_byte_ms INTEGER NOT NULL DEFAULT 0,
+	first_token_ms INTEGER NOT NULL DEFAULT 0,
 	status_code INTEGER NOT NULL DEFAULT 0,
 	success INTEGER NOT NULL DEFAULT 0,
 	retryable INTEGER NOT NULL DEFAULT 0,
@@ -120,6 +123,15 @@ CREATE INDEX IF NOT EXISTS idx_request_trace_attempts_provider ON request_trace_
 		return fmt.Errorf("init trace db: %w", err)
 	}
 	if err := ensureSQLiteTraceColumn(ctx, db, "request_traces", "usage_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteTraceColumn(ctx, db, "request_traces", "first_token_ms", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteTraceColumn(ctx, db, "request_traces", "generated_output_tokens", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteTraceColumn(ctx, db, "request_trace_attempts", "first_token_ms", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := backfillSQLiteTraceAttempts(ctx, db, 0); err != nil {
@@ -146,18 +158,20 @@ func (s *SQLiteTraceStore) Add(ctx context.Context, trace RequestTrace) error {
 		}
 		defer tx.Rollback()
 		_, err = tx.ExecContext(ctx, `
-INSERT INTO request_traces (
-	id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
-	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
-	final_model, final_url, failover, attempt_count, request_headers_json,
-	request_params_json, usage_json, attempts_json
- ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO request_traces (
+		id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
+		protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+		final_model, final_url, failover, attempt_count, request_headers_json,
+		request_params_json, usage_json, attempts_json
+	 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	finished_at=excluded.finished_at,
 	duration_ms=excluded.duration_ms,
 	first_byte_ms=excluded.first_byte_ms,
+	first_token_ms=excluded.first_token_ms,
 	input_tokens=excluded.input_tokens,
 	output_tokens=excluded.output_tokens,
+	generated_output_tokens=excluded.generated_output_tokens,
 	protocol=excluded.protocol,
 	raw_model=excluded.raw_model,
 	alias=excluded.alias,
@@ -180,8 +194,10 @@ ON CONFLICT(id) DO UPDATE SET
 			formatSQLiteTime(row.Trace.FinishedAt),
 			row.Trace.DurationMs,
 			row.Trace.FirstByteMs,
+			row.Trace.FirstTokenMs,
 			row.Trace.InputTokens,
 			row.Trace.OutputTokens,
+			row.Trace.GeneratedOutputTokens,
 			row.Trace.Protocol,
 			row.Trace.RawModel,
 			row.Trace.Alias,
@@ -219,7 +235,7 @@ func (s *SQLiteTraceStore) List(ctx context.Context, limit int) ([]RequestTrace,
 	items := []RequestTrace{}
 	err := s.withDB(ctx, func(db *sql.DB) error {
 		rows, err := db.QueryContext(ctx, `
-SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
+SELECT id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
 	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
 	final_model, final_url, failover, attempt_count, request_headers_json,
 	request_params_json, usage_json, attempts_json
@@ -266,7 +282,7 @@ func (s *SQLiteTraceStore) Query(ctx context.Context, query TraceQuery) (TraceQu
 		}
 		offset := (query.Page - 1) * query.PageSize
 		listSQL := `
-SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
+SELECT id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
 	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
 	final_model, final_url, failover, attempt_count, usage_json
 FROM request_traces`
@@ -324,8 +340,8 @@ func (s *SQLiteTraceStore) QueryHealthTraces(ctx context.Context, query TraceQue
 		where, args := buildSQLiteTraceWhere(query)
 		listSQL := `
 SELECT request_traces.id, request_traces.started_at, request_traces.finished_at,
-	request_traces.duration_ms, request_traces.first_byte_ms,
-	request_traces.input_tokens, request_traces.output_tokens,
+	request_traces.duration_ms, request_traces.first_byte_ms, request_traces.first_token_ms,
+	request_traces.input_tokens, request_traces.output_tokens, request_traces.generated_output_tokens,
 	request_traces.protocol, request_traces.raw_model, request_traces.alias,
 	request_traces.stream, request_traces.success, request_traces.status_code,
 	request_traces.error, request_traces.final_provider, request_traces.final_model,
@@ -337,6 +353,7 @@ SELECT request_traces.id, request_traces.started_at, request_traces.finished_at,
 	request_trace_attempts.model,
 	request_trace_attempts.duration_ms,
 	request_trace_attempts.first_byte_ms,
+	request_trace_attempts.first_token_ms,
 	request_trace_attempts.status_code,
 	request_trace_attempts.success,
 	request_trace_attempts.retryable,
@@ -388,7 +405,7 @@ func (s *SQLiteTraceStore) QueryAll(ctx context.Context, query TraceQuery) ([]Re
 	err := s.withDB(ctx, func(db *sql.DB) error {
 		where, args := buildSQLiteTraceWhere(query)
 		listSQL := `
-SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
+SELECT id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
 	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
 	final_model, final_url, failover, attempt_count, request_headers_json,
 	request_params_json, usage_json, attempts_json
@@ -428,7 +445,7 @@ func (s *SQLiteTraceStore) Get(ctx context.Context, id uint64) (RequestTrace, bo
 	var trace RequestTrace
 	err := s.withDB(ctx, func(db *sql.DB) error {
 		row := db.QueryRowContext(ctx, `
-SELECT id, started_at, finished_at, duration_ms, first_byte_ms, input_tokens, output_tokens,
+SELECT id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
 	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
 	final_model, final_url, failover, attempt_count, request_headers_json,
 	request_params_json, usage_json, attempts_json
@@ -813,10 +830,10 @@ func replaceSQLiteTraceAttempts(ctx context.Context, db sqliteTraceAttemptWriter
 		return nil
 	}
 	stmt, err := db.PrepareContext(ctx, `
-INSERT INTO request_trace_attempts (
-	trace_id, attempt_index, attempt, provider, model, duration_ms, first_byte_ms,
+	INSERT INTO request_trace_attempts (
+	trace_id, attempt_index, attempt, provider, model, duration_ms, first_byte_ms, first_token_ms,
 	status_code, success, retryable, skipped, result
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare trace attempts insert: %w", err)
 	}
@@ -830,6 +847,7 @@ INSERT INTO request_trace_attempts (
 			attempt.Model,
 			attempt.DurationMs,
 			attempt.FirstByteMs,
+			attempt.FirstTokenMs,
 			attempt.StatusCode,
 			boolToInt(attempt.Success),
 			boolToInt(attempt.Retryable),
@@ -892,8 +910,10 @@ func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace
 		&finishedAt,
 		&trace.DurationMs,
 		&trace.FirstByteMs,
+		&trace.FirstTokenMs,
 		&trace.InputTokens,
 		&trace.OutputTokens,
+		&trace.GeneratedOutputTokens,
 		&trace.Protocol,
 		&trace.RawModel,
 		&trace.Alias,
@@ -961,8 +981,10 @@ func scanSQLiteTraceSummary(scanner interface{ Scan(dest ...any) error }) (Reque
 		&finishedAt,
 		&trace.DurationMs,
 		&trace.FirstByteMs,
+		&trace.FirstTokenMs,
 		&trace.InputTokens,
 		&trace.OutputTokens,
+		&trace.GeneratedOutputTokens,
 		&trace.Protocol,
 		&trace.RawModel,
 		&trace.Alias,
@@ -1011,8 +1033,10 @@ func scanSQLiteTraceHealth(scanner interface{ Scan(dest ...any) error }) (Reques
 		&finishedAt,
 		&trace.DurationMs,
 		&trace.FirstByteMs,
+		&trace.FirstTokenMs,
 		&trace.InputTokens,
 		&trace.OutputTokens,
+		&trace.GeneratedOutputTokens,
 		&trace.Protocol,
 		&trace.RawModel,
 		&trace.Alias,
@@ -1079,6 +1103,7 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 		model           sql.NullString
 		durationMs      sql.NullInt64
 		firstByteMs     sql.NullInt64
+		firstTokenMs    sql.NullInt64
 		statusCode      sql.NullInt64
 		attemptSuccess  sql.NullBool
 		retryable       sql.NullBool
@@ -1091,8 +1116,10 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 		&finishedAt,
 		&row.Trace.DurationMs,
 		&row.Trace.FirstByteMs,
+		&row.Trace.FirstTokenMs,
 		&row.Trace.InputTokens,
 		&row.Trace.OutputTokens,
+		&row.Trace.GeneratedOutputTokens,
 		&row.Trace.Protocol,
 		&row.Trace.RawModel,
 		&row.Trace.Alias,
@@ -1112,6 +1139,7 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 		&model,
 		&durationMs,
 		&firstByteMs,
+		&firstTokenMs,
 		&statusCode,
 		&attemptSuccess,
 		&retryable,
@@ -1150,6 +1178,9 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 	if firstByteMs.Valid {
 		row.Attempt.FirstByteMs = firstByteMs.Int64
 	}
+	if firstTokenMs.Valid {
+		row.Attempt.FirstTokenMs = firstTokenMs.Int64
+	}
 	if statusCode.Valid {
 		row.Attempt.StatusCode = int(statusCode.Int64)
 	}
@@ -1170,17 +1201,18 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 
 func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {
 	var rows []struct {
-		Attempt     int    `json:"attempt"`
-		Provider    string `json:"provider,omitempty"`
-		Model       string `json:"model,omitempty"`
-		APIKeyIndex int    `json:"apiKeyIndex,omitempty"`
-		DurationMs  int64  `json:"durationMs"`
-		FirstByteMs int64  `json:"firstByteMs,omitempty"`
-		StatusCode  int    `json:"statusCode,omitempty"`
-		Success     bool   `json:"success"`
-		Retryable   bool   `json:"retryable"`
-		Skipped     bool   `json:"skipped"`
-		Result      string `json:"result,omitempty"`
+		Attempt      int    `json:"attempt"`
+		Provider     string `json:"provider,omitempty"`
+		Model        string `json:"model,omitempty"`
+		APIKeyIndex  int    `json:"apiKeyIndex,omitempty"`
+		DurationMs   int64  `json:"durationMs"`
+		FirstByteMs  int64  `json:"firstByteMs,omitempty"`
+		FirstTokenMs int64  `json:"firstTokenMs,omitempty"`
+		StatusCode   int    `json:"statusCode,omitempty"`
+		Success      bool   `json:"success"`
+		Retryable    bool   `json:"retryable"`
+		Skipped      bool   `json:"skipped"`
+		Result       string `json:"result,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(value), &rows); err != nil {
 		return nil, fmt.Errorf("decode health attempts: %w", err)
@@ -1188,17 +1220,18 @@ func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {
 	out := make([]TraceAttempt, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, TraceAttempt{
-			Attempt:     row.Attempt,
-			Provider:    row.Provider,
-			Model:       row.Model,
-			APIKeyIndex: row.APIKeyIndex,
-			DurationMs:  row.DurationMs,
-			FirstByteMs: row.FirstByteMs,
-			StatusCode:  row.StatusCode,
-			Success:     row.Success,
-			Retryable:   row.Retryable,
-			Skipped:     row.Skipped,
-			Result:      row.Result,
+			Attempt:      row.Attempt,
+			Provider:     row.Provider,
+			Model:        row.Model,
+			APIKeyIndex:  row.APIKeyIndex,
+			DurationMs:   row.DurationMs,
+			FirstByteMs:  row.FirstByteMs,
+			FirstTokenMs: row.FirstTokenMs,
+			StatusCode:   row.StatusCode,
+			Success:      row.Success,
+			Retryable:    row.Retryable,
+			Skipped:      row.Skipped,
+			Result:       row.Result,
 		})
 	}
 	return out, nil
