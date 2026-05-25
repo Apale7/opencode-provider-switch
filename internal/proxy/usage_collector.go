@@ -595,14 +595,22 @@ func int64Ptr(value int64) *int64 {
 
 func nextSSEFrame(buf *bytes.Buffer) (string, bool) {
 	data := buf.Bytes()
-	for _, sep := range []string{"\r\n\r\n", "\n\n"} {
-		idx := bytes.Index(data, []byte(sep))
-		if idx < 0 {
-			continue
-		}
-		frame := string(data[:idx])
-		buf.Next(idx + len(sep))
-		return frame, true
+	crlfIdx := bytes.Index(data, []byte("\r\n\r\n"))
+	lfIdx := bytes.Index(data, []byte("\n\n"))
+	idx := -1
+	sepLen := 0
+	if crlfIdx >= 0 {
+		idx = crlfIdx
+		sepLen = len("\r\n\r\n")
 	}
-	return "", false
+	if lfIdx >= 0 && (idx < 0 || lfIdx < idx) {
+		idx = lfIdx
+		sepLen = len("\n\n")
+	}
+	if idx < 0 {
+		return "", false
+	}
+	frame := string(data[:idx])
+	buf.Next(idx + sepLen)
+	return frame, true
 }

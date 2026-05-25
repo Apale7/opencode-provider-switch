@@ -91,6 +91,7 @@ type Server struct {
 	FirstByteTimeoutMs      int            `json:"first_byte_timeout_ms,omitempty"`
 	RequestReadTimeoutMs    int            `json:"request_read_timeout_ms,omitempty"`
 	StreamIdleTimeoutMs     int            `json:"stream_idle_timeout_ms,omitempty"`
+	StreamPrecommitBufferMs int            `json:"stream_precommit_buffer_ms,omitempty"`
 	FailoverStatusCodes     []int          `json:"failover_status_codes"`
 	Routing                 routing.Config `json:"routing,omitempty"`
 }
@@ -109,6 +110,7 @@ const (
 	DefaultFirstByteTimeoutMs      = 15_000
 	DefaultRequestReadTimeoutMs    = 30_000
 	DefaultStreamIdleTimeoutMs     = 60_000
+	DefaultStreamPrecommitBufferMs = 0
 )
 
 var defaultFailoverStatusCodes = []int{401, 402, 403, 429}
@@ -262,6 +264,7 @@ func Default() *Config {
 			FirstByteTimeoutMs:      DefaultFirstByteTimeoutMs,
 			RequestReadTimeoutMs:    DefaultRequestReadTimeoutMs,
 			StreamIdleTimeoutMs:     DefaultStreamIdleTimeoutMs,
+			StreamPrecommitBufferMs: DefaultStreamPrecommitBufferMs,
 			FailoverStatusCodes:     DefaultFailoverStatusCodes(),
 			Routing:                 routing.Config{Strategy: routing.DefaultStrategy},
 		},
@@ -904,6 +907,9 @@ func (c *Config) Validate() []error {
 	if c.Server.StreamIdleTimeoutMs <= 0 {
 		errs = append(errs, fmt.Errorf("server.stream_idle_timeout_ms must be greater than 0"))
 	}
+	if c.Server.StreamPrecommitBufferMs < 0 {
+		errs = append(errs, fmt.Errorf("server.stream_precommit_buffer_ms must be greater than or equal to 0"))
+	}
 	if err := ValidateFailoverStatusCodes(c.Server.FailoverStatusCodes); err != nil {
 		errs = append(errs, err)
 	}
@@ -934,6 +940,7 @@ func normalizeServerTimeouts(server *Server) {
 	server.FirstByteTimeoutMs = normalizeServerTimeoutMs(server.FirstByteTimeoutMs, DefaultFirstByteTimeoutMs)
 	server.RequestReadTimeoutMs = normalizeServerTimeoutMs(server.RequestReadTimeoutMs, DefaultRequestReadTimeoutMs)
 	server.StreamIdleTimeoutMs = normalizeServerTimeoutMs(server.StreamIdleTimeoutMs, DefaultStreamIdleTimeoutMs)
+	server.StreamPrecommitBufferMs = normalizeServerNonNegativeMs(server.StreamPrecommitBufferMs, DefaultStreamPrecommitBufferMs)
 }
 
 func normalizeServerFailoverStatusCodes(server *Server) {
@@ -984,6 +991,13 @@ func normalizeServerRouting(server *Server) {
 
 func normalizeServerTimeoutMs(value int, fallback int) int {
 	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func normalizeServerNonNegativeMs(value int, fallback int) int {
+	if value < 0 {
 		return fallback
 	}
 	return value

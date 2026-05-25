@@ -394,6 +394,7 @@ Retryable failover cases:
 - Connect failure
 - DNS / network error
 - Upstream timeout or disconnect before first byte
+- The SSE pre-commit buffer sees only metadata / ping / fake-start frames before any downstream bytes are written
 - Upstream `5xx`
 - Upstream status codes listed in `server.failover_status_codes`; defaults are `401` / `402` / `403` / `429`
 
@@ -402,6 +403,11 @@ No failover:
 - Alias missing, disabled, or without routable targets
 - Upstream `4xx` not configured as retryable, such as default `400` / `404`
 - Error after response bytes have already started
+
+Streaming has two related settings:
+
+- `server.stream_idle_timeout_ms` defaults to `60000`. SSE streams also obey this idle timeout. If the upstream stalls after bytes have already been written downstream, `ocswitch` writes a protocol-compatible SSE error event, flushes, and closes the stream. It does not switch providers and does not append a fake `[DONE]`.
+- `server.stream_precommit_buffer_ms` defaults to `0`. With `0`, 2xx SSE responses are committed immediately. When set to a positive value, `ocswitch` briefly buffers raw SSE frames before committing so metadata / ping / fake-start-only streams can fail over to the next target before the client sees bytes. Positive values increase first-byte / commit latency; use `3000`-`5000` ms for coding continuity, or `8000`-`10000` ms for slow or high-latency providers.
 
 The default `circuit-breaker` strategy temporarily skips a provider after consecutive retryable failures, then probes it in half-open mode after cooldown. Failure thresholds, cooldowns, backoff, half-open concurrency, and related parameters can be changed in desktop `Settings` or config `server.routing`. Extra HTTP status codes that trigger failover can be changed in `Settings` or `server.failover_status_codes`; clearing the list keeps only `5xx` failover.
 

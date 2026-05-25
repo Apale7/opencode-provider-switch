@@ -1,0 +1,81 @@
+{
+  "id": "sse-idle-precommit-buffer",
+  "name": "sse-idle-precommit-buffer",
+  "title": "Improve SSE hang UX with idle timeout and precommit buffer",
+  "description": "Add SSE idle timeout enforcement and optional precommit buffering so fake-started or stalled upstream streams fail fast or fail over safely before downstream commit.",
+  "status": "planning",
+  "dev_type": "fullstack",
+  "scope": "proxy-sse-timeouts",
+  "package": null,
+  "priority": "P2",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-05-21",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/proxy/server.go",
+    "internal/proxy/server_test.go",
+    "internal/proxy/usage_collector.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/app/types.go",
+    "internal/app/service.go",
+    "internal/app/service_test.go",
+    "frontend/src/App.tsx",
+    "frontend/src/types.ts",
+    "frontend/src/i18n/locales/en.json",
+    "frontend/src/i18n/locales/zh-CN.json",
+    "frontend/wailsjs/go/models.ts"
+  ],
+  "notes": "Plan Review approved. Core boundaries: before downstream commit, precommit stalls are retryable and can fail over; after downstream commit, no transparent provider switch, only protocol SSE error event plus close. New setting stream_precommit_buffer_ms defaults to 0. Existing stream_idle_timeout_ms must apply to SSE post-first-byte reads.",
+  "meta": {
+    "planReview": "APPROVED",
+    "recommendedValues": {
+      "defaultStreamPrecommitBufferMs": 0,
+      "codingContinuityStreamPrecommitBufferMs": "3000-5000",
+      "slowProviderStreamPrecommitBufferMs": "8000-10000"
+    },
+    "verification": [
+      "go test ./internal/proxy ./internal/config ./internal/app",
+      "go test ./...",
+      "npm run build (frontend/)",
+      "local opencode audit after backend module",
+      "local opencode audit after frontend module"
+    ]
+  }
+}

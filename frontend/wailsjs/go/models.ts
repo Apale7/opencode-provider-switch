@@ -1290,6 +1290,7 @@ export namespace app {
 	    firstByteTimeoutMs: number;
 	    requestReadTimeoutMs: number;
 	    streamIdleTimeoutMs: number;
+	    streamPrecommitBufferMs: number;
 	    failoverStatusCodes: number[];
 	    routing: ProxyRoutingSettingsInput;
 	
@@ -1304,6 +1305,7 @@ export namespace app {
 	        this.firstByteTimeoutMs = source["firstByteTimeoutMs"];
 	        this.requestReadTimeoutMs = source["requestReadTimeoutMs"];
 	        this.streamIdleTimeoutMs = source["streamIdleTimeoutMs"];
+	        this.streamPrecommitBufferMs = source["streamPrecommitBufferMs"];
 	        this.failoverStatusCodes = source["failoverStatusCodes"];
 	        this.routing = this.convertValues(source["routing"], ProxyRoutingSettingsInput);
 	    }
@@ -1332,6 +1334,7 @@ export namespace app {
 	    firstByteTimeoutMs: number;
 	    requestReadTimeoutMs: number;
 	    streamIdleTimeoutMs: number;
+	    streamPrecommitBufferMs: number;
 	    failoverStatusCodes: number[];
 	    routing: ProxyRoutingSettingsView;
 	
@@ -1346,6 +1349,7 @@ export namespace app {
 	        this.firstByteTimeoutMs = source["firstByteTimeoutMs"];
 	        this.requestReadTimeoutMs = source["requestReadTimeoutMs"];
 	        this.streamIdleTimeoutMs = source["streamIdleTimeoutMs"];
+	        this.streamPrecommitBufferMs = source["streamPrecommitBufferMs"];
 	        this.failoverStatusCodes = source["failoverStatusCodes"];
 	        this.routing = this.convertValues(source["routing"], ProxyRoutingSettingsView);
 	    }
@@ -2011,4 +2015,3 @@ export namespace desktop {
 	}
 
 }
-

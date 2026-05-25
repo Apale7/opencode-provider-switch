@@ -859,10 +859,69 @@ func (s *Server) tryOnce(
 
 	isEventStream := false
 	streamIdleTimeout := timeoutDuration(state.cfg.Server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
+	streamPrecommitBuffer := nonNegativeDuration(state.cfg.Server.StreamPrecommitBufferMs)
 	if mediaType, _, parseErr := mime.ParseMediaType(resp.Header.Get("Content-Type")); parseErr == nil {
 		isEventStream = mediaType == "text/event-stream"
 	}
 	usageCollector := newUsageCollector(protocol, resp.Header.Get("Content-Type"))
+	sseState := newSSEStreamState(protocol)
+	firstChunkClassified := false
+
+	if isEventStream && streamPrecommitBuffer > 0 {
+		precommit, precommitErr := s.runSSEPrecommitBuffer(ssePrecommitInput{
+			body:             resp.Body,
+			firstChunk:       firstChunk,
+			protocol:         protocol,
+			idleTimeout:      streamIdleTimeout,
+			precommitWindow:  streamPrecommitBuffer,
+			usageCollector:   usageCollector,
+			classifier:       sseState,
+			precommitStarted: time.Now(),
+		})
+		if precommitErr != nil {
+			if trace != nil {
+				applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "upstream stream ended before downstream commit"))
+			}
+			if attemptTrace != nil {
+				attemptTrace.Retryable = true
+				attemptTrace.Result = precommit.result
+				attemptTrace.Error = precommitErr.Error()
+			}
+			return false, false, true, precommitErr, nil
+		}
+		firstChunk = precommit.buffered.Bytes()
+		firstChunkClassified = true
+		if precommit.terminal {
+			s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
+			s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
+			copyResponseHeaders(w.Header(), resp.Header)
+			w.WriteHeader(resp.StatusCode)
+			flusher, _ := w.(http.Flusher)
+			if len(firstChunk) > 0 {
+				if _, werr := w.Write(firstChunk); werr != nil {
+					if trace != nil {
+						applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
+					}
+					if attemptTrace != nil {
+						attemptTrace.Result = "downstream_write_error"
+						attemptTrace.Error = werr.Error()
+					}
+					return true, false, false, werr, nil
+				}
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+			if trace != nil {
+				applyUsageToTrace(trace, usageCollector.Usage())
+			}
+			if attemptTrace != nil {
+				attemptTrace.Result = "success"
+				attemptTrace.Success = true
+			}
+			return true, true, false, nil, nil
+		}
+	}
 
 	s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
 	s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
@@ -870,7 +929,35 @@ func (s *Server) tryOnce(
 	w.WriteHeader(resp.StatusCode)
 	flusher, _ := w.(http.Flusher)
 	if len(firstChunk) > 0 {
-		usageCollector.Add(firstChunk)
+		if !firstChunkClassified {
+			usageCollector.Add(firstChunk)
+		}
+		if isEventStream && !firstChunkClassified {
+			signal := sseState.Add(firstChunk)
+			if signal.terminal {
+				if _, werr := w.Write(firstChunk); werr != nil {
+					if trace != nil {
+						applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
+					}
+					if attemptTrace != nil {
+						attemptTrace.Result = "downstream_write_error"
+						attemptTrace.Error = werr.Error()
+					}
+					return true, false, false, werr, nil
+				}
+				if flusher != nil {
+					flusher.Flush()
+				}
+				if trace != nil {
+					applyUsageToTrace(trace, usageCollector.Usage())
+				}
+				if attemptTrace != nil {
+					attemptTrace.Result = "success"
+					attemptTrace.Success = true
+				}
+				return true, true, false, nil, nil
+			}
+		}
 		if _, werr := w.Write(firstChunk); werr != nil {
 			if trace != nil {
 				applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
@@ -891,13 +978,13 @@ func (s *Server) tryOnce(
 			n    int
 			rerr error
 		)
-		if isEventStream {
-			n, rerr = resp.Body.Read(buf)
-		} else {
-			n, rerr = readChunkWithTimeout(resp.Body, buf, streamIdleTimeout)
-		}
+		n, rerr = readChunkWithTimeout(resp.Body, buf, streamIdleTimeout)
 		if n > 0 {
 			usageCollector.Add(buf[:n])
+			terminal := false
+			if isEventStream {
+				terminal = sseState.Add(buf[:n]).terminal
+			}
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				if trace != nil {
 					applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
@@ -911,6 +998,16 @@ func (s *Server) tryOnce(
 			if flusher != nil {
 				flusher.Flush()
 			}
+			if terminal {
+				if trace != nil {
+					applyUsageToTrace(trace, usageCollector.Usage())
+				}
+				if attemptTrace != nil {
+					attemptTrace.Result = "success"
+					attemptTrace.Success = true
+				}
+				return true, true, false, nil, nil
+			}
 		}
 		if rerr != nil {
 			if errors.Is(rerr, io.EOF) {
@@ -922,6 +1019,30 @@ func (s *Server) tryOnce(
 					attemptTrace.Success = true
 				}
 				return true, true, false, nil, nil
+			}
+			if isEventStream && errors.Is(rerr, errStreamIdleTimeout) {
+				message := fmt.Sprintf("upstream stream idle timeout after %s", streamIdleTimeout)
+				if _, werr := w.Write(sseStreamErrorEvent(protocol, "upstream_stream_idle_timeout", message)); werr != nil {
+					if trace != nil {
+						applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
+					}
+					if attemptTrace != nil {
+						attemptTrace.Result = "downstream_write_error"
+						attemptTrace.Error = werr.Error()
+					}
+					return true, false, false, werr, nil
+				}
+				if flusher != nil {
+					flusher.Flush()
+				}
+				if trace != nil {
+					applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "upstream stream idle timeout before usage finalized"))
+				}
+				if attemptTrace != nil {
+					attemptTrace.Result = "stream_idle_timeout"
+					attemptTrace.Error = message
+				}
+				return true, false, false, fmt.Errorf("%s", message), nil
 			}
 			s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream body read failed after response start: %v", aliasName, attempt, provider.ID, target.Model, rerr)
 			if trace != nil {
@@ -941,6 +1062,88 @@ func isRetryableStatusCode(statusCode int, failoverStatusCodes []int) bool {
 		return true
 	}
 	return slices.Contains(failoverStatusCodes, statusCode)
+}
+
+type ssePrecommitInput struct {
+	body             io.Reader
+	firstChunk       []byte
+	protocol         string
+	idleTimeout      time.Duration
+	precommitWindow  time.Duration
+	usageCollector   usageCollector
+	classifier       *sseStreamState
+	precommitStarted time.Time
+}
+
+type ssePrecommitResult struct {
+	buffered bytes.Buffer
+	terminal bool
+	result   string
+}
+
+func (s *Server) runSSEPrecommitBuffer(in ssePrecommitInput) (ssePrecommitResult, error) {
+	var result ssePrecommitResult
+	if in.precommitStarted.IsZero() {
+		in.precommitStarted = time.Now()
+	}
+	if in.classifier == nil {
+		in.classifier = newSSEStreamState(in.protocol)
+	}
+	if len(in.firstChunk) > 0 {
+		_, _ = result.buffered.Write(in.firstChunk)
+		if in.usageCollector != nil {
+			in.usageCollector.Add(in.firstChunk)
+		}
+		signal := in.classifier.Add(in.firstChunk)
+		if signal.terminal {
+			result.terminal = true
+			return result, nil
+		}
+		if signal.commitWorth || result.buffered.Len() >= ssePrecommitBufferCapBytes {
+			return result, nil
+		}
+	}
+	buf := make([]byte, 16<<10)
+	for {
+		remaining := in.precommitWindow - time.Since(in.precommitStarted)
+		if remaining <= 0 {
+			result.result = "precommit_no_content_timeout"
+			return result, fmt.Errorf("upstream stream precommit buffer expired after %s", in.precommitWindow)
+		}
+		deadline := minDuration(in.idleTimeout, remaining)
+		n, rerr := readChunkWithTimeout(in.body, buf, deadline)
+		if n > 0 {
+			chunk := append([]byte(nil), buf[:n]...)
+			_, _ = result.buffered.Write(chunk)
+			if in.usageCollector != nil {
+				in.usageCollector.Add(chunk)
+			}
+			signal := in.classifier.Add(chunk)
+			if signal.terminal {
+				result.terminal = true
+				return result, nil
+			}
+			if signal.commitWorth || result.buffered.Len() >= ssePrecommitBufferCapBytes {
+				return result, nil
+			}
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				result.result = "precommit_incomplete_stream"
+				return result, fmt.Errorf("upstream stream ended before commit-worthy SSE content")
+			}
+			if errors.Is(rerr, errStreamIdleTimeout) {
+				if remaining <= in.idleTimeout {
+					result.result = "precommit_no_content_timeout"
+					return result, fmt.Errorf("upstream stream precommit buffer expired after %s", in.precommitWindow)
+				}
+				result.result = "precommit_stream_idle_timeout"
+				return result, fmt.Errorf("upstream stream idle timeout before downstream commit after %s", in.idleTimeout)
+			}
+			result.result = "precommit_stream_error"
+			return result, fmt.Errorf("upstream stream read before downstream commit: %w", rerr)
+		}
+	}
 }
 
 func jsonNumberToInt64(value any) (int64, bool) {
@@ -1146,6 +1349,13 @@ func timeoutDuration(value int, fallback int) time.Duration {
 	return time.Duration(value) * time.Millisecond
 }
 
+func nonNegativeDuration(value int) time.Duration {
+	if value < 0 {
+		value = 0
+	}
+	return time.Duration(value) * time.Millisecond
+}
+
 func minDuration(a time.Duration, b time.Duration) time.Duration {
 	if a <= b {
 		return a
@@ -1274,7 +1484,10 @@ func classifyFailureReason(attempt TraceAttempt, retryable bool) routing.Failure
 	if attempt.StatusCode >= 400 && attempt.StatusCode < 500 {
 		return routing.FailureUpstream4xx
 	}
-	if attempt.Result == "stream_error" || attempt.Result == "downstream_write_error" {
+	if strings.Contains(attempt.Result, "timeout") {
+		return routing.FailureTimeout
+	}
+	if attempt.Result == "stream_error" || attempt.Result == "downstream_write_error" || strings.Contains(attempt.Result, "stream") {
 		return routing.FailureStreamBroken
 	}
 	return routing.FailureUnknown

@@ -396,6 +396,7 @@ ocswitch --config /path/to/config.json doctor
 - 连接失败
 - DNS / 网络错误
 - 上游在返回首字节前超时或断开
+- SSE 提交前缓冲窗口内只收到 metadata / ping / 假开头，且尚未向下游写出字节
 - 上游返回 `5xx`
 - 上游返回配置在 `server.failover_status_codes` 里的状态码，默认是 `401` / `402` / `403` / `429`
 
@@ -404,6 +405,11 @@ ocswitch --config /path/to/config.json doctor
 - alias 不存在、被禁用或没有可用 target
 - 上游返回未配置为可切换的 `4xx`，例如默认下的 `400` / `404`
 - 响应已经开始向客户端写出后才出错
+
+流式响应有两个相关配置：
+
+- `server.stream_idle_timeout_ms` 默认 `60000`。SSE 也会遵守这个空闲超时；如果响应已经写给客户端后上游停滞，`ocswitch` 会写出协议兼容的 SSE error event、flush 并关闭流，不会切换到另一个 provider，也不会补假的 `[DONE]`。
+- `server.stream_precommit_buffer_ms` 默认 `0`。保持 `0` 时 2xx SSE 会立即提交给客户端；设为正数时，`ocswitch` 会在提交前短暂缓冲原始 SSE frame，用于把只有 metadata / ping / 假开头且没有真实内容的上游失败切到下一个 target。正值会增加首字节/提交延迟；编程连续性场景建议 `3000`-`5000` 毫秒，慢速或高延迟 provider 可考虑 `8000`-`10000` 毫秒。
 
 默认 `circuit-breaker` 策略会在 provider 连续出现可重试失败后，冷却一段时间并临时跳过它；冷却结束后再以半开探测方式恢复。失败阈值、冷却时间、回退倍率、半开并发等参数可在桌面 `Settings` 或配置文件 `server.routing` 中调整。额外触发切换的 HTTP 状态码可在 `Settings` 或 `server.failover_status_codes` 中调整；清空列表表示只保留 `5xx` 切换。
 

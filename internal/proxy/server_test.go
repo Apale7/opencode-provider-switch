@@ -1428,7 +1428,7 @@ func TestHandleResponsesFailsOverOnEmptySSE200(t *testing.T) {
 	}
 }
 
-func TestHandleResponsesSSEBypassesIdleTimeout(t *testing.T) {
+func TestHandleResponsesSSEIdleTimeoutEmitsProtocolError(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -1465,8 +1465,496 @@ func TestHandleResponsesSSEBypassesIdleTimeout(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if body := rr.Body.String(); body != "data: first\n\ndata: second\n\n" {
-		t.Fatalf("body = %q, want both SSE chunks", body)
+	body := rr.Body.String()
+	if !strings.Contains(body, "data: first\n\n") {
+		t.Fatalf("body = %q, want first SSE chunk", body)
+	}
+	if strings.Contains(body, "data: second") {
+		t.Fatalf("body = %q, second chunk should not be forwarded after idle timeout", body)
+	}
+	if !strings.Contains(body, "upstream_stream_idle_timeout") {
+		t.Fatalf("body = %q, want protocol idle timeout error", body)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || traces[0].Success || traces[0].Attempts[0].Result != "stream_idle_timeout" {
+		t.Fatalf("trace = %#v, want failed stream_idle_timeout", traces)
+	}
+}
+
+func TestHandleResponsesTerminalMarkerSuccessDespiteUpstreamHang(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"event: response.completed",
+			`data: {"type":"response.completed","response":{"usage":{"input_tokens":4,"output_tokens":2}}}`,
+			"",
+			"",
+		}, "\n")))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 30},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	started := time.Now()
+	srv.handleResponses(rr, req)
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("handleResponses elapsed = %s, want early return after terminal marker", elapsed)
+	}
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "response.completed") || strings.Contains(body, "upstream_stream_idle_timeout") {
+		t.Fatalf("body = %q, want completed event without synthetic idle error", body)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || !traces[0].Success || traces[0].InputTokens != 4 || traces[0].OutputTokens != 2 {
+		t.Fatalf("trace = %#v, want success and usage from terminal event", traces)
+	}
+}
+
+func TestHandleResponsesPrecommitMetadataOnlyFailsOver(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp-1"}}`,
+			"",
+		}, "\n")))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer first.Close()
+
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 200, StreamPrecommitBufferMs: 30},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1"},
+			{ID: "p2", BaseURL: second.URL + "/v1"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 2", got)
+	}
+	if body := rr.Body.String(); strings.Contains(body, "response.created") || !strings.Contains(body, "response.output_text.delta") {
+		t.Fatalf("body = %q, want only second provider content", body)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || !traces[0].Failover || len(traces[0].Attempts) != 2 || traces[0].Attempts[0].Result != "precommit_no_content_timeout" {
+		t.Fatalf("trace = %#v, want precommit retry then failover", traces)
+	}
+}
+
+func TestHandleResponsesPrecommitOutputItemCommits(t *testing.T) {
+	calledSecond := false
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"event: response.output_item.added",
+			`data: {"type":"response.output_item.added","item":{"id":"item-1","type":"message","status":"in_progress","content":[]}}`,
+			"",
+			"",
+		}, "\n")))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer first.Close()
+
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledSecond = true
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 200, StreamPrecommitBufferMs: 30},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1"},
+			{ID: "p2", BaseURL: second.URL + "/v1"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "1" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 1", got)
+	}
+	if calledSecond {
+		t.Fatal("second provider should not be called after output_item commit")
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "response.output_item.added") || strings.Contains(body, "response.output_text.delta") {
+		t.Fatalf("body = %q, want first provider output_item", body)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || traces[0].Failover || traces[0].Success || len(traces[0].Attempts) != 1 || traces[0].Attempts[0].Result != "stream_idle_timeout" {
+		t.Fatalf("trace = %#v, want output_item committed then post-commit idle failure without failover", traces)
+	}
+}
+
+func TestHandleMessagesPrecommitContentBlockStartCommits(t *testing.T) {
+	calledSecond := false
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"event: message_start",
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}`,
+			"",
+			"event: content_block_start",
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			"",
+			"",
+		}, "\n")))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer first.Close()
+
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledSecond = true
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 200, StreamPrecommitBufferMs: 30},
+		Providers: []config.Provider{
+			{ID: "p1", Protocol: config.ProtocolAnthropicMessages, BaseURL: first.URL + "/v1", APIKey: "sk-1"},
+			{ID: "p2", Protocol: config.ProtocolAnthropicMessages, BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+		},
+		Aliases: []config.Alias{{
+			Alias:    "claude",
+			Protocol: config.ProtocolAnthropicMessages,
+			Enabled:  true,
+			Targets:  []config.Target{{Provider: "p1", Model: "claude-1", Enabled: true}, {Provider: "p2", Model: "claude-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude","stream":true}`))
+	req.Header.Set("X-Api-Key", config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "1" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 1", got)
+	}
+	if calledSecond {
+		t.Fatal("second provider should not be called after content_block_start commit")
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "content_block_start") || strings.Contains(body, "content_block_delta") {
+		t.Fatalf("body = %q, want first provider content_block_start", body)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || traces[0].Failover || traces[0].Success || len(traces[0].Attempts) != 1 || traces[0].Attempts[0].Result != "stream_idle_timeout" {
+		t.Fatalf("trace = %#v, want content_block_start committed then post-commit idle failure without failover", traces)
+	}
+}
+
+func TestHandleCompletionsPrecommitFakeToolCallFailsOver(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\"}}]}}]}\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer first.Close()
+
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 200, StreamPrecommitBufferMs: 30},
+		Providers: []config.Provider{
+			{ID: "p1", Protocol: config.ProtocolOpenAICompatible, BaseURL: first.URL + "/v1", APIKey: "sk-1"},
+			{ID: "p2", Protocol: config.ProtocolOpenAICompatible, BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+		},
+		Aliases: []config.Alias{{
+			Alias:    "chat",
+			Protocol: config.ProtocolOpenAICompatible,
+			Enabled:  true,
+			Targets:  []config.Target{{Provider: "p1", Model: "chat-1", Enabled: true}, {Provider: "p2", Model: "chat-2", Enabled: true}},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"chat","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleCompletions(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 2", got)
+	}
+	if body := rr.Body.String(); strings.Contains(body, "tool_calls") || !strings.Contains(body, "content") {
+		t.Fatalf("body = %q, want fake tool call hidden and second provider content", body)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || !traces[0].Failover || len(traces[0].Attempts) != 2 || traces[0].Attempts[0].Result != "precommit_no_content_timeout" {
+		t.Fatalf("trace = %#v, want OpenAI-compatible fake-start precommit retry", traces)
+	}
+}
+
+func TestHandleResponsesPrecommitContinuousMetadataExpires(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		_, _ = w.Write([]byte("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				_, _ = w.Write([]byte(": ping\n\n"))
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+		}
+	}))
+	defer first.Close()
+
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"unknown\":true}\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 80, StreamPrecommitBufferMs: 30},
+		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1"}, {ID: "p2", BaseURL: second.URL + "/v1"}},
+		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}}}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-OCSWITCH-Attempt"); got != "2" {
+		t.Fatalf("X-OCSWITCH-Attempt = %q, want 2", got)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if traces[0].Attempts[0].Result != "precommit_no_content_timeout" {
+		t.Fatalf("first attempt = %#v, want absolute precommit timeout", traces[0].Attempts[0])
+	}
+}
+
+func TestHandleResponsesPrecommitUnknownNonEmptyDataCommits(t *testing.T) {
+	calledSecond := false
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"unknown\":true}\n\n"))
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledSecond = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 80, StreamPrecommitBufferMs: 50},
+		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1"}, {ID: "p2", BaseURL: second.URL + "/v1"}},
+		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}}}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if calledSecond {
+		t.Fatal("second provider should not be called after unknown non-empty SSE commits")
+	}
+	if body := rr.Body.String(); body != "data: {\"unknown\":true}\n\n" {
+		t.Fatalf("body = %q, want original unknown data frame", body)
+	}
+}
+
+func TestSSEStreamStateClassifiesSplitFramesAndTerminals(t *testing.T) {
+	state := newSSEStreamState(config.ProtocolOpenAIResponses)
+	if signal := state.Add([]byte("event: response.output_text.delta\ndata: {\"type\":")); signal.commitWorth || signal.terminal {
+		t.Fatalf("partial frame signal = %#v, want none", signal)
+	}
+	if signal := state.Add([]byte("\"response.output_text.delta\",\"delta\":\"hi\"}\n\n")); !signal.commitWorth || signal.terminal {
+		t.Fatalf("completed content frame signal = %#v, want commit-worthy", signal)
+	}
+	if signal := newSSEStreamState(config.ProtocolOpenAICompatible).Add([]byte("data: [DONE]\n\n")); !signal.terminal || signal.commitWorth {
+		t.Fatalf("OpenAI-compatible DONE signal = %#v, want terminal", signal)
+	}
+	if signal := newSSEStreamState(config.ProtocolAnthropicMessages).Add([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")); !signal.terminal || signal.commitWorth {
+		t.Fatalf("Anthropic stop signal = %#v, want terminal", signal)
+	}
+	if signal := newSSEStreamState(config.ProtocolAnthropicMessages).Add([]byte("event: message_stop\n\n")); !signal.terminal || signal.commitWorth {
+		t.Fatalf("Anthropic empty stop signal = %#v, want terminal", signal)
+	}
+}
+
+func TestNextSSEFrameUsesEarliestSeparator(t *testing.T) {
+	buf := bytes.NewBufferString("data: one\n\ndata: two\r\n\r\n")
+	frame, ok := nextSSEFrame(buf)
+	if !ok || frame != "data: one" {
+		t.Fatalf("first frame = %q ok=%v, want earliest LF frame", frame, ok)
+	}
+	frame, ok = nextSSEFrame(buf)
+	if !ok || frame != "data: two" {
+		t.Fatalf("second frame = %q ok=%v, want CRLF frame", frame, ok)
+	}
+}
+
+func TestSSEStreamErrorEventShapes(t *testing.T) {
+	message := "timeout message"
+	responses := string(sseStreamErrorEvent(config.ProtocolOpenAIResponses, "upstream_stream_idle_timeout", message))
+	if !strings.HasPrefix(responses, "event: error\n") || !strings.Contains(responses, `"type":"error"`) || !strings.Contains(responses, `"code":"upstream_stream_idle_timeout"`) {
+		t.Fatalf("OpenAI Responses error event = %q", responses)
+	}
+	compatible := string(sseStreamErrorEvent(config.ProtocolOpenAICompatible, "upstream_stream_idle_timeout", message))
+	if strings.Contains(compatible, "event: error") || !strings.Contains(compatible, `"error"`) || !strings.Contains(compatible, `"code":"upstream_stream_idle_timeout"`) {
+		t.Fatalf("OpenAI-compatible error event = %q", compatible)
+	}
+	anthropic := string(sseStreamErrorEvent(config.ProtocolAnthropicMessages, "upstream_stream_idle_timeout", message))
+	if !strings.HasPrefix(anthropic, "event: error\n") || !strings.Contains(anthropic, `"type":"api_error"`) || strings.Contains(anthropic, "upstream_stream_idle_timeout") {
+		t.Fatalf("Anthropic error event = %q", anthropic)
+	}
+}
+
+func TestSSEPrecommitBufferCapForcesCommit(t *testing.T) {
+	firstChunk := []byte(strings.Repeat(": keepalive\n\n", (ssePrecommitBufferCapBytes/12)+2))
+	srv := New(&config.Config{Server: config.Server{APIKey: config.DefaultLocalAPIKey}})
+	result, err := srv.runSSEPrecommitBuffer(ssePrecommitInput{
+		body:            bytes.NewReader(nil),
+		firstChunk:      firstChunk,
+		protocol:        config.ProtocolOpenAIResponses,
+		idleTimeout:     50 * time.Millisecond,
+		precommitWindow: 50 * time.Millisecond,
+		classifier:      newSSEStreamState(config.ProtocolOpenAIResponses),
+	})
+	if err != nil {
+		t.Fatalf("runSSEPrecommitBuffer() error = %v", err)
+	}
+	if result.terminal || result.buffered.Len() < ssePrecommitBufferCapBytes {
+		t.Fatalf("result = terminal:%v len:%d, want cap-forced commit", result.terminal, result.buffered.Len())
 	}
 }
 

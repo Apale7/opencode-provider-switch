@@ -534,6 +534,8 @@
     "firstByteTimeout": "First byte timeout (ms)",
     "requestReadTimeout": "Client request read timeout (ms)",
     "streamIdleTimeout": "Stream idle timeout (ms)",
+    "streamPrecommitBuffer": "SSE pre-commit buffer (ms)",
+    "streamPrecommitBufferHelp": "Default 0 commits immediately. Positive values increase first-byte / commit latency; use 3000-5000 ms for coding continuity, or 8000-10000 ms for slow or high-latency providers. After response bytes are sent, ocswitch will close with a stream error instead of switching providers.",
     "failoverStatusCodes": "Failover HTTP status codes",
     "failoverStatusCodesPlaceholder": "401, 402, 403, 429",
     "failoverStatusCodesHelp": "Comma or space separated status codes. 5xx always fails over; this list applies only before the response starts. Clear to disable extra status-code failover.",

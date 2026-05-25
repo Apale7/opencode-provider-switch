@@ -199,6 +199,7 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 		FirstByteTimeoutMs:      22000,
 		RequestReadTimeoutMs:    33000,
 		StreamIdleTimeoutMs:     70000,
+		StreamPrecommitBufferMs: 4000,
 		FailoverStatusCodes:     []int{403, 401, 401, 402, 429},
 		Routing: ProxyRoutingSettingsInput{
 			Strategy: "circuit-breaker",
@@ -208,7 +209,7 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveProxySettings() error = %v", err)
 	}
-	if result.Settings.ConnectTimeoutMs != 12000 || result.Settings.ResponseHeaderTimeoutMs != 21000 || result.Settings.FirstByteTimeoutMs != 22000 || result.Settings.RequestReadTimeoutMs != 33000 || result.Settings.StreamIdleTimeoutMs != 70000 {
+	if result.Settings.ConnectTimeoutMs != 12000 || result.Settings.ResponseHeaderTimeoutMs != 21000 || result.Settings.FirstByteTimeoutMs != 22000 || result.Settings.RequestReadTimeoutMs != 33000 || result.Settings.StreamIdleTimeoutMs != 70000 || result.Settings.StreamPrecommitBufferMs != 4000 {
 		t.Fatalf("SaveProxySettings() = %#v", result.Settings)
 	}
 
@@ -216,7 +217,7 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	if cfg.Server.ConnectTimeoutMs != 12000 || cfg.Server.ResponseHeaderTimeoutMs != 21000 || cfg.Server.FirstByteTimeoutMs != 22000 || cfg.Server.RequestReadTimeoutMs != 33000 || cfg.Server.StreamIdleTimeoutMs != 70000 {
+	if cfg.Server.ConnectTimeoutMs != 12000 || cfg.Server.ResponseHeaderTimeoutMs != 21000 || cfg.Server.FirstByteTimeoutMs != 22000 || cfg.Server.RequestReadTimeoutMs != 33000 || cfg.Server.StreamIdleTimeoutMs != 70000 || cfg.Server.StreamPrecommitBufferMs != 4000 {
 		t.Fatalf("persisted server settings = %#v", cfg.Server)
 	}
 	if !reflect.DeepEqual(cfg.Server.FailoverStatusCodes, []int{401, 402, 403, 429}) {
@@ -326,8 +327,21 @@ func TestSaveProxySettingsNormalizesNonPositiveValues(t *testing.T) {
 		cfg.Server.ResponseHeaderTimeoutMs != config.DefaultResponseHeaderTimeoutMs ||
 		cfg.Server.FirstByteTimeoutMs != config.DefaultFirstByteTimeoutMs ||
 		cfg.Server.RequestReadTimeoutMs != config.DefaultRequestReadTimeoutMs ||
-		cfg.Server.StreamIdleTimeoutMs != config.DefaultStreamIdleTimeoutMs {
+		cfg.Server.StreamIdleTimeoutMs != config.DefaultStreamIdleTimeoutMs ||
+		cfg.Server.StreamPrecommitBufferMs != config.DefaultStreamPrecommitBufferMs {
 		t.Fatalf("persisted server settings = %#v", cfg.Server)
+	}
+}
+
+func TestSaveProxySettingsRejectsNegativePrecommitBuffer(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	_, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{StreamPrecommitBufferMs: -1})
+	if err == nil || !strings.Contains(err.Error(), "server.stream_precommit_buffer_ms") {
+		t.Fatalf("SaveProxySettings() error = %v, want precommit validation error", err)
 	}
 }
 

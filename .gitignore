@@ -16,3 +16,5 @@ frontend/dist/
 frontend/dist/*
 !frontend/dist/embed-placeholder.txt
 frontend/node_modules/
+.codegraph/.gitignore
+.codegraph/config.json

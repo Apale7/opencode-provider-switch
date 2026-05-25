@@ -32,6 +32,7 @@ export type ProxySettingsView = {
   firstByteTimeoutMs: number
   requestReadTimeoutMs: number
   streamIdleTimeoutMs: number
+  streamPrecommitBufferMs: number
   failoverStatusCodes: number[]
   routing: ProxyRoutingSettingsView
 }

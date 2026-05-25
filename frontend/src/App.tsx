@@ -182,6 +182,7 @@ const emptyProxySettings: ProxySettingsView = {
   firstByteTimeoutMs: 15000,
   requestReadTimeoutMs: 30000,
   streamIdleTimeoutMs: 60000,
+  streamPrecommitBufferMs: 0,
   failoverStatusCodes: defaultFailoverStatusCodes,
   routing: {
     strategy: 'circuit-breaker',
@@ -1057,6 +1058,7 @@ function formatFailoverStatusCodes(statusCodes: number[] | undefined): string {
 function normalizeProxySettingsView(settings: ProxySettingsView): ProxySettingsView {
   return {
     ...settings,
+    streamPrecommitBufferMs: Math.max(0, settings.streamPrecommitBufferMs || 0),
     failoverStatusCodes: settings.failoverStatusCodes || [],
   }
 }
@@ -4772,6 +4774,19 @@ export default function App() {
                         setProxySettings((current) => ({ ...current, streamIdleTimeoutMs: Number(event.target.value) || 0 }))
                       }
                     />
+                  </label>
+                  <label>
+                    <span>{t('settings.streamPrecommitBuffer')}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1000}
+                      value={proxySettings.streamPrecommitBufferMs}
+                      onChange={(event) =>
+                        setProxySettings((current) => ({ ...current, streamPrecommitBufferMs: Math.max(0, Number(event.target.value) || 0) }))
+                      }
+                    />
+                    <p className="subtle">{t('settings.streamPrecommitBufferHelp')}</p>
                   </label>
                   <label>
                     <span>{t('settings.failoverStatusCodes')}</span>

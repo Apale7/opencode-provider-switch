@@ -338,6 +338,10 @@ func (s *Service) SaveProxySettings(ctx context.Context, in ProxySettingsInput) 
 	cfg.Server.FirstByteTimeoutMs = normalizePositiveInt(in.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
 	cfg.Server.RequestReadTimeoutMs = normalizePositiveInt(in.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs)
 	cfg.Server.StreamIdleTimeoutMs = normalizePositiveInt(in.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
+	if in.StreamPrecommitBufferMs < 0 {
+		return ProxySettingsSaveResult{}, fmt.Errorf("server.stream_precommit_buffer_ms must be greater than or equal to 0")
+	}
+	cfg.Server.StreamPrecommitBufferMs = in.StreamPrecommitBufferMs
 	if err := config.ValidateFailoverStatusCodes(in.FailoverStatusCodes); err != nil {
 		return ProxySettingsSaveResult{}, err
 	}
@@ -723,6 +727,7 @@ func proxySettingsView(server config.Server) ProxySettingsView {
 		FirstByteTimeoutMs:      normalizePositiveInt(server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs),
 		RequestReadTimeoutMs:    normalizePositiveInt(server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
 		StreamIdleTimeoutMs:     normalizePositiveInt(server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs),
+		StreamPrecommitBufferMs: normalizeNonNegativeInt(server.StreamPrecommitBufferMs, config.DefaultStreamPrecommitBufferMs),
 		FailoverStatusCodes:     config.NormalizeFailoverStatusCodes(server.FailoverStatusCodes),
 		Routing:                 routingSettingsView(server.Routing),
 	}
@@ -741,6 +746,13 @@ func routingInputJSON(value map[string]any) json.RawMessage {
 
 func normalizePositiveInt(value int, fallback int) int {
 	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func normalizeNonNegativeInt(value int, fallback int) int {
+	if value < 0 {
 		return fallback
 	}
 	return value

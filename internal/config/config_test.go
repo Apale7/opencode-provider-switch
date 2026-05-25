@@ -317,6 +317,32 @@ func TestValidateRejectsInvalidFailoverStatusCode(t *testing.T) {
 	}
 }
 
+func TestStreamPrecommitBufferDefaultsAndValidation(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	if cfg.Server.StreamPrecommitBufferMs != 0 {
+		t.Fatalf("default stream precommit buffer = %d, want 0", cfg.Server.StreamPrecommitBufferMs)
+	}
+	cfg.path = filepath.Join(t.TempDir(), "config.json")
+	cfg.Server.StreamPrecommitBufferMs = 5000
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	loaded, err := Load(cfg.path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Server.StreamPrecommitBufferMs != 5000 {
+		t.Fatalf("loaded stream precommit buffer = %d, want 5000", loaded.Server.StreamPrecommitBufferMs)
+	}
+	cfg.Server.StreamPrecommitBufferMs = -1
+	errs := cfg.Validate()
+	if len(errs) == 0 || !strings.Contains(errs[0].Error(), "server.stream_precommit_buffer_ms") {
+		t.Fatalf("Validate() errors = %#v, want stream_precommit_buffer_ms error", errs)
+	}
+}
+
 func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 	t.Parallel()
 	insertIndex := 1

@@ -534,6 +534,8 @@
     "firstByteTimeout": "首字节超时（毫秒）",
     "requestReadTimeout": "客户端请求读取超时（毫秒）",
     "streamIdleTimeout": "流空闲超时（毫秒）",
+    "streamPrecommitBuffer": "SSE 提交前缓冲（毫秒）",
+    "streamPrecommitBufferHelp": "默认 0 表示立即提交。正值会增加首字节/提交延迟；编程连续性建议 3000-5000，慢速或高延迟 provider 可用 8000-10000。响应字节已写出后，ocswitch 会用流式错误关闭，而不会切换 provider。",
     "failoverStatusCodes": "触发切换的 HTTP 状态码",
     "failoverStatusCodesPlaceholder": "401, 402, 403, 429",
     "failoverStatusCodesHelp": "可用逗号或空格分隔。5xx 永远会触发切换；这里配置的状态码只在响应开始前生效。清空表示关闭额外状态码切换。",
