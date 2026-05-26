@@ -183,6 +183,7 @@ const emptyProxySettings: ProxySettingsView = {
   requestReadTimeoutMs: 30000,
   streamIdleTimeoutMs: 60000,
   streamPrecommitBufferMs: 0,
+  excludeFirstTokenLatencyFromRate: true,
   failoverStatusCodes: defaultFailoverStatusCodes,
   routing: {
     strategy: 'circuit-breaker',
@@ -1059,6 +1060,7 @@ function normalizeProxySettingsView(settings: ProxySettingsView): ProxySettingsV
   return {
     ...settings,
     streamPrecommitBufferMs: Math.max(0, settings.streamPrecommitBufferMs || 0),
+    excludeFirstTokenLatencyFromRate: settings.excludeFirstTokenLatencyFromRate !== false,
     failoverStatusCodes: settings.failoverStatusCodes || [],
   }
 }
@@ -1425,29 +1427,35 @@ function traceGeneratedOutputTokens(trace: RequestTrace): number | null {
 	return null
 }
 
-function traceGenerationDurationMs(trace: RequestTrace): number | null {
-	if (typeof trace.firstTokenMs !== 'number' || trace.firstTokenMs <= 0 || !trace.durationMs || trace.durationMs <= trace.firstTokenMs) {
+function traceRateDurationMs(trace: RequestTrace, excludeFirstTokenLatency: boolean): number | null {
+	if (!trace.durationMs || trace.durationMs <= 0) {
+		return null
+	}
+	if (!excludeFirstTokenLatency) {
+		return trace.durationMs
+	}
+	if (typeof trace.firstTokenMs !== 'number' || trace.firstTokenMs <= 0 || trace.durationMs <= trace.firstTokenMs) {
 		return null
 	}
 	return trace.durationMs - trace.firstTokenMs
 }
 
-function formatTokenRate(trace: RequestTrace): string {
+function formatTokenRate(trace: RequestTrace, excludeFirstTokenLatency: boolean): string {
   const tokens = traceGeneratedOutputTokens(trace)
-  const generationDuration = traceGenerationDurationMs(trace)
-  if (!tokens || !generationDuration) {
+  const rateDuration = traceRateDurationMs(trace, excludeFirstTokenLatency)
+  if (!tokens || !rateDuration) {
     return '-'
   }
-  return `${((tokens * 1000) / generationDuration).toFixed(1)} token/s`
+  return `${((tokens * 1000) / rateDuration).toFixed(1)} token/s`
 }
 
-function formatCompactTokenRate(trace: RequestTrace): string {
+function formatCompactTokenRate(trace: RequestTrace, excludeFirstTokenLatency: boolean): string {
 	const tokens = traceGeneratedOutputTokens(trace)
-	const generationDuration = traceGenerationDurationMs(trace)
-	if (!tokens || !generationDuration) {
+	const rateDuration = traceRateDurationMs(trace, excludeFirstTokenLatency)
+	if (!tokens || !rateDuration) {
 		return '-'
 	}
-	return `${((tokens * 1000) / generationDuration).toFixed(2)} tok/s`
+	return `${((tokens * 1000) / rateDuration).toFixed(2)} tok/s`
 }
 
 function traceTotalTokens(trace: RequestTrace): number | null {
@@ -4156,7 +4164,7 @@ export default function App() {
 									<div className="trace-table-cell" role="cell" data-label={t('log.tablePerformance')}>
 										<div className="trace-table-metric">
 											<span className="trace-mono">
-											{`${formatCompactDuration(trace.firstTokenMs)} / ${formatCompactDuration(trace.durationMs)} / ${formatCompactTokenRate(trace)}`}
+											{`${formatCompactDuration(trace.firstTokenMs)} / ${formatCompactDuration(trace.durationMs)} / ${formatCompactTokenRate(trace, proxySettings.excludeFirstTokenLatencyFromRate)}`}
 											</span>
 											<TraceInfoPopover label={t('log.performanceInfo')}>
 												<dl className="trace-popover-list">
@@ -4174,7 +4182,7 @@ export default function App() {
 													</div>
 													<div>
 														<dt>{t('log.outputRate')}</dt>
-														<dd className="trace-mono">{formatCompactTokenRate(trace)}</dd>
+												<dd className="trace-mono">{formatCompactTokenRate(trace, proxySettings.excludeFirstTokenLatencyFromRate)}</dd>
 													</div>
 													<div>
 														<dt>{t('log.chainTitle')}</dt>
@@ -4821,10 +4829,21 @@ export default function App() {
                         setProxySettings((current) => ({ ...current, streamPrecommitBufferMs: Math.max(0, Number(event.target.value) || 0) }))
                       }
                     />
-                    <p className="subtle">{t('settings.streamPrecommitBufferHelp')}</p>
-                  </label>
-                  <label>
-                    <span>{t('settings.failoverStatusCodes')}</span>
+											<p className="subtle">{t('settings.streamPrecommitBufferHelp')}</p>
+										</label>
+										<label className="checkbox-row">
+											<input
+												type="checkbox"
+												checked={proxySettings.excludeFirstTokenLatencyFromRate}
+												onChange={(event) =>
+													setProxySettings((current) => ({ ...current, excludeFirstTokenLatencyFromRate: event.target.checked }))
+												}
+											/>
+											<span>{t('settings.excludeFirstTokenLatencyFromRate')}</span>
+										</label>
+										<p className="subtle">{t('settings.excludeFirstTokenLatencyFromRateHelp')}</p>
+										<label>
+											<span>{t('settings.failoverStatusCodes')}</span>
                     <input
                       type="text"
                       value={failoverStatusCodesText}
@@ -5923,7 +5942,7 @@ export default function App() {
 					</div>
                   <div>
                     <dt>{t('log.outputRate')}</dt>
-                    <dd>{formatTokenRate(selectedLogTrace)}</dd>
+                      <dd>{formatTokenRate(selectedLogTrace, proxySettings.excludeFirstTokenLatencyFromRate)}</dd>
                   </div>
                   <div>
                     <dt>{t('log.reasoningTokens')}</dt>

@@ -342,6 +342,9 @@ func (s *Service) SaveProxySettings(ctx context.Context, in ProxySettingsInput) 
 		return ProxySettingsSaveResult{}, fmt.Errorf("server.stream_precommit_buffer_ms must be greater than or equal to 0")
 	}
 	cfg.Server.StreamPrecommitBufferMs = in.StreamPrecommitBufferMs
+	if in.ExcludeFirstTokenLatencyFromRate != nil {
+		cfg.Server.ExcludeFirstTokenLatencyFromRate = *in.ExcludeFirstTokenLatencyFromRate
+	}
 	if err := config.ValidateFailoverStatusCodes(in.FailoverStatusCodes); err != nil {
 		return ProxySettingsSaveResult{}, err
 	}
@@ -722,14 +725,15 @@ func desktopPrefsView(prefs config.Desktop) DesktopPrefsView {
 
 func proxySettingsView(server config.Server) ProxySettingsView {
 	return ProxySettingsView{
-		ConnectTimeoutMs:        normalizePositiveInt(server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
-		ResponseHeaderTimeoutMs: normalizePositiveInt(server.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs),
-		FirstByteTimeoutMs:      normalizePositiveInt(server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs),
-		RequestReadTimeoutMs:    normalizePositiveInt(server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
-		StreamIdleTimeoutMs:     normalizePositiveInt(server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs),
-		StreamPrecommitBufferMs: normalizeNonNegativeInt(server.StreamPrecommitBufferMs, config.DefaultStreamPrecommitBufferMs),
-		FailoverStatusCodes:     config.NormalizeFailoverStatusCodes(server.FailoverStatusCodes),
-		Routing:                 routingSettingsView(server.Routing),
+		ConnectTimeoutMs:                 normalizePositiveInt(server.ConnectTimeoutMs, config.DefaultConnectTimeoutMs),
+		ResponseHeaderTimeoutMs:          normalizePositiveInt(server.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs),
+		FirstByteTimeoutMs:               normalizePositiveInt(server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs),
+		RequestReadTimeoutMs:             normalizePositiveInt(server.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs),
+		StreamIdleTimeoutMs:              normalizePositiveInt(server.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs),
+		StreamPrecommitBufferMs:          normalizeNonNegativeInt(server.StreamPrecommitBufferMs, config.DefaultStreamPrecommitBufferMs),
+		ExcludeFirstTokenLatencyFromRate: server.ExcludeFirstTokenLatencyFromRate,
+		FailoverStatusCodes:              config.NormalizeFailoverStatusCodes(server.FailoverStatusCodes),
+		Routing:                          routingSettingsView(server.Routing),
 	}
 }
 

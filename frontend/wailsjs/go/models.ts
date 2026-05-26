@@ -1291,6 +1291,7 @@ export namespace app {
 	    requestReadTimeoutMs: number;
 	    streamIdleTimeoutMs: number;
 	    streamPrecommitBufferMs: number;
+	    excludeFirstTokenLatencyFromRate?: boolean;
 	    failoverStatusCodes: number[];
 	    routing: ProxyRoutingSettingsInput;
 	
@@ -1306,6 +1307,7 @@ export namespace app {
 	        this.requestReadTimeoutMs = source["requestReadTimeoutMs"];
 	        this.streamIdleTimeoutMs = source["streamIdleTimeoutMs"];
 	        this.streamPrecommitBufferMs = source["streamPrecommitBufferMs"];
+	        this.excludeFirstTokenLatencyFromRate = source["excludeFirstTokenLatencyFromRate"];
 	        this.failoverStatusCodes = source["failoverStatusCodes"];
 	        this.routing = this.convertValues(source["routing"], ProxyRoutingSettingsInput);
 	    }
@@ -1335,6 +1337,7 @@ export namespace app {
 	    requestReadTimeoutMs: number;
 	    streamIdleTimeoutMs: number;
 	    streamPrecommitBufferMs: number;
+	    excludeFirstTokenLatencyFromRate: boolean;
 	    failoverStatusCodes: number[];
 	    routing: ProxyRoutingSettingsView;
 	
@@ -1350,6 +1353,7 @@ export namespace app {
 	        this.requestReadTimeoutMs = source["requestReadTimeoutMs"];
 	        this.streamIdleTimeoutMs = source["streamIdleTimeoutMs"];
 	        this.streamPrecommitBufferMs = source["streamPrecommitBufferMs"];
+	        this.excludeFirstTokenLatencyFromRate = source["excludeFirstTokenLatencyFromRate"];
 	        this.failoverStatusCodes = source["failoverStatusCodes"];
 	        this.routing = this.convertValues(source["routing"], ProxyRoutingSettingsView);
 	    }

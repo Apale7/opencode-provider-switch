@@ -302,7 +302,7 @@ func openAICompatibleToolCallsHaveOutput(toolCalls []any) bool {
 }
 
 func openAIResponsesItemHasOutput(payload map[string]any) bool {
-	if mapHasNonEmptyString(payload, "delta", "text", "arguments", "output_text", "reasoning", "thinking", "summary") {
+	if mapHasNonEmptyString(payload, "delta", "text", "arguments", "output_text", "reasoning", "thinking", "summary", "encrypted_content") {
 		return true
 	}
 	if content, ok := payload["content"].([]any); ok && sseContentArrayHasOutput(content) {
@@ -312,10 +312,13 @@ func openAIResponsesItemHasOutput(payload map[string]any) bool {
 	if len(item) == 0 {
 		return false
 	}
-	if mapHasNonEmptyString(item, "text", "output_text", "arguments", "reasoning", "thinking", "summary") {
+	if mapHasNonEmptyString(item, "text", "output_text", "arguments", "reasoning", "thinking", "summary", "encrypted_content") {
 		return true
 	}
 	if content, ok := item["content"].([]any); ok && sseContentArrayHasOutput(content) {
+		return true
+	}
+	if summary, ok := item["summary"].([]any); ok && sseContentArrayHasOutput(summary) {
 		return true
 	}
 	itemType, _ := item["type"].(string)
@@ -326,10 +329,13 @@ func openAIResponsesItemHasOutput(payload map[string]any) bool {
 }
 
 func openAIResponsesSemanticTokenPayloadHasOutput(payload map[string]any) bool {
-	if mapHasNonEmptyString(payload, "delta", "text", "arguments", "output_text", "reasoning", "thinking", "summary") {
+	if mapHasNonEmptyString(payload, "delta", "text", "arguments", "output_text", "reasoning", "thinking", "summary", "encrypted_content") {
 		return true
 	}
 	if item, _ := payload["item"].(map[string]any); len(item) > 0 && openAIResponsesItemHasOutput(map[string]any{"item": item}) {
+		return true
+	}
+	if part, _ := payload["part"].(map[string]any); len(part) > 0 && openAIResponsesItemHasOutput(part) {
 		return true
 	}
 	if content, ok := payload["content"].([]any); ok && sseContentArrayHasOutput(content) {
@@ -344,7 +350,7 @@ func sseContentArrayHasOutput(content []any) bool {
 		if !ok {
 			continue
 		}
-		if mapHasNonEmptyString(contentItem, "text", "output_text", "refusal", "partial_json", "reasoning", "thinking", "summary") {
+		if mapHasNonEmptyString(contentItem, "text", "output_text", "refusal", "partial_json", "reasoning", "thinking", "summary", "encrypted_content") {
 			return true
 		}
 		if nonEmptyJSONObject(contentItem["input"]) {

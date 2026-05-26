@@ -33,25 +33,27 @@ type ProxyStatusView struct {
 }
 
 type ProxySettingsView struct {
-	ConnectTimeoutMs        int                      `json:"connectTimeoutMs"`
-	ResponseHeaderTimeoutMs int                      `json:"responseHeaderTimeoutMs"`
-	FirstByteTimeoutMs      int                      `json:"firstByteTimeoutMs"`
-	RequestReadTimeoutMs    int                      `json:"requestReadTimeoutMs"`
-	StreamIdleTimeoutMs     int                      `json:"streamIdleTimeoutMs"`
-	StreamPrecommitBufferMs int                      `json:"streamPrecommitBufferMs"`
-	FailoverStatusCodes     []int                    `json:"failoverStatusCodes"`
-	Routing                 ProxyRoutingSettingsView `json:"routing"`
+	ConnectTimeoutMs                 int                      `json:"connectTimeoutMs"`
+	ResponseHeaderTimeoutMs          int                      `json:"responseHeaderTimeoutMs"`
+	FirstByteTimeoutMs               int                      `json:"firstByteTimeoutMs"`
+	RequestReadTimeoutMs             int                      `json:"requestReadTimeoutMs"`
+	StreamIdleTimeoutMs              int                      `json:"streamIdleTimeoutMs"`
+	StreamPrecommitBufferMs          int                      `json:"streamPrecommitBufferMs"`
+	ExcludeFirstTokenLatencyFromRate bool                     `json:"excludeFirstTokenLatencyFromRate"`
+	FailoverStatusCodes              []int                    `json:"failoverStatusCodes"`
+	Routing                          ProxyRoutingSettingsView `json:"routing"`
 }
 
 type ProxySettingsInput struct {
-	ConnectTimeoutMs        int                       `json:"connectTimeoutMs"`
-	ResponseHeaderTimeoutMs int                       `json:"responseHeaderTimeoutMs"`
-	FirstByteTimeoutMs      int                       `json:"firstByteTimeoutMs"`
-	RequestReadTimeoutMs    int                       `json:"requestReadTimeoutMs"`
-	StreamIdleTimeoutMs     int                       `json:"streamIdleTimeoutMs"`
-	StreamPrecommitBufferMs int                       `json:"streamPrecommitBufferMs"`
-	FailoverStatusCodes     []int                     `json:"failoverStatusCodes"`
-	Routing                 ProxyRoutingSettingsInput `json:"routing"`
+	ConnectTimeoutMs                 int                       `json:"connectTimeoutMs"`
+	ResponseHeaderTimeoutMs          int                       `json:"responseHeaderTimeoutMs"`
+	FirstByteTimeoutMs               int                       `json:"firstByteTimeoutMs"`
+	RequestReadTimeoutMs             int                       `json:"requestReadTimeoutMs"`
+	StreamIdleTimeoutMs              int                       `json:"streamIdleTimeoutMs"`
+	StreamPrecommitBufferMs          int                       `json:"streamPrecommitBufferMs"`
+	ExcludeFirstTokenLatencyFromRate *bool                     `json:"excludeFirstTokenLatencyFromRate,omitempty"`
+	FailoverStatusCodes              []int                     `json:"failoverStatusCodes"`
+	Routing                          ProxyRoutingSettingsInput `json:"routing"`
 }
 
 type ProxySettingsSaveResult struct {

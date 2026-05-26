@@ -83,17 +83,18 @@ const (
 
 // Server holds proxy listen settings.
 type Server struct {
-	Host                    string         `json:"host"`
-	Port                    int            `json:"port"`
-	APIKey                  string         `json:"api_key"`
-	ConnectTimeoutMs        int            `json:"connect_timeout_ms,omitempty"`
-	ResponseHeaderTimeoutMs int            `json:"response_header_timeout_ms,omitempty"`
-	FirstByteTimeoutMs      int            `json:"first_byte_timeout_ms,omitempty"`
-	RequestReadTimeoutMs    int            `json:"request_read_timeout_ms,omitempty"`
-	StreamIdleTimeoutMs     int            `json:"stream_idle_timeout_ms,omitempty"`
-	StreamPrecommitBufferMs int            `json:"stream_precommit_buffer_ms,omitempty"`
-	FailoverStatusCodes     []int          `json:"failover_status_codes"`
-	Routing                 routing.Config `json:"routing,omitempty"`
+	Host                             string         `json:"host"`
+	Port                             int            `json:"port"`
+	APIKey                           string         `json:"api_key"`
+	ConnectTimeoutMs                 int            `json:"connect_timeout_ms,omitempty"`
+	ResponseHeaderTimeoutMs          int            `json:"response_header_timeout_ms,omitempty"`
+	FirstByteTimeoutMs               int            `json:"first_byte_timeout_ms,omitempty"`
+	RequestReadTimeoutMs             int            `json:"request_read_timeout_ms,omitempty"`
+	StreamIdleTimeoutMs              int            `json:"stream_idle_timeout_ms,omitempty"`
+	StreamPrecommitBufferMs          int            `json:"stream_precommit_buffer_ms,omitempty"`
+	ExcludeFirstTokenLatencyFromRate bool           `json:"exclude_first_token_latency_from_rate"`
+	FailoverStatusCodes              []int          `json:"failover_status_codes"`
+	Routing                          routing.Config `json:"routing,omitempty"`
 }
 
 // Admin holds the server-mode web administration listener and token.
@@ -105,12 +106,13 @@ type Admin struct {
 }
 
 const (
-	DefaultConnectTimeoutMs        = 10_000
-	DefaultResponseHeaderTimeoutMs = 15_000
-	DefaultFirstByteTimeoutMs      = 15_000
-	DefaultRequestReadTimeoutMs    = 30_000
-	DefaultStreamIdleTimeoutMs     = 60_000
-	DefaultStreamPrecommitBufferMs = 0
+	DefaultConnectTimeoutMs                 = 10_000
+	DefaultResponseHeaderTimeoutMs          = 15_000
+	DefaultFirstByteTimeoutMs               = 15_000
+	DefaultRequestReadTimeoutMs             = 30_000
+	DefaultStreamIdleTimeoutMs              = 60_000
+	DefaultStreamPrecommitBufferMs          = 0
+	DefaultExcludeFirstTokenLatencyFromRate = true
 )
 
 var defaultFailoverStatusCodes = []int{401, 402, 403, 429}
@@ -256,17 +258,18 @@ func ValidateProviderBaseURL(protocol string, baseURL string) error {
 func Default() *Config {
 	return &Config{
 		Server: Server{
-			Host:                    "127.0.0.1",
-			Port:                    9982,
-			APIKey:                  DefaultLocalAPIKey,
-			ConnectTimeoutMs:        DefaultConnectTimeoutMs,
-			ResponseHeaderTimeoutMs: DefaultResponseHeaderTimeoutMs,
-			FirstByteTimeoutMs:      DefaultFirstByteTimeoutMs,
-			RequestReadTimeoutMs:    DefaultRequestReadTimeoutMs,
-			StreamIdleTimeoutMs:     DefaultStreamIdleTimeoutMs,
-			StreamPrecommitBufferMs: DefaultStreamPrecommitBufferMs,
-			FailoverStatusCodes:     DefaultFailoverStatusCodes(),
-			Routing:                 routing.Config{Strategy: routing.DefaultStrategy},
+			Host:                             "127.0.0.1",
+			Port:                             9982,
+			APIKey:                           DefaultLocalAPIKey,
+			ConnectTimeoutMs:                 DefaultConnectTimeoutMs,
+			ResponseHeaderTimeoutMs:          DefaultResponseHeaderTimeoutMs,
+			FirstByteTimeoutMs:               DefaultFirstByteTimeoutMs,
+			RequestReadTimeoutMs:             DefaultRequestReadTimeoutMs,
+			StreamIdleTimeoutMs:              DefaultStreamIdleTimeoutMs,
+			StreamPrecommitBufferMs:          DefaultStreamPrecommitBufferMs,
+			ExcludeFirstTokenLatencyFromRate: DefaultExcludeFirstTokenLatencyFromRate,
+			FailoverStatusCodes:              DefaultFailoverStatusCodes(),
+			Routing:                          routing.Config{Strategy: routing.DefaultStrategy},
 		},
 		Admin: Admin{
 			Host: "127.0.0.1",

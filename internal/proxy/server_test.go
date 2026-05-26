@@ -1952,6 +1952,10 @@ func TestSSEStreamStateSeparatesCommitWorthFromFirstToken(t *testing.T) {
 	if !responseReasoning.commitWorth || !responseReasoning.firstTokenWorth || responseReasoning.terminal {
 		t.Fatalf("responses reasoning signal = %#v, want first token", responseReasoning)
 	}
+	responseEncryptedReasoning := newSSEStreamState(config.ProtocolOpenAIResponses).Add([]byte("event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\",\"encrypted_content\":\"opaque\",\"summary\":[]}}\n\n"))
+	if !responseEncryptedReasoning.commitWorth || !responseEncryptedReasoning.firstTokenWorth || responseEncryptedReasoning.terminal {
+		t.Fatalf("responses encrypted reasoning signal = %#v, want first token", responseEncryptedReasoning)
+	}
 	compatibleRole := newSSEStreamState(config.ProtocolOpenAICompatible).Add([]byte("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n"))
 	if compatibleRole.commitWorth || compatibleRole.firstTokenWorth || compatibleRole.terminal {
 		t.Fatalf("compatible role signal = %#v, want metadata only", compatibleRole)

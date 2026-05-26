@@ -192,15 +192,17 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "ocswitch.json")
 	svc := NewService(path)
+	excludeFirstTokenLatency := false
 
 	result, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{
-		ConnectTimeoutMs:        12000,
-		ResponseHeaderTimeoutMs: 21000,
-		FirstByteTimeoutMs:      22000,
-		RequestReadTimeoutMs:    33000,
-		StreamIdleTimeoutMs:     70000,
-		StreamPrecommitBufferMs: 4000,
-		FailoverStatusCodes:     []int{403, 401, 401, 402, 429},
+		ConnectTimeoutMs:                 12000,
+		ResponseHeaderTimeoutMs:          21000,
+		FirstByteTimeoutMs:               22000,
+		RequestReadTimeoutMs:             33000,
+		StreamIdleTimeoutMs:              70000,
+		StreamPrecommitBufferMs:          4000,
+		ExcludeFirstTokenLatencyFromRate: &excludeFirstTokenLatency,
+		FailoverStatusCodes:              []int{403, 401, 401, 402, 429},
 		Routing: ProxyRoutingSettingsInput{
 			Strategy: "circuit-breaker",
 			Params:   json.RawMessage(`{"failureThreshold":3,"baseCooldownMs":45000,"maxCooldownMs":90000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":false,"rateLimitCooldownMs":12000}`),
@@ -209,7 +211,7 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveProxySettings() error = %v", err)
 	}
-	if result.Settings.ConnectTimeoutMs != 12000 || result.Settings.ResponseHeaderTimeoutMs != 21000 || result.Settings.FirstByteTimeoutMs != 22000 || result.Settings.RequestReadTimeoutMs != 33000 || result.Settings.StreamIdleTimeoutMs != 70000 || result.Settings.StreamPrecommitBufferMs != 4000 {
+	if result.Settings.ConnectTimeoutMs != 12000 || result.Settings.ResponseHeaderTimeoutMs != 21000 || result.Settings.FirstByteTimeoutMs != 22000 || result.Settings.RequestReadTimeoutMs != 33000 || result.Settings.StreamIdleTimeoutMs != 70000 || result.Settings.StreamPrecommitBufferMs != 4000 || result.Settings.ExcludeFirstTokenLatencyFromRate {
 		t.Fatalf("SaveProxySettings() = %#v", result.Settings)
 	}
 
@@ -217,7 +219,7 @@ func TestSaveProxySettingsPersistsToConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	if cfg.Server.ConnectTimeoutMs != 12000 || cfg.Server.ResponseHeaderTimeoutMs != 21000 || cfg.Server.FirstByteTimeoutMs != 22000 || cfg.Server.RequestReadTimeoutMs != 33000 || cfg.Server.StreamIdleTimeoutMs != 70000 || cfg.Server.StreamPrecommitBufferMs != 4000 {
+	if cfg.Server.ConnectTimeoutMs != 12000 || cfg.Server.ResponseHeaderTimeoutMs != 21000 || cfg.Server.FirstByteTimeoutMs != 22000 || cfg.Server.RequestReadTimeoutMs != 33000 || cfg.Server.StreamIdleTimeoutMs != 70000 || cfg.Server.StreamPrecommitBufferMs != 4000 || cfg.Server.ExcludeFirstTokenLatencyFromRate {
 		t.Fatalf("persisted server settings = %#v", cfg.Server)
 	}
 	if !reflect.DeepEqual(cfg.Server.FailoverStatusCodes, []int{401, 402, 403, 429}) {
@@ -262,6 +264,60 @@ func TestSaveProxySettingsAllowsEmptyFailoverStatusCodes(t *testing.T) {
 	}
 	if len(result.Settings.FailoverStatusCodes) != 0 {
 		t.Fatalf("failover status codes = %#v, want empty", result.Settings.FailoverStatusCodes)
+	}
+}
+
+func TestSaveProxySettingsDefaultsExcludeFirstTokenLatencyFromRate(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	svc := NewService(path)
+
+	result, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{})
+	if err != nil {
+		t.Fatalf("SaveProxySettings() error = %v", err)
+	}
+	if !result.Settings.ExcludeFirstTokenLatencyFromRate {
+		t.Fatalf("exclude first token latency = false, want default true")
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	if !cfg.Server.ExcludeFirstTokenLatencyFromRate {
+		t.Fatalf("persisted exclude first token latency = false, want default true")
+	}
+}
+
+func TestSaveProxySettingsPreservesExcludedFirstTokenLatencyWhenOmitted(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Server.ExcludeFirstTokenLatencyFromRate = false
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	result, err := svc.SaveProxySettings(context.Background(), ProxySettingsInput{ConnectTimeoutMs: 12000})
+	if err != nil {
+		t.Fatalf("SaveProxySettings() error = %v", err)
+	}
+	if result.Settings.ExcludeFirstTokenLatencyFromRate {
+		t.Fatalf("exclude first token latency = true, want preserved false")
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	if loaded.Server.ExcludeFirstTokenLatencyFromRate {
+		t.Fatalf("persisted exclude first token latency = true, want preserved false")
 	}
 }
 

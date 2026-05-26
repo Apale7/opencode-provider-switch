@@ -343,6 +343,27 @@ func TestStreamPrecommitBufferDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestExcludeFirstTokenLatencyFromRateDefaultsAndSaveLoad(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	if !cfg.Server.ExcludeFirstTokenLatencyFromRate {
+		t.Fatalf("default exclude first token latency from rate = false, want true")
+	}
+	cfg.path = filepath.Join(t.TempDir(), "config.json")
+	cfg.Server.ExcludeFirstTokenLatencyFromRate = false
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	loaded, err := Load(cfg.path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Server.ExcludeFirstTokenLatencyFromRate {
+		t.Fatalf("loaded exclude first token latency from rate = true, want false")
+	}
+}
+
 func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 	t.Parallel()
 	insertIndex := 1
