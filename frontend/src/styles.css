@@ -59,9 +59,9 @@ html[data-theme='dark'] {
   --warning-soft: rgba(255, 179, 71, 0.2);
   --code-bg: #040c18;
   --code-text: #d7e7ff;
-  --shadow-sm: 0 16px 34px rgba(0, 0, 0, 0.22);
-  --shadow-md: 0 24px 60px rgba(0, 0, 0, 0.28);
-  --shadow-lg: 0 38px 100px rgba(0, 0, 0, 0.34);
+  --shadow-sm: 0 12px 28px rgba(0, 0, 0, 0.16);
+  --shadow-md: 0 18px 44px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 26px 70px rgba(0, 0, 0, 0.24);
 }
 
 * {
@@ -971,6 +971,8 @@ html[data-theme='dark'] button.ghost-danger:hover {
 }
 
 .trace-table-row {
+	position: relative;
+	z-index: 0;
 	height: auto;
 	min-height: 4.25rem;
 	padding: 0.8rem 0;
@@ -993,6 +995,11 @@ html[data-theme='dark'] button.ghost-danger:hover {
 
 .trace-table-row:hover {
 	background: color-mix(in srgb, var(--panel-soft) 65%, transparent);
+	z-index: 1200;
+}
+
+.trace-table-row:focus-within {
+	z-index: 1200;
 }
 
 .trace-table-row.active {
@@ -1128,7 +1135,7 @@ html[data-theme='dark'] button.ghost-danger:hover {
 
 .trace-info-popover:hover,
 .trace-info-popover:focus-within {
-	z-index: 60;
+	z-index: 1300;
 }
 
 .trace-info-trigger {
@@ -1180,7 +1187,18 @@ html[data-theme='dark'] button.ghost-danger:hover {
 	pointer-events: none;
 	transform: translateY(-4px);
 	transition: opacity 140ms ease, transform 140ms ease;
-	z-index: 60;
+	z-index: 1300;
+}
+
+.trace-info-card-portal {
+	position: fixed;
+	top: auto;
+	right: auto;
+	overflow: auto;
+	opacity: 1;
+	pointer-events: auto;
+	transform: none;
+	z-index: 2147483000;
 }
 
 .trace-info-popover:hover .trace-info-card,
@@ -1405,6 +1423,7 @@ html[data-theme='dark'] button.ghost-danger:hover {
   height: calc(100vh - 2rem);
   overflow: auto;
   padding: 1.2rem;
+  padding-bottom: 5rem;
   border: 1px solid var(--border-strong);
   border-radius: 28px;
   background: var(--panel);
@@ -2270,9 +2289,54 @@ input[type='file']::file-selector-button {
 .health-layout {
 	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: auto auto auto minmax(0, 1fr);
-	gap: 0.72rem;
+	gap: 0.46rem;
 	align-content: stretch;
 	min-height: 0;
+}
+
+.health-controls-panel {
+	padding: 0.58rem 0.78rem;
+}
+
+.health-controls-panel .panel-header {
+	margin-bottom: 0.42rem;
+}
+
+.health-title-row {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 0.35rem 0.55rem;
+}
+
+.health-title-row h3 {
+	margin: 0;
+}
+
+.health-controls-panel .trace-toolbar {
+	gap: 0.42rem;
+}
+
+.health-controls-panel .filter-group,
+.health-controls-panel .trace-time-filter {
+	padding: 0.46rem 0.6rem;
+	border-radius: 14px;
+}
+
+.health-controls-panel .filter-group input,
+.health-controls-panel .filter-group select,
+.health-controls-panel .filter-popover-trigger {
+	min-height: 32px;
+}
+
+.health-controls-panel .trace-time-presets {
+	gap: 0.35rem;
+}
+
+.health-controls-panel .trace-time-filter button,
+.health-controls-panel .trace-time-now-button {
+	min-height: 1.85rem;
+	padding: 0.3rem 0.58rem;
 }
 
 .health-toolbar-grid {
@@ -2282,7 +2346,7 @@ input[type='file']::file-selector-button {
 .health-summary-grid {
 	display: grid;
 	grid-template-columns: repeat(6, minmax(0, 1fr));
-	gap: 0.65rem;
+	gap: 0.42rem;
 }
 
 .health-warning-panel {
@@ -2296,7 +2360,8 @@ input[type='file']::file-selector-button {
 }
 
 .health-warning-card {
-	padding: 0.78rem 0.9rem;
+	padding: 0.34rem 0.58rem;
+	border-radius: 15px;
 	border-color: color-mix(in srgb, var(--warning) 36%, var(--border));
 	background: linear-gradient(135deg, var(--warning-soft), var(--panel));
 }
@@ -2307,7 +2372,20 @@ input[type='file']::file-selector-button {
 }
 
 .health-warning-head .trace-info-popover {
+	margin-left: 0.15rem;
+}
+
+.health-warning-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.45rem;
 	margin-left: auto;
+}
+
+.health-warning-actions button {
+	min-height: 2.2rem;
+	padding: 0.42rem 0.78rem;
 }
 
 .health-table-panel {
@@ -2315,6 +2393,22 @@ input[type='file']::file-selector-button {
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
+	padding: 0.85rem 1rem 0.72rem;
+}
+
+.health-table-panel .panel-header {
+	margin-bottom: 0.38rem;
+	padding-bottom: 0;
+}
+
+.health-table-panel .list-pagination {
+	min-height: 3rem;
+	padding-top: 0.35rem;
+}
+
+.health-table-panel .list-pagination button {
+	min-height: 2.35rem;
+	padding: 0.48rem 0.9rem;
 }
 
 .health-scroll-list {
@@ -2324,7 +2418,8 @@ input[type='file']::file-selector-button {
 }
 
 .health-summary-grid .trace-stat-card {
-	padding: 0.82rem 0.9rem;
+	min-height: 3.05rem;
+	padding: 0.38rem 0.62rem;
 }
 
 .health-table .trace-table-header,
@@ -2338,17 +2433,48 @@ input[type='file']::file-selector-button {
 
 .health-table-row {
 	cursor: default;
+	min-height: 3.25rem;
+	padding-block: 0.46rem;
+}
+
+.health-table .trace-table-cell {
+	align-self: center;
+}
+
+.health-table .trace-model-cell {
+	gap: 0;
+}
+
+.health-provider-line {
+	column-gap: 0.45rem;
+	row-gap: 0.2rem;
+}
+
+.health-provider-id {
+	font-size: 0.72rem;
+}
+
+.health-table .protocol-badge,
+.health-table .badge {
+	min-height: 24px;
+	padding-block: 0.14rem;
+	font-size: 0.68rem;
 }
 
 .health-metric-stack {
 	display: grid;
-	gap: 0.35rem;
+	gap: 0.16rem;
+}
+
+.health-table .trace-table-muted {
+	font-size: 0.74rem;
+	line-height: 1.25;
 }
 
 .trace-stat-card {
 	position: relative;
 	display: grid;
-	gap: 0.3rem;
+	gap: 0.2rem;
 	padding: 0.95rem 1rem;
 	border: 1px solid var(--border);
 	border-radius: 18px;
@@ -2359,9 +2485,9 @@ input[type='file']::file-selector-button {
 .trace-stat-card::after {
 	content: '';
 	position: absolute;
-	inset: auto -18% -80% auto;
-	width: 8rem;
-	height: 8rem;
+	inset: auto -12% -118% auto;
+	width: 6rem;
+	height: 6rem;
 	border-radius: 999px;
 	background: var(--accent-soft);
 	pointer-events: none;
@@ -2370,7 +2496,7 @@ input[type='file']::file-selector-button {
 .trace-stat-card strong {
 	position: relative;
 	z-index: 1;
-	font-size: clamp(1.35rem, 2vw, 1.85rem);
+	font-size: clamp(1.08rem, 1.35vw, 1.45rem);
 	line-height: 1;
 }
 
@@ -2450,9 +2576,10 @@ input[type='file']::file-selector-button {
 .filter-popover-panel {
 	position: absolute;
 	top: calc(100% + 0.45rem);
-	left: 0;
+	left: auto;
+	right: 0;
 	z-index: 12;
-	width: min(22rem, calc(100vw - 3rem));
+	width: min(22rem, calc(100vw - 1.5rem));
 	padding: 0.75rem;
 	border: 1px solid var(--border-strong);
 	border-radius: 18px;
@@ -2580,6 +2707,8 @@ input[type='file']::file-selector-button {
 }
 
 .list-pagination {
+	position: relative;
+	z-index: 0;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -2650,4 +2779,389 @@ html[data-theme='dark'] .checkbox-card {
 html[data-theme='dark'] .detail-hero-primary,
 html[data-theme='dark'] .detail-empty-card {
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 40%, var(--panel)) 0%, color-mix(in srgb, var(--panel-soft) 92%, #09111f) 100%);
+}
+
+.settings-header-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.active-filter-row {
+  padding: 0.1rem 0 0.25rem;
+}
+
+.sticky-action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 0.35rem;
+  padding: 0.75rem 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  background: linear-gradient(180deg, transparent 0%, var(--panel) 28%, var(--panel) 100%);
+}
+
+.settings-save-bar,
+.detail-actions {
+  justify-content: flex-end;
+}
+
+.settings-advanced-proxy {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-muted);
+}
+
+.settings-advanced-proxy summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.settings-advanced-proxy summary .small-text {
+  max-width: 18rem;
+  text-align: right;
+  font-weight: 500;
+}
+
+.settings-advanced-proxy[open] summary {
+  margin-bottom: 0.75rem;
+}
+
+.sync-layout,
+.sync-layout .stack-blocks,
+.sync-layout .details-toggle,
+.issue-collapse,
+.issue-collapse .issue-stack {
+  min-width: 0;
+}
+
+.sync-layout .details,
+.sync-layout .issue-card,
+.sync-layout .issue-summary,
+.sync-layout code,
+.issue-card,
+.issue-card code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.issue-collapse {
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-soft);
+}
+
+.issue-collapse summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.issue-collapse[open] summary {
+  margin-bottom: 0.75rem;
+}
+
+.trace-scroll-list {
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+@media (max-width: 1200px) {
+  .health-table {
+    --trace-table-min-width: 0;
+  }
+
+  .health-scroll-list {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .health-table .trace-table-header {
+    display: none;
+  }
+
+  .health-table .trace-table-body {
+    gap: 0.75rem;
+  }
+
+  .health-table .trace-table-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.72rem;
+    min-height: 0;
+    padding: 0.95rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--panel-muted);
+  }
+
+  .health-table .trace-table-cell {
+    display: grid;
+    gap: 0.3rem;
+    align-items: start;
+    justify-content: stretch;
+  }
+
+  .health-table .trace-table-cell[data-label]::before {
+    display: block;
+  }
+
+  .health-table .trace-status-cell,
+  .health-table .trace-status-stack {
+    justify-content: start;
+    justify-items: start;
+  }
+
+  .health-table .trace-table-muted,
+  .health-table .trace-table-ellipsis,
+  .health-table .trace-model-name,
+  .health-table .trace-mono {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 1080px) {
+  html,
+  body,
+  #root {
+    overflow: auto;
+  }
+
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .sidebar {
+    height: auto;
+    max-height: none;
+    padding: 0.85rem 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding: 0.85rem 0.95rem;
+  }
+
+  .sidebar-brand::after,
+  .sidebar-brand-line {
+    display: none;
+  }
+
+  .nav-list {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.1rem;
+    scrollbar-width: thin;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+    min-width: max-content;
+    padding-inline: 0.9rem;
+  }
+
+  .nav-item::before {
+    inset: auto 10px 0 10px;
+    width: auto;
+    height: 3px;
+  }
+
+  .workspace {
+    min-height: 0;
+    padding: 1rem;
+    overflow: visible;
+  }
+
+  .overview-layout,
+  .sync-layout,
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-side-panel {
+    position: static;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel,
+  .subpanel {
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+@media (max-width: 760px) {
+  button {
+    min-height: 42px;
+    padding: 0.68rem 0.82rem;
+    border-radius: 14px;
+  }
+
+  .workspace {
+    gap: 0.75rem;
+    padding: 0.72rem;
+  }
+
+  .panel,
+  .subpanel {
+    padding: 0.9rem;
+    border-radius: 20px;
+  }
+
+  .sidebar {
+    padding: 0.65rem;
+  }
+
+  .sidebar-brand {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .brand-meta,
+  .settings-header-meta,
+  .settings-save-bar,
+  .detail-actions,
+  .list-header-actions,
+  .list-toolbar-actions,
+  .toolbar-end {
+    justify-content: flex-start;
+  }
+
+  .panel-header,
+  .subpanel-header,
+  .list-toolbar,
+  .inline-meta,
+  .card-actions,
+  .settings-advanced-proxy summary {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .list-toolbar > label,
+  .filter-group-search,
+  .filter-group-select,
+  .filter-group-alias,
+  .trace-select-filter {
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  .stats-grid,
+  .action-grid,
+  .info-grid,
+  .item-grid,
+  .trace-hero,
+  .detail-form-grid,
+  .toggle-grid,
+  .resource-card-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-backdrop {
+    padding: 0;
+  }
+
+  .detail-sheet {
+    width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    padding: 0.9rem;
+  }
+
+  .filter-popover-panel {
+    position: fixed;
+    inset: auto 0.5rem 0.75rem;
+    width: auto;
+    max-height: min(70vh, 28rem);
+    overflow: auto;
+  }
+
+  .trace-time-end-row {
+    gap: 0.45rem;
+  }
+
+  .trace-time-end-row input[type='datetime-local'] {
+    padding-right: 0.75rem;
+  }
+
+  .trace-time-now-button {
+    position: static;
+    transform: none;
+    width: 100%;
+    min-height: 36px;
+  }
+
+  .trace-time-custom-grid input[type='datetime-local'] {
+    min-width: 0;
+  }
+
+  .trace-filter-headline .small-text,
+  .settings-advanced-proxy summary .small-text,
+  .settings-status,
+  .list-status-text {
+    max-width: none;
+    text-align: left;
+  }
+
+  .list-pagination {
+    display: grid;
+    justify-items: stretch;
+  }
+
+  .list-pagination .subtle {
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .nav-item {
+    min-width: 0;
+  }
+
+  .nav-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .resource-card,
+  .item-card,
+  .issue-card,
+  .target-card,
+  .trace-stat-card {
+    border-radius: 16px;
+  }
 }

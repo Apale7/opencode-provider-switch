@@ -1,4 +1,5 @@
 import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
   applySync,
@@ -1307,6 +1308,19 @@ function formatTokenCount(value?: number): string {
   return value.toLocaleString()
 }
 
+function formatCompactCount(value?: number): string {
+	if (value == null) {
+		return '-'
+	}
+	if (Math.abs(value) < 10000) {
+		return value.toLocaleString()
+	}
+	return new Intl.NumberFormat('en-US', {
+		notation: 'compact',
+		maximumFractionDigits: 1,
+	}).format(value)
+}
+
 function formatUsageText(value?: number | string): string {
   if (value == null || value === '') {
     return '-'
@@ -1485,19 +1499,128 @@ function InfoIcon() {
 }
 
 function TraceInfoPopover({ label, children }: { label: string; children: ReactNode }) {
+	const triggerRef = useRef<HTMLButtonElement>(null)
+	const cardRef = useRef<HTMLSpanElement>(null)
+	const tooltipId = useId()
+	const closeTimerRef = useRef<number | null>(null)
+	const [open, setOpen] = useState(false)
+	const [popoverPosition, setPopoverPosition] = useState({ top: 0, right: 16, maxHeight: null as number | null, ready: false })
+
+	const clearCloseTimer = () => {
+		if (closeTimerRef.current !== null) {
+			window.clearTimeout(closeTimerRef.current)
+			closeTimerRef.current = null
+		}
+	}
+
+	const updatePopoverPosition = useCallback(() => {
+		const trigger = triggerRef.current
+		const card = cardRef.current
+		if (!trigger || !card) {
+			return
+		}
+		const rect = trigger.getBoundingClientRect()
+		const cardRect = card.getBoundingClientRect()
+		const margin = 16
+		const gap = 8
+		const right = Math.max(margin, window.innerWidth - rect.right)
+		const spaceBelow = window.innerHeight - rect.bottom - margin
+		const spaceAbove = rect.top - margin
+		const canFitBelow = cardRect.height <= spaceBelow
+		const canFitAbove = cardRect.height <= spaceAbove
+		let top = rect.bottom + gap
+		let maxHeight: number | null = null
+
+		if (canFitBelow) {
+			top = rect.bottom + gap
+		} else if (canFitAbove) {
+			top = Math.max(margin, rect.top - gap - cardRect.height)
+		} else if (spaceBelow >= spaceAbove) {
+			maxHeight = Math.max(120, spaceBelow)
+			top = rect.bottom + gap
+		} else {
+			maxHeight = Math.max(120, spaceAbove)
+			top = Math.max(margin, rect.top - gap - maxHeight)
+		}
+
+		setPopoverPosition({ top, right, maxHeight, ready: true })
+	}, [])
+
+	const showPopover = () => {
+		clearCloseTimer()
+		if (!open) {
+			setPopoverPosition((current) => ({ ...current, ready: false }))
+			setOpen(true)
+		}
+	}
+
+	const scheduleClosePopover = () => {
+		clearCloseTimer()
+		closeTimerRef.current = window.setTimeout(() => setOpen(false), 120)
+	}
+
+	useLayoutEffect(() => {
+		if (!open) {
+			return undefined
+		}
+		updatePopoverPosition()
+		window.addEventListener('resize', updatePopoverPosition)
+		window.addEventListener('scroll', updatePopoverPosition, true)
+		return () => {
+			window.removeEventListener('resize', updatePopoverPosition)
+			window.removeEventListener('scroll', updatePopoverPosition, true)
+		}
+	}, [open, updatePopoverPosition])
+
+	useEffect(() => () => clearCloseTimer(), [])
+
 	return (
 		<span
 			className="trace-info-popover"
+				onMouseEnter={showPopover}
+				onMouseLeave={scheduleClosePopover}
 			onClick={(event) => event.stopPropagation()}
 			onMouseDown={(event) => event.stopPropagation()}
-			onKeyDown={(event) => event.stopPropagation()}
+			onKeyDown={(event) => {
+				event.stopPropagation()
+				if (event.key === 'Escape') {
+					setOpen(false)
+				}
+			}}
 		>
-			<button type="button" className="trace-info-trigger" aria-label={label}>
+			<button
+				type="button"
+				className="trace-info-trigger"
+				aria-label={label}
+				aria-describedby={open ? tooltipId : undefined}
+				ref={triggerRef}
+				onFocus={showPopover}
+				onBlur={scheduleClosePopover}
+			>
 				<InfoIcon />
 			</button>
-			<span className="trace-info-card" role="tooltip">
-				{children}
-			</span>
+			{open && typeof document !== 'undefined'
+				? createPortal(
+					<span
+						className="trace-info-card trace-info-card-portal"
+						id={tooltipId}
+						role="tooltip"
+						ref={cardRef}
+						style={{
+							top: popoverPosition.top,
+							right: popoverPosition.right,
+							maxHeight: popoverPosition.maxHeight ?? undefined,
+							visibility: popoverPosition.ready ? 'visible' : 'hidden',
+						}}
+						onMouseEnter={clearCloseTimer}
+						onMouseLeave={scheduleClosePopover}
+						onMouseDown={(event) => event.stopPropagation()}
+					>
+						{children}
+					</span>,
+					document.body,
+				)
+				: null}
 		</span>
 	)
 }
@@ -1732,6 +1855,15 @@ function focusFirstFocusable(root: HTMLElement | null) {
   ;(firstFocusable || root).focus()
 }
 
+function scrollInvalidControlIntoView(event: FormEvent<HTMLFormElement>, setStatus: (value: string) => void) {
+  const target = event.target instanceof HTMLElement ? event.target : null
+  if (target && typeof target.focus === 'function') {
+    target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+    target.focus()
+  }
+  setStatus(i18n.t('messages.fixInvalidFields'))
+}
+
 function resolveSelectedTraceId(current: number | null, traces: RequestTrace[]): number | null {
   if (!current) {
     return null
@@ -1776,17 +1908,23 @@ export default function App() {
   const [rewriteRules, setRewriteRules] = useState<RequestRewriteRuleView[]>([])
   const [prefs, setPrefs] = useState<DesktopPrefsView>(emptyPrefs)
   const [proxySettings, setProxySettings] = useState<ProxySettingsView>(emptyProxySettings)
+  const [savedPrefs, setSavedPrefs] = useState<DesktopPrefsView>(emptyPrefs)
+  const [savedProxySettings, setSavedProxySettings] = useState<ProxySettingsView>(emptyProxySettings)
   const [failoverStatusCodesText, setFailoverStatusCodesText] = useState(formatFailoverStatusCodes(emptyProxySettings.failoverStatusCodes))
   const [prefsStatus, setPrefsStatus] = useState('')
   const [proxySettingsStatus, setProxySettingsStatus] = useState('')
   const [doctorStatus, setDoctorStatus] = useState('')
+  const [doctorLoading, setDoctorLoading] = useState(false)
   const [doctorResult, setDoctorResult] = useState<DoctorRunResult | null>(null)
   const [syncStatus, setSyncStatus] = useState('')
   const [syncInput, setSyncInput] = useState<SyncInput>(emptySync)
   const [syncOutput, setSyncOutput] = useState<SyncPreview | SyncResult | string>('')
+  const [syncAction, setSyncAction] = useState<'preview' | 'apply' | null>(null)
   const [providerStatus, setProviderStatus] = useState('')
   const [providerForm, setProviderForm] = useState<ProviderFormState>(emptyProviderForm)
   const [providerBaseUrlPings, setProviderBaseUrlPings] = useState<ProviderBaseUrlPingState>({})
+  const [providerPingLoadingKey, setProviderPingLoadingKey] = useState('')
+  const [providerModelsLoadingId, setProviderModelsLoadingId] = useState('')
   const [draggingProviderBaseUrlIndex, setDraggingProviderBaseUrlIndex] = useState<number | null>(null)
   const [providerImportForm, setProviderImportForm] = useState<ProviderImportInput>(emptyProviderImport)
   const [aliasStatus, setAliasStatus] = useState('')
@@ -1848,6 +1986,8 @@ export default function App() {
   const logTraceListRef = useRef<HTMLDivElement | null>(null)
   const networkTraceListRef = useRef<HTMLDivElement | null>(null)
 	const healthTraceListRef = useRef<HTMLDivElement | null>(null)
+	const selectedProviderIdRef = useRef<string | null>(null)
+	const providerDetailModeRef = useRef<DetailMode>('empty')
 	const logTraceRequestRef = useRef(0)
 	const networkTraceRequestRef = useRef(0)
 	const providerHealthRequestRef = useRef(0)
@@ -1856,6 +1996,8 @@ export default function App() {
 	const providerHealthLoadingKeyRef = useRef<string | null>(null)
 	const selectedAliasIdRef = useRef<string | null>(null)
 	const aliasDetailModeRef = useRef<DetailMode>('empty')
+	selectedProviderIdRef.current = selectedProviderId
+	providerDetailModeRef.current = providerDetailMode
 	selectedAliasIdRef.current = selectedAliasId
 	aliasDetailModeRef.current = aliasDetailMode
 
@@ -1980,11 +2122,13 @@ export default function App() {
       setProviders(providerData)
       setAliases(aliasData)
 		setRewriteRules(rewriteRuleData)
+      setSavedPrefs(overviewData.desktop)
       if (syncDesktopPrefs) {
         setPrefs(overviewData.desktop)
       }
       const normalizedProxySettings = normalizeProxySettingsView(proxySettingsData)
       setProxySettings(normalizedProxySettings)
+      setSavedProxySettings(normalizedProxySettings)
       setFailoverStatusCodesText(formatFailoverStatusCodes(normalizedProxySettings.failoverStatusCodes))
       setPrefsStatus(i18n.t('messages.fresh'))
       setProxySettingsStatus(i18n.t('messages.fresh'))
@@ -2045,7 +2189,7 @@ export default function App() {
 
   const resolvedTheme = resolveThemePreference(prefs.theme, systemTheme)
   const resolvedLanguage = resolveLanguagePreference(prefs.language, systemLanguage as LanguagePreference)
-	const providerSearch = providerQuery.trim().toLowerCase()
+  const providerSearch = providerQuery.trim().toLowerCase()
 	const aliasSearch = aliasQuery.trim().toLowerCase()
 	const filteredProviders = providers.filter((provider) => providerMatches(provider, providerSearch, providerFilter))
 	const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch))
@@ -2080,6 +2224,33 @@ export default function App() {
   const providerHealthProviderOptions = providerHealth.availableProviders || []
   const desktopPrefsAvailable = meta.capabilities?.desktopPrefs ?? meta.shell !== 'server'
   const openCodeDirectSyncAvailable = meta.capabilities?.openCodeDirectSync ?? meta.shell !== 'server'
+  const providerFiltersActive = providerSearch.length > 0 || providerFilter !== 'all'
+  const prefsDirty = JSON.stringify(prefs) !== JSON.stringify(savedPrefs)
+  let comparableProxySettings = proxySettings
+  let failoverStatusCodesValid = true
+  try {
+    comparableProxySettings = { ...proxySettings, failoverStatusCodes: parseFailoverStatusCodes(failoverStatusCodesText) }
+  } catch {
+    failoverStatusCodesValid = false
+    comparableProxySettings = proxySettings
+  }
+  const proxySettingsDirty = !failoverStatusCodesValid
+    || failoverStatusCodesText.trim() !== formatFailoverStatusCodes(savedProxySettings.failoverStatusCodes)
+    || JSON.stringify(comparableProxySettings) !== JSON.stringify(savedProxySettings)
+  const providerFormDirty = providerDetailOpen
+    ? providerDetailMode === 'create'
+      ? JSON.stringify(providerForm) !== JSON.stringify(emptyProviderForm)
+      : selectedProvider
+        ? JSON.stringify(providerForm) !== JSON.stringify(providerFormFromView(selectedProvider))
+        : false
+    : false
+  const aliasFormDirty = aliasDetailOpen
+    ? aliasDetailMode === 'create'
+      ? JSON.stringify(aliasForm) !== JSON.stringify(emptyAliasForm)
+      : selectedAlias
+        ? JSON.stringify(aliasForm) !== JSON.stringify(aliasFormFromView(selectedAlias))
+        : false
+    : false
   const providerPingSource = meta.shell === 'server' ? t('providers.pingSourceServer') : t('providers.pingSourceDesktop')
   const selectedAliasRewriteRules = selectedAlias ? rewriteRules.filter((rule) => rule.alias === selectedAlias.alias) : []
   const editingRewriteRule = selectedAliasRewriteRules.find((rule) => rule.name === editingRewriteRuleName) || null
@@ -2567,7 +2738,20 @@ export default function App() {
   }
 
   function openProviderImportModal() {
+    if (providerDetailOpen && providerFormDirty) {
+      setProviderStatus(i18n.t('providers.importBlockedDirty'))
+      return
+    }
+    if (providerDetailOpen) {
+      closeProviderDetail()
+      setProviderStatus(i18n.t('providers.importClosedDetail'))
+    }
     setActiveModal('provider-import')
+  }
+
+  function clearProviderFilters() {
+    setProviderQuery('')
+    setProviderFilter('all')
   }
 
   function openAliasCreateModal() {
@@ -2687,6 +2871,7 @@ export default function App() {
       }
 	  const saved = await saveDesktopPrefs(prefs)
 	  setPrefs(saved.prefs)
+	  setSavedPrefs(saved.prefs)
 	  await refreshAll({ syncDesktopPrefs: true })
       setPrefsStatus(desktopPrefsSaveStatus(saved))
     } catch (error) {
@@ -2702,6 +2887,7 @@ export default function App() {
       const saved = await saveProxySettings(input)
       const normalizedProxySettings = normalizeProxySettingsView(saved.settings)
       setProxySettings(normalizedProxySettings)
+      setSavedProxySettings(normalizedProxySettings)
       setFailoverStatusCodesText(formatFailoverStatusCodes(normalizedProxySettings.failoverStatusCodes))
       await refreshAll()
       setProxySettingsStatus(proxySettingsSaveStatus(saved))
@@ -2835,6 +3021,10 @@ export default function App() {
   }
 
   async function onRunDoctor() {
+    if (doctorLoading) {
+      return
+    }
+    setDoctorLoading(true)
     setDoctorStatus(i18n.t('messages.running'))
     try {
       const result = await runDoctor()
@@ -2843,6 +3033,8 @@ export default function App() {
     } catch (error) {
       setDoctorResult(null)
       setDoctorStatus(formatError(error))
+    } finally {
+      setDoctorLoading(false)
     }
   }
 
@@ -2879,6 +3071,10 @@ export default function App() {
   }
 
   async function onPreviewSync() {
+    if (syncAction) {
+      return
+    }
+    setSyncAction('preview')
     setSyncStatus(i18n.t('messages.previewing'))
     try {
       const result = await previewSync({ ...syncInput, copyOnly: !openCodeDirectSyncAvailable })
@@ -2888,6 +3084,8 @@ export default function App() {
       const message = formatError(error)
       setSyncOutput(message)
       setSyncStatus(message)
+    } finally {
+      setSyncAction(null)
     }
   }
 
@@ -2897,6 +3095,10 @@ export default function App() {
       await onPreviewSync()
       return
     }
+    if (syncAction) {
+      return
+    }
+    setSyncAction('apply')
     setSyncStatus(i18n.t('messages.applying'))
     try {
       const result = await applySync(syncInput)
@@ -2906,6 +3108,8 @@ export default function App() {
       const message = formatError(error)
       setSyncOutput(message)
       setSyncStatus(message)
+    } finally {
+      setSyncAction(null)
     }
   }
 
@@ -2942,21 +3146,35 @@ export default function App() {
   }
 
   async function onRefreshProviderModels(input: ProviderRefreshModelsInput) {
+	if (providerModelsLoadingId) {
+		return
+	}
+	setProviderModelsLoadingId(input.id)
 	setProviderStatus(i18n.t('providers.statusRefreshingModels', { id: input.id }))
 	try {
 		const result = await refreshProviderModels(input)
-		setSelectedProviderId(result.provider.id)
-		setEditingProviderId(result.provider.id)
-		setProviderForm(providerFormFromView(result.provider))
-		setProviderDetailMode('edit')
+		const stillEditingProvider = providerDetailModeRef.current === 'edit' && selectedProviderIdRef.current === input.id
+		if (stillEditingProvider) {
+			setSelectedProviderId(result.provider.id)
+			setEditingProviderId(result.provider.id)
+			setProviderForm(providerFormFromView(result.provider))
+			setProviderDetailMode('edit')
+		}
 		setProviderStatus(withWarnings(i18n.t('providers.statusRefreshedModels', { id: result.provider.id }), result.warnings))
 		await refreshAll()
 	} catch (error) {
 		setProviderStatus(formatError(error))
+	} finally {
+		setProviderModelsLoadingId('')
 	}
   }
 
 	async function onPingProviderBaseUrl(input: ProviderPingInput) {
+		const pingKey = input.baseUrl.trim()
+		if (providerPingLoadingKey) {
+			return
+		}
+		setProviderPingLoadingKey(pingKey)
 		setProviderStatus(i18n.t('providers.statusPingingBaseUrl', { baseUrl: input.baseUrl }))
 		try {
 			const result = await pingProviderBaseUrl(input)
@@ -2968,6 +3186,8 @@ export default function App() {
 			)
 		} catch (error) {
 			setProviderStatus(formatError(error))
+		} finally {
+			setProviderPingLoadingKey('')
 		}
 	}
 
@@ -3563,8 +3783,8 @@ export default function App() {
                 >
                   {overview?.proxy.running ? t('actions.stopProxy') : t('actions.startProxy')}
                 </button>
-                <button type="button" onClick={() => void onRunDoctor()}>
-                  {t('actions.runDoctor')}
+                <button type="button" onClick={() => void onRunDoctor()} disabled={doctorLoading}>
+                  {doctorLoading ? t('messages.running') : t('actions.runDoctor')}
                 </button>
                 <button type="button" onClick={() => void refreshAll()} disabled={loading}>
                   {t('actions.refresh')}
@@ -3723,21 +3943,33 @@ export default function App() {
                     <span className="empty-kicker">{t('providers.title')}</span>
                     <h4>{t('providers.empty')}</h4>
                     <p className="subtle">{t('providers.emptyHint')}</p>
-                    <div className="toolbar">
-                      <button type="button" className="primary" onClick={openProviderCreateModal}>
-                        {t('actions.newProvider')}
-                      </button>
-                      <button type="button" onClick={openProviderImportModal}>
-                        {t('actions.import')}
-                      </button>
-                    </div>
                   </article>
                 ) : null}
                 {providers.length > 0 && filteredProviders.length === 0 ? (
                   <article className="empty-card compact-empty">
                     <h4>{t('providers.noMatches')}</h4>
                     <p className="subtle">{t('providers.noMatchesHint')}</p>
+                    <div className="toolbar">
+                      <button type="button" onClick={clearProviderFilters}>{t('providers.clearFilters')}</button>
+                    </div>
                   </article>
+                ) : null}
+                {providerFiltersActive ? (
+                  <div className="filter-chip-grid active-filter-row" aria-label={t('providers.activeFilters')}>
+                    {providerSearch ? (
+                      <button type="button" className="filter-chip active" onClick={() => setProviderQuery('')}>
+                        {t('providers.filterChipSearch', { query: providerQuery.trim() })} ×
+                      </button>
+                    ) : null}
+                    {providerFilter !== 'all' ? (
+                      <button type="button" className="filter-chip active" onClick={() => setProviderFilter('all')}>
+                        {t('providers.filterChipStatus', {
+                          status: providerFilter === 'enabled' ? t('providers.filterEnabled') : t('providers.filterDisabled'),
+                        })} ×
+                      </button>
+                    ) : null}
+                    <button type="button" className="filter-chip" onClick={clearProviderFilters}>{t('providers.clearFilters')}</button>
+                  </div>
                 ) : null}
                 {filteredProviders.map((provider) => (
                   <article
@@ -3848,14 +4080,6 @@ export default function App() {
                     <span className="empty-kicker">{t('aliases.title')}</span>
                     <h4>{t('aliases.empty')}</h4>
                     <p className="subtle">{t('aliases.emptyHint')}</p>
-                    <div className="toolbar">
-                      <button type="button" className="primary" onClick={openAliasCreateModal}>
-                        {t('actions.newAlias')}
-                      </button>
-                      <button type="button" onClick={() => openAliasTargetModal()}>
-                        {t('actions.bind')}
-                      </button>
-                    </div>
                   </article>
                 ) : null}
                 {aliases.length > 0 && filteredAliases.length === 0 ? (
@@ -3965,11 +4189,11 @@ export default function App() {
                   />
                 </label>
                 <div className="toolbar">
-                  <button type="button" onClick={() => void onPreviewSync()}>
+                  <button type="button" onClick={() => void onPreviewSync()} disabled={syncAction !== null}>
                     {openCodeDirectSyncAvailable ? t('actions.preview') : t('sync.generateConfig')}
                   </button>
                   {openCodeDirectSyncAvailable ? (
-                    <button type="submit" className="primary">
+                    <button type="submit" className="primary" disabled={syncAction !== null}>
                       {t('actions.apply')}
                     </button>
                   ) : null}
@@ -4011,9 +4235,12 @@ export default function App() {
                     </div>
                   </div>
                   {syncOutput.doctorIssues && syncOutput.doctorIssues.length > 0 ? (
-                    <div className="issue-stack">
-                      {syncOutput.doctorIssues.map((issue, index) => renderIssue(issue, `sync-${index}-${issue.code}-${issue.message}`))}
-                    </div>
+                    <details className="details-toggle issue-collapse" open={syncOutput.doctorIssues.length <= 4}>
+                      <summary>{t('sync.issuesTitle')} ({syncOutput.doctorIssues.length})</summary>
+                      <div className="issue-stack">
+                        {syncOutput.doctorIssues.map((issue, index) => renderIssue(issue, `sync-${index}-${issue.code}-${issue.message}`))}
+                      </div>
+                    </details>
                   ) : null}
                   <details className="details-toggle">
                     <summary>{t('sync.debugSummary')}</summary>
@@ -4035,7 +4262,9 @@ export default function App() {
               {doctorResult ? (
                 <div className="stack-blocks">
                   {doctorResult.error ? <p className="tone-error">{doctorResult.error}</p> : null}
-                  <div className="issue-stack">
+                  <details className="details-toggle issue-collapse" open={doctorResult.report.issues.length <= 4}>
+                    <summary>{t('sync.issuesTitle')} ({doctorResult.report.issues.length})</summary>
+                    <div className="issue-stack">
                     {doctorResult.report.issues.length > 0 ? (
                       <>
                         {renderReconciliationSummary(doctorResult.report.summary)}
@@ -4044,7 +4273,8 @@ export default function App() {
                     ) : (
                       <p className="tone-ok">{t('sync.noIssues')}</p>
                     )}
-                  </div>
+                    </div>
+                  </details>
                   <details className="details-toggle">
                     <summary>{t('sync.debugSummary')}</summary>
                     <pre className="details">{pretty(doctorResult)}</pre>
@@ -4385,17 +4615,11 @@ export default function App() {
 
         {activeTab === 'health' ? (
           <section className="tab-layout health-layout">
-            <article className="panel panel-full">
+            <article className="panel panel-full health-controls-panel">
               <div className="panel-header">
-                <div>
+                <div className="health-title-row">
                   <h3>{t('health.title')}</h3>
-                  <p className="subtle">{providerHealthStatus || t('health.subtitle')}</p>
-                </div>
-                <div className="list-header-actions">
-                  <span className="subtle list-status-text">{providerHealthLoaded ? t('health.count', { count: providerHealth.providers.length }) : t('messages.loading')}</span>
-                  <button type="button" onClick={() => void loadProviderHealth(providerHealthQuery, traceTimeFilter, proxyStartedAt)}>
-                    {t('actions.refresh')}
-                  </button>
+                  <span className="subtle">{providerHealthStatus || t('health.subtitle')}</span>
                 </div>
               </div>
               <div className="list-toolbar trace-toolbar trace-toolbar-grid health-toolbar-grid">
@@ -4441,6 +4665,12 @@ export default function App() {
                   <TraceInfoPopover label={t('health.biasTitle')}>
                     <span className="subtle small-text">{t('health.biasDescription')}</span>
                   </TraceInfoPopover>
+                  <div className="health-warning-actions">
+                    <span className="subtle list-status-text">{providerHealthLoaded ? t('health.count', { count: providerHealth.providers.length }) : t('messages.loading')}</span>
+                    <button type="button" onClick={() => void loadProviderHealth(providerHealthQuery, traceTimeFilter, proxyStartedAt)}>
+                      {t('actions.refresh')}
+                    </button>
+                  </div>
                 </div>
               </div>
             </article>
@@ -4448,19 +4678,19 @@ export default function App() {
             <section className="health-summary-grid panel-full" aria-label={t('health.summaryTitle')}>
               <div className="trace-stat-card trace-stat-success">
                 <span className="stat-label">{t('health.summaryRequests')}</span>
-                <strong>{providerHealth.summary.requestCount.toLocaleString()}</strong>
+                <strong title={providerHealth.summary.requestCount.toLocaleString()}>{formatCompactCount(providerHealth.summary.requestCount)}</strong>
               </div>
               <div className="trace-stat-card">
                 <span className="stat-label">{t('health.summaryAttempts')}</span>
-                <strong>{providerHealth.summary.attemptCount.toLocaleString()}</strong>
+                <strong title={providerHealth.summary.attemptCount.toLocaleString()}>{formatCompactCount(providerHealth.summary.attemptCount)}</strong>
               </div>
               <div className="trace-stat-card trace-stat-failover">
                 <span className="stat-label">{t('health.summaryFailover')}</span>
-                <strong>{providerHealth.summary.failover.toLocaleString()}</strong>
+                <strong title={providerHealth.summary.failover.toLocaleString()}>{formatCompactCount(providerHealth.summary.failover)}</strong>
               </div>
               <div className="trace-stat-card trace-stat-failed">
                 <span className="stat-label">{t('health.summaryRetryable')}</span>
-                <strong>{providerHealth.summary.retryableFailures.toLocaleString()}</strong>
+                <strong title={providerHealth.summary.retryableFailures.toLocaleString()}>{formatCompactCount(providerHealth.summary.retryableFailures)}</strong>
               </div>
               <div className="trace-stat-card">
                 <span className="stat-label">{t('health.summaryP95Ttfb')}</span>
@@ -4468,7 +4698,7 @@ export default function App() {
               </div>
               <div className="trace-stat-card">
                 <span className="stat-label">{t('health.summaryTokens')}</span>
-                <strong>{formatTokenCount(providerHealth.summary.totalTokens)}</strong>
+                <strong title={formatTokenCount(providerHealth.summary.totalTokens)}>{formatCompactCount(providerHealth.summary.totalTokens)}</strong>
               </div>
             </section>
 
@@ -4504,17 +4734,19 @@ export default function App() {
                           <article className="trace-table-row health-table-row" role="row" key={provider.provider}>
                             <div className="trace-table-cell" role="cell" data-label={t('health.tableProvider')}>
                               <div className="trace-model-cell">
-                                <div className="trace-model-line">
+                                <div className="trace-model-line health-provider-line">
                                   <strong className="trace-model-name">{provider.name || provider.provider}</strong>
+                                  <span className="trace-table-muted trace-mono health-provider-id">{provider.provider}</span>
                                   {protocol ? <span className={protocolBadgeClass(protocol)}>{protocolLabel(protocol)}</span> : null}
                                   {provider.disabled ? <span className="badge idle">{t('status.disabled')}</span> : null}
                                 </div>
-                                <span className="trace-table-muted trace-mono">{provider.provider}</span>
                               </div>
                             </div>
                             <div className="trace-table-cell" role="cell" data-label={t('health.tableTraffic')}>
                               <div className="trace-table-metric health-metric-stack">
-                                <span className="trace-mono">{t('health.attemptsValue', { attempts: provider.attemptCount, requests: provider.requestCount })}</span>
+                                <span className="trace-mono" title={t('health.attemptsValue', { attempts: provider.attemptCount, requests: provider.requestCount })}>
+                                  {t('health.attemptsValue', { attempts: formatCompactCount(provider.attemptCount), requests: formatCompactCount(provider.requestCount) })}
+                                </span>
                                 <span className={`badge ${healthSampleBadgeClass(provider.sampleLevel)}`}>{formatHealthSampleLevel(provider.sampleLevel)}</span>
                                 <span className="trace-table-muted">{formatHealthRole(provider.role)} · {providerHealthPrimaryAlias(provider)}</span>
                               </div>
@@ -4528,7 +4760,12 @@ export default function App() {
                             <div className="trace-table-cell" role="cell" data-label={t('health.tableCache')}>
                               <div className="trace-table-metric health-metric-stack">
                                 <span className="trace-mono">{providerHealthCacheHitRate(provider)}</span>
-                                <span className="trace-table-muted">{t('health.cacheTokenHint', { read: formatTokenCount(provider.cacheReadTokens), input: formatTokenCount(provider.inputTokens) })}</span>
+                                <span
+                                  className="trace-table-muted"
+                                  title={t('health.cacheTokenHint', { read: formatTokenCount(provider.cacheReadTokens), input: formatTokenCount(provider.inputTokens) })}
+                                >
+                                  {t('health.cacheTokenHint', { read: formatCompactCount(provider.cacheReadTokens), input: formatCompactCount(provider.inputTokens) })}
+                                </span>
                               </div>
                             </div>
                             <div className="trace-table-cell" role="cell" data-label={t('health.tableLatency')}>
@@ -4539,8 +4776,8 @@ export default function App() {
                             </div>
                             <div className="trace-table-cell trace-status-cell" role="cell" data-label={t('health.tableTokens')}>
                               <div className="trace-status-stack">
-                                <span className="trace-mono">{formatTokenCount(provider.totalTokens)}</span>
-                                <span className="trace-table-muted">{t('health.finalSuccessValue', { count: provider.finalSuccess })}</span>
+                                <span className="trace-mono" title={formatTokenCount(provider.totalTokens)}>{formatCompactCount(provider.totalTokens)}</span>
+                                <span className="trace-table-muted" title={t('health.finalSuccessValue', { count: provider.finalSuccess })}>{t('health.finalSuccessValue', { count: formatCompactCount(provider.finalSuccess) })}</span>
                               </div>
                             </div>
                           </article>
@@ -4568,12 +4805,20 @@ export default function App() {
             <article className="panel settings-main-panel">
               <div className="panel-header">
                 <div>
+                  <h3>{t('settings.title')}</h3>
                   <p className="subtle">{t('settings.subtitle')}</p>
                 </div>
-                {prefsStatus ? <p className="subtle settings-status">{prefsStatus}</p> : null}
+                <div className="settings-header-meta">
+                  {prefsDirty ? <span className="badge warn">{t('messages.unsavedChanges')}</span> : null}
+                  {prefsStatus ? <p className="subtle settings-status">{prefsStatus}</p> : null}
+                </div>
               </div>
 
-              <form className="stack-blocks" onSubmit={(event) => void onSavePrefs(event)}>
+              <form
+                className="stack-blocks"
+                onSubmit={(event) => void onSavePrefs(event)}
+                onInvalid={(event) => scrollInvalidControlIntoView(event, setPrefsStatus)}
+              >
                 <section className="subpanel">
                   <div className="subpanel-header">
                     <h4>{t('settings.appearanceTitle')}</h4>
@@ -4740,8 +4985,11 @@ export default function App() {
                   </div>
                 </section>
 
-                <div className="toolbar">
-                  <button type="submit" className="primary">
+                <div className="toolbar sticky-action-bar settings-save-bar">
+                  <span className={`badge ${prefsDirty ? 'warn' : 'outline'}`}>
+                    {prefsDirty ? t('messages.unsavedChanges') : t('messages.saved')}
+                  </span>
+                  <button type="submit" className="primary" disabled={!prefsDirty}>
                     {desktopPrefsAvailable ? t('actions.save') : t('settings.saveAppearance')}
                   </button>
                 </div>
@@ -4755,10 +5003,14 @@ export default function App() {
                   <h4>{t('settings.timeoutTitle')}</h4>
                   {proxySettingsStatus ? <p className="subtle settings-status">{proxySettingsStatus}</p> : null}
                 </div>
-                <form className="stack" onSubmit={(event) => {
-                  event.preventDefault()
-                  void onSaveProxySettings()
-                }}>
+                <form
+                  className="stack"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void onSaveProxySettings()
+                  }}
+                  onInvalid={(event) => scrollInvalidControlIntoView(event, setProxySettingsStatus)}
+                >
                   <label>
                     <span>{t('settings.connectTimeout')}</span>
                     <input
@@ -4862,37 +5114,48 @@ export default function App() {
                     />
                     <p className="subtle">{t('settings.failoverStatusCodesHelp')}</p>
                   </label>
-                  <label>
-                    <span>{t('settings.routingStrategy')}</span>
-                    <select
-                      value={proxySettings.routing.strategy}
-                      onChange={(event) => {
-                        const nextStrategy = event.target.value
-                        const nextDescriptor = proxySettings.routing.descriptors?.find((item) => item.name === nextStrategy) || null
-                        setProxySettings((current) => ({
-                          ...current,
-                          routing: {
-                            ...current.routing,
-                            strategy: nextStrategy,
-                            params: nextDescriptor?.defaults || {},
-                          },
-                        }))
-                      }}
-					>
-						{(proxySettings.routing.descriptors || []).map((descriptor) => (
-							<option key={descriptor.name} value={descriptor.name}>{routingStrategyLabel(descriptor)}</option>
-						))}
-					</select>
-				</label>
-				{activeRouting?.description ? <p className="subtle">{routingStrategyDescription(activeRouting)}</p> : null}
-				{(activeRoutingDescriptor(proxySettings)?.parameters || []).map((parameter) =>
-					routingParamInput(proxySettings, proxySettings.routing.strategy, parameter, setProxySettings),
-				)}
+                  <details className="settings-advanced-proxy">
+                    <summary>
+                      <span>{t('settings.advancedProxyTitle')}</span>
+                      <span className="subtle small-text">{t('settings.advancedProxyHint')}</span>
+                    </summary>
+                    <div className="stack">
+                      <label>
+                        <span>{t('settings.routingStrategy')}</span>
+                        <select
+                          value={proxySettings.routing.strategy}
+                          onChange={(event) => {
+                            const nextStrategy = event.target.value
+                            const nextDescriptor = proxySettings.routing.descriptors?.find((item) => item.name === nextStrategy) || null
+                            setProxySettings((current) => ({
+                              ...current,
+                              routing: {
+                                ...current.routing,
+                                strategy: nextStrategy,
+                                params: nextDescriptor?.defaults || {},
+                              },
+                            }))
+                          }}
+                        >
+                          {(proxySettings.routing.descriptors || []).map((descriptor) => (
+                            <option key={descriptor.name} value={descriptor.name}>{routingStrategyLabel(descriptor)}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {activeRouting?.description ? <p className="subtle">{routingStrategyDescription(activeRouting)}</p> : null}
+                      {(activeRoutingDescriptor(proxySettings)?.parameters || []).map((parameter) =>
+                        routingParamInput(proxySettings, proxySettings.routing.strategy, parameter, setProxySettings),
+                      )}
+                    </div>
+                  </details>
                   <p className="subtle">
                     {proxyRunning ? t('settings.timeoutRunningHint') : t('settings.timeoutHint')}
                   </p>
-                  <div className="toolbar">
-                    <button type="submit" className="primary">
+                  <div className="toolbar sticky-action-bar settings-save-bar">
+                    <span className={`badge ${proxySettingsDirty ? 'warn' : 'outline'}`}>
+                      {proxySettingsDirty ? t('messages.unsavedChanges') : t('messages.saved')}
+                    </span>
+                    <button type="submit" className="primary" disabled={!proxySettingsDirty}>
                       {t('settings.saveTimeouts')}
                     </button>
                   </div>
@@ -4993,9 +5256,14 @@ export default function App() {
                   <p className="subtle">{providerStatus || t('providers.detailHint')}</p>
                 </div>
                 <div className="toolbar">
+                  {providerFormDirty ? <span className="badge warn">{t('messages.unsavedChanges')}</span> : null}
                   {providerDetailMode === 'edit' && selectedProvider ? (
-	                    <button type="button" onClick={() => void onRefreshProviderModels({ id: selectedProvider.id })}>
-	                      {t('providers.refreshModels')}
+	                    <button
+                        type="button"
+                        onClick={() => void onRefreshProviderModels({ id: selectedProvider.id })}
+                        disabled={providerModelsLoadingId === selectedProvider.id}
+                      >
+	                      {providerModelsLoadingId === selectedProvider.id ? t('messages.loading') : t('providers.refreshModels')}
 	                    </button>
 	                  ) : null}
 	                  {providerDetailMode === 'edit' && selectedProvider ? (
@@ -5018,7 +5286,11 @@ export default function App() {
                 </div>
               </div>
 
-              <form className="stack-blocks" onSubmit={(event) => void onSaveProvider(event)}>
+              <form
+                className="stack-blocks"
+                onSubmit={(event) => void onSaveProvider(event)}
+                onInvalid={(event) => scrollInvalidControlIntoView(event, setProviderStatus)}
+              >
                 <section className="detail-hero detail-hero-grid">
                   <div className="detail-hero-card detail-hero-primary">
                     <span className="meta-label">{t('providers.name')}</span>
@@ -5059,6 +5331,7 @@ export default function App() {
                         value={providerForm.id}
                         onChange={(event) => setProviderForm((current) => ({ ...current, id: event.target.value }))}
                         placeholder={t('providers.placeholderId')}
+                        required
                       />
                     </label>
                     <label>
@@ -5130,6 +5403,7 @@ export default function App() {
                                 value={baseUrl}
                                 onChange={(event) => updateProviderBaseUrl(index, event.target.value)}
                                 placeholder={t('providers.placeholderBaseUrl')}
+                                required={providerForm.baseUrls.every((item) => !item.trim())}
                               />
                               <button type="button" onClick={() => moveProviderBaseUrl(index, -1)} disabled={index === 0} aria-label={t('providers.moveUp')}>
                                 {t('providers.moveUpShort')}
@@ -5152,9 +5426,9 @@ export default function App() {
                                   apiKeys: providerForm.apiKeys.map((item) => item.trim()).filter(Boolean),
                                   headers: parseHeadersText(providerForm.headersText),
                                 })}
-                                disabled={!normalizedBaseUrl}
+                                disabled={!normalizedBaseUrl || Boolean(providerPingLoadingKey)}
                               >
-                                {t('providers.ping')}
+                                {providerPingLoadingKey === normalizedBaseUrl ? t('messages.loading') : t('providers.ping')}
                               </button>
                               <button
                                 type="button"
@@ -5272,7 +5546,10 @@ export default function App() {
                   </div>
                 </section>
 
-                <div className="toolbar detail-actions">
+                <div className="toolbar detail-actions sticky-action-bar">
+                  <span className={`badge ${providerFormDirty ? 'warn' : 'outline'}`}>
+                    {providerFormDirty ? t('messages.unsavedChanges') : t('messages.saved')}
+                  </span>
                   <button type="submit" className="primary">
                     {t('actions.save')}
                   </button>
@@ -5554,6 +5831,7 @@ export default function App() {
                   <p className="subtle">{aliasStatus || t('aliases.detailHint')}</p>
                 </div>
                 <div className="toolbar">
+                  {aliasFormDirty ? <span className="badge warn">{t('messages.unsavedChanges')}</span> : null}
                   <button type="button" onClick={() => openAliasTargetModal(aliasForm.alias || selectedAlias?.alias)}>
                     {t('actions.bind')}
                   </button>
@@ -5593,7 +5871,11 @@ export default function App() {
                   </div>
                 </section>
 
-                <form className="stack-blocks" onSubmit={(event) => void onSaveAlias(event)}>
+                <form
+                  className="stack-blocks"
+                  onSubmit={(event) => void onSaveAlias(event)}
+                  onInvalid={(event) => scrollInvalidControlIntoView(event, setAliasStatus)}
+                >
                   <section className="detail-section">
                     <div className="detail-section-header">
                       <div>
@@ -5609,6 +5891,7 @@ export default function App() {
                           value={aliasForm.alias}
                           onChange={(event) => setAliasForm((current) => ({ ...current, alias: event.target.value }))}
                           placeholder={t('aliases.placeholderAlias')}
+                          required
                         />
                       </label>
                       <label>
@@ -5649,7 +5932,10 @@ export default function App() {
                     </div>
                   </section>
 
-                  <div className="toolbar detail-actions">
+                  <div className="toolbar detail-actions sticky-action-bar">
+                    <span className={`badge ${aliasFormDirty ? 'warn' : 'outline'}`}>
+                      {aliasFormDirty ? t('messages.unsavedChanges') : t('messages.saved')}
+                    </span>
                     <button type="submit" className="primary">
                       {t('actions.save')}
                     </button>

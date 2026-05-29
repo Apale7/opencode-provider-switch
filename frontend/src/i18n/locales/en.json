@@ -93,6 +93,8 @@
     "previewing": "Previewing...",
     "importing": "Importing providers...",
     "loading": "Loading...",
+    "fixInvalidFields": "Fix the highlighted field first.",
+    "unsavedChanges": "Unsaved changes",
     "noData": "No data yet.",
     "warningsSuffix": "Warnings: {{warnings}}",
     "proxyStarted": "Proxy started",
@@ -227,7 +229,13 @@
     "statusRefreshedModels": "Refreshed models for {{id}}",
     "statusPingingBaseUrl": "Pinging {{baseUrl}}...",
     "statusPingedBaseUrl": "{{baseUrl}} latency: {{latency}} ms",
-    "statusImportDone": "Import done: imported={{imported}}, skipped={{skipped}}"
+    "statusImportDone": "Import done: imported={{imported}}, skipped={{skipped}}",
+    "importClosedDetail": "Closed the edit panel before opening import.",
+    "importBlockedDirty": "Save or reset provider changes before importing.",
+    "activeFilters": "Active provider filters",
+    "clearFilters": "Clear filters",
+    "filterChipSearch": "Search: {{query}}",
+    "filterChipStatus": "Status: {{status}}"
   },
   "aliases": {
     "title": "Aliases",
@@ -549,6 +557,8 @@
     "routingStrategy": "Routing strategy",
     "timeoutHint": "Saved values apply to the next proxy start.",
     "timeoutRunningHint": "The proxy is currently running. Saved values apply only after you restart it.",
+    "advancedProxyTitle": "Advanced routing parameters",
+    "advancedProxyHint": "Collapsed by default to keep proxy settings short.",
     "saveTimeouts": "Save proxy settings",
     "saveAppearance": "Apply appearance",
     "serverAppearanceOnly": "Appearance is applied in this browser tab. Server mode does not persist desktop preferences.",

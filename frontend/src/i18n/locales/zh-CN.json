@@ -93,6 +93,8 @@
     "previewing": "正在预览...",
     "importing": "正在导入提供商...",
     "loading": "正在加载...",
+    "fixInvalidFields": "请先修正高亮字段。",
+    "unsavedChanges": "有未保存的更改",
     "noData": "暂无数据。",
     "warningsSuffix": "警告：{{warnings}}",
     "proxyStarted": "代理已启动",
@@ -227,7 +229,13 @@
     "statusRefreshedModels": "已刷新 {{id}} 的模型列表",
     "statusPingingBaseUrl": "正在 Ping {{baseUrl}}...",
     "statusPingedBaseUrl": "{{baseUrl}} 延迟：{{latency}} ms",
-    "statusImportDone": "导入完成：imported={{imported}}, skipped={{skipped}}"
+    "statusImportDone": "导入完成：imported={{imported}}, skipped={{skipped}}",
+    "importClosedDetail": "已先关闭编辑面板，再打开导入。",
+    "importBlockedDirty": "导入前请先保存或重置提供商修改。",
+    "activeFilters": "当前提供商筛选条件",
+    "clearFilters": "清空筛选",
+    "filterChipSearch": "搜索：{{query}}",
+    "filterChipStatus": "状态：{{status}}"
   },
   "aliases": {
     "title": "别名路由",
@@ -549,6 +557,8 @@
     "routingStrategy": "路由策略",
     "timeoutHint": "保存后会在下一次启动代理时生效。",
     "timeoutRunningHint": "代理当前正在运行，保存后的值要在重启代理后才会生效。",
+    "advancedProxyTitle": "高级路由参数",
+    "advancedProxyHint": "默认折叠，缩短代理设置面板。",
     "saveTimeouts": "保存代理设置",
     "saveAppearance": "应用外观",
     "serverAppearanceOnly": "外观已应用到当前浏览器标签页。服务器模式不会持久化桌面偏好。",
