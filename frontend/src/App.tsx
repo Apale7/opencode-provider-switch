@@ -3927,6 +3927,7 @@ export default function App() {
                 <div>
                   <h3>{t('sync.syncTitle')}</h3>
                   <p className="subtle">{t('sync.subtitle')}</p>
+                  <p className="subtle tone-warning">{t('sync.capabilityNote')}</p>
                 </div>
                 <span className="subtle">{syncStatus}</span>
               </div>

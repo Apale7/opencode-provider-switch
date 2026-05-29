@@ -54,6 +54,13 @@ If the target file is JSONC, sync rewrites it as normalized plain JSON and any
 		OPENCODE_CONFIG_DIR unless you pass --target yourself. The command writes alias
 		exposure into provider.ocswitch.models and other protocol-matched provider.<key>.models using only aliases that are currently
 		routable.
+It does not infer or write model capability metadata such as attachment,
+modalities, tool_call, reasoning, or limits. OpenCode built-in providers such as
+provider.openai may fill capabilities for known models, but provider.ocswitch is
+a custom provider and does not automatically inherit those capabilities. Add
+provider.ocswitch.models.<alias> metadata manually when OpenCode must recognize
+image/attachment or other model capabilities; same-name model objects are
+preserved by later syncs.
 Use --dry-run to preview the resolved target file without writing it. Typical
 workflow: run ocswitch doctor first, then sync, then start or restart ocswitch serve if
 needed. Use --runtime-base-url / --runtime-directory when you want reconciliation

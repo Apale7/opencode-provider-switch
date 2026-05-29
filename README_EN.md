@@ -153,6 +153,8 @@ ocswitch opencode sync --target /path/to/opencode.jsonc
 
 Note: if the target file was JSONC, sync writes back normalized JSON, so comments and trailing commas are not preserved. The default sync target is the global user config only; it does not follow `OPENCODE_CONFIG_DIR`.
 
+Model capability metadata note: `ocswitch opencode sync` only exposes routable aliases as `provider.ocswitch.models.*`. It does not automatically write or infer model capabilities such as `attachment`, `modalities`, `tool_call`, `reasoning`, or `limit`. Relay `/models` responses are often not reliable enough to decide image, PDF, tool-call, reasoning, or other capabilities. OpenCode built-in providers such as `provider.openai` may fill capabilities for known models, but `provider.ocswitch` is a custom provider and does not automatically inherit those built-in capabilities. If OpenCode must explicitly recognize image/attachment support, add the metadata manually under `provider.ocswitch.models.<alias>` in your OpenCode config; future syncs preserve existing same-name model objects.
+
 ### 5. Start the local proxy
 
 ```bash

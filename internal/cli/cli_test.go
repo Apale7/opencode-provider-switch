@@ -884,7 +884,7 @@ func TestHelpTextIncludesOperationalGuidance(t *testing.T) {
 		{
 			name:        "opencode sync",
 			cmd:         newOpencodeSyncCmd(),
-			wantLong:    []string{"does not follow", "writes alias", "exposure into provider.ocswitch.models"},
+			wantLong:    []string{"does not follow", "writes alias", "exposure into provider.ocswitch.models", "does not infer or write model capability metadata"},
 			wantExample: []string{"--dry-run", "--set-small-model ocswitch/gpt-5.4-mini"},
 		},
 	}

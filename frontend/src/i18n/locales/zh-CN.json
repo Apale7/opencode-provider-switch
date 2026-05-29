@@ -295,6 +295,7 @@
   "sync": {
     "title": "同步与体检",
     "subtitle": "不离开桌面应用即可预览、应用 OpenCode 同步并运行 Doctor。",
+    "capabilityNote": "同步只暴露 alias，不会推断 attachment、modalities、tool_call、reasoning、limit 等模型能力。OpenCode 内置 provider 可能会补全已知模型能力，但 provider.ocswitch 是自定义 provider；如需图片/附件等能力被显式识别，请手动补充 provider.ocswitch.models.<alias> 元数据。",
     "syncTitle": "OpenCode 同步",
     "doctorTitle": "Doctor 报告",
     "targetPath": "目标路径",

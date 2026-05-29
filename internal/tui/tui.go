@@ -1183,6 +1183,8 @@ func (m model) viewSync() string {
 	b.WriteString("\n\n")
 	b.WriteString(mutedStyle.Render(m.t("sync.help")))
 	b.WriteString("\n\n")
+	b.WriteString(mutedStyle.Render(m.t("sync.capabilityNote")))
+	b.WriteString("\n\n")
 	if !m.syncPreviewReady {
 		return b.String() + m.t("sync.notPreviewed")
 	}

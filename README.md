@@ -155,6 +155,8 @@ ocswitch opencode sync --target /path/to/opencode.jsonc
 
 注意：如果目标文件原本是 JSONC，写回时会规范化成普通 JSON，注释和尾逗号不会保留。默认同步目标只看全局用户配置目录，不跟随 `OPENCODE_CONFIG_DIR`。
 
+模型能力元数据注意事项：`ocswitch opencode sync` 只负责把可路由 alias 暴露为 `provider.ocswitch.models.*`，不会自动写入或推断 `attachment`、`modalities`、`tool_call`、`reasoning`、`limit` 等模型能力。原因是中转站的 `/models` 数据通常不足以可靠判断图片、PDF、工具调用、推理等能力。OpenCode 内置 provider（例如 `provider.openai`）可能会为已知模型补全能力，但 `provider.ocswitch` 是自定义 provider，不会自动继承这些内置能力。如果你需要让 OpenCode 明确认出图片/附件等能力，请在 OpenCode 配置中为对应 `provider.ocswitch.models.<alias>` 手动补充模型元数据；后续再次同步时，同名 alias 的既有模型对象会被保留。
+
 ### 5. 启动本地代理
 
 ```bash

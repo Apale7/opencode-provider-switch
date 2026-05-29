@@ -295,6 +295,7 @@
   "sync": {
     "title": "Sync",
     "subtitle": "Preview and apply OpenCode sync without leaving the desktop shell.",
+    "capabilityNote": "Sync exposes aliases only. It does not infer attachment, modalities, tool_call, reasoning, or limit metadata. Built-in OpenCode providers may fill known model capabilities, but provider.ocswitch is custom; add provider.ocswitch.models.<alias> metadata manually when image/attachment or other capabilities must be explicit.",
     "syncTitle": "OpenCode sync",
     "doctorTitle": "Doctor report",
     "targetPath": "Target path",
