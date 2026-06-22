@@ -541,9 +541,9 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 					"npm": "@ai-sdk/openai",
 					"options": {"baseURL": "https://duplicate.example.com/v1", "apiKey": "sk-dup"}
 				},
-				"broken": {
+				"fresh-import": {
 					"npm": "@ai-sdk/openai",
-					"options": {"baseURL": "https://broken.example.com", "apiKey": "sk-bad"}
+					"options": {"baseURL": "https://fresh.example.com", "apiKey": "sk-fresh"}
 				}
 			}
 		}`), 0o600); err != nil {
@@ -568,11 +568,11 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 		if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
-		if payload.Data.Imported != 0 || payload.Data.Skipped != 2 {
+		if payload.Data.Imported != 1 || payload.Data.Skipped != 1 {
 			t.Fatalf("import payload = %#v", payload.Data)
 		}
-		if len(payload.Data.Warnings) != 2 {
-			t.Fatalf("warnings = %#v, want 2 entries", payload.Data.Warnings)
+		if len(payload.Data.Warnings) != 1 {
+			t.Fatalf("warnings = %#v, want 1 entry", payload.Data.Warnings)
 		}
 	})
 

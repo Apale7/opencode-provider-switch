@@ -60,7 +60,7 @@ Run dry-run first, sync to this OpenCode config file, run doctor, then tell me w
 
 ### 1. Add or import providers
 
-Add providers manually. `--base-url` usually needs the `/v1` suffix. By default, `ocswitch` tries to discover models from upstream `/v1/models`; add `--skip-models` if the upstream does not expose that endpoint.
+Add providers manually. `--base-url` is the upstream API root; the path varies by provider (often ends with `/v1`, but not always). By default, `ocswitch` tries to discover models from upstream `/models`; add `--skip-models` if the upstream does not expose that endpoint.
 
 ```bash
 ocswitch provider add --id provider-a --base-url https://provider-a.example/v1 --api-key sk-xxx

@@ -96,17 +96,17 @@ func TestFormSelectConfirmsValueAndSubmitIsLastEnter(t *testing.T) {
 	}
 }
 
-func TestProviderFormValidatesBaseURLImmediately(t *testing.T) {
+func TestProviderFormAcceptsBaseURLWithoutV1(t *testing.T) {
 	m := model{lang: langEN}
 	m.openProviderForm(actionAddProvider, nil)
 	m.formFields[0].value = "p1"
 	m.formFields[3].value = "https://api.example"
 
-	if m.validateFormFields() {
-		t.Fatalf("form valid with base URL missing /v1")
+	if !m.validateFormFields() {
+		t.Fatalf("expected form to be valid for base URL without /v1")
 	}
-	if got := m.formFields[3].err; got == "" {
-		t.Fatalf("base URL field error empty")
+	if got := m.formFields[3].err; got != "" {
+		t.Fatalf("expected no error on base URL field, got %q", got)
 	}
 }
 

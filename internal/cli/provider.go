@@ -54,8 +54,7 @@ func newProviderAddCmd() *cobra.Command {
 		Long: `provider add creates or updates one upstream provider entry in local ocswitch
 config.
 
-It writes only the ocswitch config file. --protocol defaults to openai-responses,
-and current MVP validation still requires --base-url to point at a compatible /v1 root.
+It writes only the ocswitch config file. --protocol defaults to openai-responses.
 By default the command also calls the upstream
 /v1/models endpoint with the supplied credentials and stores the discovered
 model list so later bind operations can catch typos early. Discovery failures

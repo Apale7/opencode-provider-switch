@@ -66,22 +66,26 @@ func TestProviderAddPreservesExistingFields(t *testing.T) {
 	}
 }
 
-func TestProviderAddRejectsInvalidBaseURL(t *testing.T) {
+func TestProviderAddAcceptsBaseURLWithoutV1(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "ocswitch.json")
 	t.Setenv(config.ConfigEnvVar, configFile)
 	configPath = ""
 
 	cmd := newProviderAddCmd()
-	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/api"})
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected invalid --base-url error")
+	cmd.SetArgs([]string{"--id", "p1", "--base-url", "https://example.com/api", "--skip-models"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected base URL without /v1 to be accepted, got error: %v", err)
 	}
-	if got := err.Error(); got != "invalid --base-url: base_url must end with /v1" {
-		t.Fatalf("error = %q", got)
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
 	}
-	if _, statErr := os.Stat(configFile); !os.IsNotExist(statErr) {
-		t.Fatalf("expected no config file write, stat err = %v", statErr)
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider p1 not found in config")
+	}
+	if p.BaseURL != "https://example.com/api" {
+		t.Fatalf("BaseURL = %q, want %q", p.BaseURL, "https://example.com/api")
 	}
 }
 
@@ -1251,43 +1255,6 @@ func TestImportedModelsDoNotBlockAliasBind(t *testing.T) {
 	a := cfg.FindAlias("gpt")
 	if a == nil || len(a.Targets) != 1 || a.Targets[0].Model != "different-real-model" {
 		t.Fatalf("alias targets = %#v", a)
-	}
-}
-
-func TestProviderImportOpencodeSkipsInvalidBaseURL(t *testing.T) {
-	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
-	configPath = ""
-
-	src := filepath.Join(t.TempDir(), "opencode.json")
-	data := `{
-	  "provider": {
-	    "bad": {
-	      "npm": "@ai-sdk/openai",
-	      "options": {"baseURL": "https://example.com/api", "apiKey": "sk-test"}
-	    }
-	  }
-	}`
-	if err := os.WriteFile(src, []byte(data), 0o600); err != nil {
-		t.Fatalf("write source: %v", err)
-	}
-
-	cmd := newProviderImportCmd()
-	var stdout bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"--from", src})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute provider import-opencode: %v", err)
-	}
-	if !strings.Contains(stdout.String(), `skip "bad" (invalid baseURL`) {
-		t.Fatalf("stdout = %q", stdout.String())
-	}
-
-	cfg, err := loadCfg()
-	if err != nil {
-		t.Fatalf("reload config: %v", err)
-	}
-	if cfg.FindProvider("bad") != nil {
-		t.Fatal("invalid imported provider should not be saved")
 	}
 }
 

@@ -62,7 +62,7 @@ Alias：gpt-5.4 先走 provider-a/model-a，再走 provider-b/model-b。
 
 ### 1. 添加或导入 provider
 
-手动添加 provider。`--base-url` 通常需要带 `/v1`，默认会尝试请求上游 `/v1/models` 发现模型列表；如果上游不开放该接口，可加 `--skip-models`。
+手动添加 provider。`--base-url` 是上游 API 根地址，具体路径以上游为准（常见以 `/v1` 结尾，但并非强制要求）。默认会尝试请求上游 `/models` 发现模型列表；如果上游不开放该接口，可加 `--skip-models`。
 
 ```bash
 ocswitch provider add --id provider-a --base-url https://provider-a.example/v1 --api-key sk-xxx

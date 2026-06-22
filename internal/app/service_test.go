@@ -847,7 +847,7 @@ func TestImportProvidersReturnsWarnings(t *testing.T) {
 			},
 			"broken": {
 				"npm": "@ai-sdk/openai",
-				"options": {"baseURL": "https://broken.example.com", "apiKey": "sk-bad"}
+				"options": {"baseURL": "", "apiKey": "sk-bad"}
 			},
 			"fresh": {
 				"npm": "@ai-sdk/openai",
@@ -865,14 +865,11 @@ func TestImportProvidersReturnsWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportProviders() error = %v", err)
 	}
-	if result.Imported != 1 || result.Skipped != 2 {
-		t.Fatalf("ImportProviders() = %#v, want imported=1 skipped=2", result)
+	if result.Imported != 1 || result.Skipped != 1 {
+		t.Fatalf("ImportProviders() = %#v, want imported=1 skipped=1", result)
 	}
 	if !containsWarning(result.Warnings, `skip "keep"`) {
 		t.Fatalf("warnings %#v do not mention duplicate provider", result.Warnings)
-	}
-	if !containsWarning(result.Warnings, `skip "broken"`) {
-		t.Fatalf("warnings %#v do not mention invalid provider", result.Warnings)
 	}
 
 	reloaded, err := config.Load(path)

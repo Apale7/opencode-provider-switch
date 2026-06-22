@@ -23,8 +23,9 @@ func TestValidateProviderBaseURL(t *testing.T) {
 		{name: "valid exact", input: "https://example.com/v1"},
 		{name: "valid trailing slash", input: "https://example.com/v1/"},
 		{name: "valid trimmed", input: "  https://example.com/v1/  "},
+		{name: "valid without v1", input: "https://example.com/api"},
+		{name: "valid bare host", input: "https://example.com"},
 		{name: "missing", input: "", wantErr: "missing base_url"},
-		{name: "missing v1", input: "https://example.com/api", wantErr: "base_url must end with /v1"},
 	}
 
 	for _, tt := range tests {
@@ -53,10 +54,8 @@ func TestValidateProviderBaseURLAnthropic(t *testing.T) {
 	if err := ValidateProviderBaseURL(ProtocolAnthropicMessages, "https://api.anthropic.com/v1/"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := ValidateProviderBaseURL(ProtocolAnthropicMessages, "https://api.anthropic.com/api"); err == nil {
-		t.Fatal("expected /v1 validation error")
-	} else if err.Error() != "base_url must end with /v1" {
-		t.Fatalf("expected anthropic /v1 validation error, got %q", err.Error())
+	if err := ValidateProviderBaseURL(ProtocolAnthropicMessages, "https://api.anthropic.com/api"); err != nil {
+		t.Fatalf("unexpected error for non-/v1 anthropic base url: %v", err)
 	}
 }
 
