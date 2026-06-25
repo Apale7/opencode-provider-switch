@@ -146,11 +146,15 @@ func (s *circuitBreakerSession) Report(feedback AttemptFeedback) {
 	if now.IsZero() {
 		now = s.strategy.clock.Now()
 	}
+	clientCanceled := feedback.Outcome == OutcomeClientCanceled || feedback.FailureReason == FailureClientCanceled
 	countFailure := feedback.Outcome == OutcomeRetryableFail || (feedback.Outcome == OutcomePostCommitFail && s.strategy.params.CountPostCommitErrors)
 	reachable := feedback.Outcome == OutcomeSuccess || feedback.Outcome == OutcomeTerminalFail
 	s.strategy.store.Update(key, func(state ProviderState) ProviderState {
 		if state.Status == "half-open" && state.HalfOpenInFlight > 0 {
 			state.HalfOpenInFlight--
+		}
+		if clientCanceled {
+			return state
 		}
 		if reachable {
 			state.LastSuccessAt = now

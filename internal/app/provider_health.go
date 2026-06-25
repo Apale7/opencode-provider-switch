@@ -239,8 +239,11 @@ func providerTargetLookup(cfg *config.Config) map[string]providerTargetInfo {
 
 func aggregateTraceHealth(accums map[string]*providerHealthAccum, targets map[string]providerTargetInfo, trace proxy.RequestTrace) {
 	seenProviders := map[string]bool{}
-	traceFailover := trace.Failover || len(trace.Attempts) > 1 || trace.AttemptCount > 1
+	traceFailover := healthTraceFailover(trace)
 	for _, attempt := range trace.Attempts {
+		if attemptIsClientCanceled(attempt) {
+			continue
+		}
 		providerID := strings.TrimSpace(attempt.Provider)
 		if providerID == "" {
 			continue
@@ -435,16 +438,21 @@ func summarizeProviderHealth(items []ProviderHealthView, traces []proxy.RequestT
 		if !traceMatchesProviderFilter(trace, providerFilter) {
 			continue
 		}
-		requestIDs[trace.ID] = true
-		if trace.Success {
-			summary.Success++
-		} else {
-			summary.Failed++
-		}
-		if trace.Failover || len(trace.Attempts) > 1 || trace.AttemptCount > 1 {
-			summary.Failover++
+		if !traceIsOnlyClientCanceled(trace) {
+			requestIDs[trace.ID] = true
+			if trace.Success {
+				summary.Success++
+			} else {
+				summary.Failed++
+			}
+			if healthTraceFailover(trace) {
+				summary.Failover++
+			}
 		}
 		for _, attempt := range trace.Attempts {
+			if attemptIsClientCanceled(attempt) {
+				continue
+			}
 			if len(providerFilter) > 0 && !providerFilter[attempt.Provider] {
 				continue
 			}
@@ -486,6 +494,52 @@ func traceMatchesProviderFilter(trace proxy.RequestTrace, providerFilter map[str
 		}
 	}
 	return trace.FinalProvider != "" && providerFilter[trace.FinalProvider]
+}
+
+func attemptIsClientCanceled(attempt proxy.TraceAttempt) bool {
+	result := strings.ToLower(strings.TrimSpace(attempt.Result))
+	return result == proxy.TraceResultClientCanceled || result == proxy.TraceResultDownstreamCanceled
+}
+
+func traceIsOnlyClientCanceled(trace proxy.RequestTrace) bool {
+	if len(trace.Attempts) == 0 {
+		return !trace.Success && strings.Contains(strings.ToLower(trace.Error), "client canceled")
+	}
+	hasCanceled := false
+	for _, attempt := range trace.Attempts {
+		if strings.TrimSpace(attempt.Result) == "" && strings.TrimSpace(attempt.Provider) == "" {
+			continue
+		}
+		if attemptIsClientCanceled(attempt) {
+			hasCanceled = true
+			continue
+		}
+		return false
+	}
+	return hasCanceled && !trace.Success
+}
+
+func healthTraceFailover(trace proxy.RequestTrace) bool {
+	if !traceHasClientCanceledAttempt(trace) {
+		return trace.Failover || len(trace.Attempts) > 1 || trace.AttemptCount > 1
+	}
+	count := 0
+	for _, attempt := range trace.Attempts {
+		if attemptIsClientCanceled(attempt) || strings.TrimSpace(attempt.Provider) == "" {
+			continue
+		}
+		count++
+	}
+	return count > 1
+}
+
+func traceHasClientCanceledAttempt(trace proxy.RequestTrace) bool {
+	for _, attempt := range trace.Attempts {
+		if attemptIsClientCanceled(attempt) {
+			return true
+		}
+	}
+	return false
 }
 
 func providerIDs(cfg *config.Config) []string {
@@ -546,6 +600,9 @@ func providerSampleLevel(attempts int) string {
 }
 
 func providerHealthFailureKind(attempt proxy.TraceAttempt) string {
+	if attemptIsClientCanceled(attempt) {
+		return "client_canceled"
+	}
 	result := strings.ToLower(strings.TrimSpace(attempt.Result))
 	switch {
 	case attempt.StatusCode == 429:

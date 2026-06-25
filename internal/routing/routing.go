@@ -17,11 +17,11 @@ type Config struct {
 }
 
 type Descriptor struct {
-	Name        string                 `json:"name"`
-	DisplayName string                 `json:"displayName"`
-	Description string                 `json:"description,omitempty"`
-	Defaults    map[string]any         `json:"defaults,omitempty"`
-	Parameters  []ParameterDescriptor  `json:"parameters,omitempty"`
+	Name        string                `json:"name"`
+	DisplayName string                `json:"displayName"`
+	Description string                `json:"description,omitempty"`
+	Defaults    map[string]any        `json:"defaults,omitempty"`
+	Parameters  []ParameterDescriptor `json:"parameters,omitempty"`
 }
 
 type ParameterDescriptor struct {
@@ -68,6 +68,7 @@ const (
 	OutcomeRetryableFail  Outcome = "retryable_failure"
 	OutcomeTerminalFail   Outcome = "terminal_failure"
 	OutcomePostCommitFail Outcome = "post_commit_failure"
+	OutcomeClientCanceled Outcome = "client_canceled"
 )
 
 type FailureReason string
@@ -85,6 +86,7 @@ const (
 	FailureProviderMissing  FailureReason = "provider_missing"
 	FailureProviderDisabled FailureReason = "provider_disabled"
 	FailureStrategySkipped  FailureReason = "strategy_skipped"
+	FailureClientCanceled   FailureReason = "client_canceled"
 )
 
 type AttemptFeedback struct {
@@ -140,16 +142,16 @@ type StateKey struct {
 }
 
 type ProviderState struct {
-	Status              string    `json:"status,omitempty"`
-	ConsecutiveFailures int       `json:"consecutiveFailures,omitempty"`
-	ConsecutiveSuccesses int      `json:"consecutiveSuccesses,omitempty"`
-	OpenUntil           time.Time `json:"openUntil,omitempty"`
-	CooldownMs          int       `json:"cooldownMs,omitempty"`
-	HalfOpenInFlight    int       `json:"halfOpenInFlight,omitempty"`
-	OpenCount           int       `json:"openCount,omitempty"`
-	LastFailureReason   string    `json:"lastFailureReason,omitempty"`
-	LastFailureAt       time.Time `json:"lastFailureAt,omitempty"`
-	LastSuccessAt       time.Time `json:"lastSuccessAt,omitempty"`
+	Status               string    `json:"status,omitempty"`
+	ConsecutiveFailures  int       `json:"consecutiveFailures,omitempty"`
+	ConsecutiveSuccesses int       `json:"consecutiveSuccesses,omitempty"`
+	OpenUntil            time.Time `json:"openUntil,omitempty"`
+	CooldownMs           int       `json:"cooldownMs,omitempty"`
+	HalfOpenInFlight     int       `json:"halfOpenInFlight,omitempty"`
+	OpenCount            int       `json:"openCount,omitempty"`
+	LastFailureReason    string    `json:"lastFailureReason,omitempty"`
+	LastFailureAt        time.Time `json:"lastFailureAt,omitempty"`
+	LastSuccessAt        time.Time `json:"lastSuccessAt,omitempty"`
 }
 
 type StateStore interface {

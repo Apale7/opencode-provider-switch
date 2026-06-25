@@ -542,6 +542,193 @@ func TestHandleResponsesSkipsOpenCircuitOnNextRequest(t *testing.T) {
 	}
 }
 
+func TestHandleResponsesClearsCircuitWhenAllAliasTargetsAreOpen(t *testing.T) {
+	t.Parallel()
+
+	var firstCalls int32
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&firstCalls, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer first.Close()
+
+	var secondCalls int32
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&secondCalls, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{
+			APIKey: config.DefaultLocalAPIKey,
+			Routing: routing.Config{
+				Strategy: routing.DefaultStrategy,
+				Params:   json.RawMessage(`{"failureThreshold":1,"baseCooldownMs":60000,"maxCooldownMs":60000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":true,"rateLimitCooldownMs":60000}`),
+			},
+		},
+		Providers: []config.Provider{
+			{ID: "p1", BaseURL: first.URL + "/v1", APIKey: "sk-1"},
+			{ID: "p2", BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+		},
+		Aliases: []config.Alias{{
+			Alias:   "gpt-5.4",
+			Enabled: true,
+			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}},
+		}},
+	})
+
+	for _, providerID := range []string{"p1", "p2"} {
+		key := routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: providerID}
+		srv.store.Update(key, func(routing.ProviderState) routing.ProviderState {
+			return routing.ProviderState{
+				Status:              "open",
+				ConsecutiveFailures: 1,
+				OpenUntil:           time.Now().Add(time.Hour),
+				CooldownMs:          60000,
+				OpenCount:           1,
+				LastFailureReason:   string(routing.FailureRateLimited),
+			}
+		})
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ocswitch/gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("response status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if got := atomic.LoadInt32(&firstCalls); got != 1 {
+		t.Fatalf("first provider calls = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&secondCalls); got != 0 {
+		t.Fatalf("second provider calls = %d, want 0", got)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	latest := traces[0]
+	if len(latest.Attempts) != 3 {
+		t.Fatalf("latest trace attempts = %d, want 3", len(latest.Attempts))
+	}
+	if !latest.Attempts[0].Skipped || latest.Attempts[0].Error != "circuit_open" || !latest.Attempts[1].Skipped || latest.Attempts[1].Error != "circuit_open" {
+		t.Fatalf("latest skipped attempts = %#v", latest.Attempts[:2])
+	}
+	if latest.Attempts[2].Provider != "p1" || !latest.Attempts[2].Success {
+		t.Fatalf("latest retry attempt = %#v", latest.Attempts[2])
+	}
+	if state := srv.store.Snapshot(routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p1"}); state.Status == "open" || state.ConsecutiveFailures != 0 || state.LastFailureReason != "" {
+		t.Fatalf("p1 circuit state = %#v, want cleared after successful retry", state)
+	}
+	if state := srv.store.Snapshot(routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p2"}); state != (routing.ProviderState{}) {
+		t.Fatalf("p2 circuit state = %#v, want cleared", state)
+	}
+}
+
+func TestHandleResponsesClientCancelStopsFailoverAndLeavesCircuitNeutral(t *testing.T) {
+	t.Parallel()
+
+	var firstCalls int32
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&firstCalls, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer first.Close()
+
+	var secondCalls int32
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&secondCalls, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer second.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{
+			APIKey: config.DefaultLocalAPIKey,
+			Routing: routing.Config{
+				Strategy: routing.DefaultStrategy,
+				Params:   json.RawMessage(`{"failureThreshold":1,"baseCooldownMs":60000,"maxCooldownMs":60000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":true,"rateLimitCooldownMs":60000}`),
+			},
+		},
+		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1", BaseURLs: []string{second.URL + "/v1"}, APIKey: "sk-1", APIKeys: []string{"sk-2"}}},
+		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}}},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`)).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	if got := atomic.LoadInt32(&firstCalls); got != 0 {
+		t.Fatalf("first provider calls = %d, want 0", got)
+	}
+	if got := atomic.LoadInt32(&secondCalls); got != 0 {
+		t.Fatalf("second provider calls = %d, want 0", got)
+	}
+	if rr.Code == http.StatusBadGateway {
+		t.Fatalf("status = %d, want non-502 cancel exit", rr.Code)
+	}
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(traces))
+	}
+	if len(traces[0].Attempts) != 1 || traces[0].Attempts[0].Result != TraceResultClientCanceled {
+		t.Fatalf("trace attempts = %#v, want client canceled", traces[0].Attempts)
+	}
+	state := srv.store.Snapshot(routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p1"})
+	if state != (routing.ProviderState{}) {
+		t.Fatalf("circuit state = %#v, want neutral", state)
+	}
+}
+
+func TestHandleResponsesClientCancelLeavesHalfOpenStateNeutral(t *testing.T) {
+	t.Parallel()
+
+	srv := New(&config.Config{
+		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1"}},
+		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}}},
+	})
+	key := routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p1"}
+	srv.store.Update(key, func(state routing.ProviderState) routing.ProviderState {
+		return routing.ProviderState{Status: "half-open", ConsecutiveFailures: 2, LastFailureReason: string(routing.FailureRateLimited), OpenCount: 3, CooldownMs: 60000}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`)).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	srv.handleResponses(rr, req)
+
+	state := srv.store.Snapshot(key)
+	if state.Status != "half-open" || state.HalfOpenInFlight != 0 || state.ConsecutiveFailures != 2 || state.LastFailureReason != string(routing.FailureRateLimited) || state.OpenCount != 3 {
+		t.Fatalf("circuit state = %#v, want neutral half-open", state)
+	}
+}
+
 func TestHandleResponsesRotatesProviderAPIKeys(t *testing.T) {
 	atomic.StoreUint64(&reqCounter, 0)
 
@@ -2094,6 +2281,54 @@ func TestHandleResponsesMarksBrokenStreamAsFailure(t *testing.T) {
 	}
 }
 
+func TestHandleResponsesMarksDownstreamDisconnectAsClientCanceled(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: ok\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}))
+	defer upstream.Close()
+
+	srv := New(&config.Config{
+		Server: config.Server{
+			APIKey: config.DefaultLocalAPIKey,
+			Routing: routing.Config{
+				Strategy: routing.DefaultStrategy,
+				Params:   json.RawMessage(`{"failureThreshold":1,"baseCooldownMs":60000,"maxCooldownMs":60000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":true,"rateLimitCooldownMs":60000}`),
+			},
+		},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}}},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
+	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	w := &writeErrorResponseWriter{header: http.Header{}, err: errors.New("write: broken pipe")}
+
+	srv.handleResponses(w, req)
+
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("traces.List() error = %v", err)
+	}
+	if len(traces) != 1 || len(traces[0].Attempts) != 1 {
+		t.Fatalf("traces = %#v, want one attempt", traces)
+	}
+	if got := traces[0].Attempts[0].Result; got != TraceResultDownstreamCanceled {
+		t.Fatalf("attempt result = %q, want downstream canceled", got)
+	}
+	state := srv.store.Snapshot(routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p1"})
+	if state != (routing.ProviderState{}) {
+		t.Fatalf("circuit state = %#v, want neutral", state)
+	}
+}
+
 func TestHandleMessagesMarksBrokenStreamUsageAsPartial(t *testing.T) {
 	t.Parallel()
 
@@ -2705,10 +2940,30 @@ func TestReadFirstChunk(t *testing.T) {
 type blockingReader struct{}
 type dataEOFReader struct{}
 type timeoutErr struct{}
+type writeErrorResponseWriter struct {
+	header http.Header
+	status int
+	err    error
+}
 
 func (timeoutErr) Error() string   { return "i/o timeout" }
 func (timeoutErr) Timeout() bool   { return true }
 func (timeoutErr) Temporary() bool { return false }
+
+func (w *writeErrorResponseWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = http.Header{}
+	}
+	return w.header
+}
+
+func (w *writeErrorResponseWriter) WriteHeader(status int) {
+	w.status = status
+}
+
+func (w *writeErrorResponseWriter) Write(p []byte) (int, error) {
+	return 0, w.err
+}
 
 func (blockingReader) Read(p []byte) (int, error) {
 	time.Sleep(200 * time.Millisecond)

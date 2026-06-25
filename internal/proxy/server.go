@@ -490,118 +490,148 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		}
 		candidates = append(candidates, routing.Candidate{Index: index, ProviderID: t.Provider, Provider: t.Provider, Protocol: protocol, Model: t.Model, BaseURL: baseURL})
 	}
-	session := state.policy.NewSession(routing.SessionInput{Now: startedAt, RequestID: reqID, Protocol: protocol, Alias: aliasName, Candidates: candidates})
 	attempt := 0
+	resetCircuitTried := false
 	for {
-		decision, ok := session.Next()
-		if !ok {
-			break
-		}
-		attempt++
-		t := config.Target{Provider: decision.Candidate.ProviderID, Model: decision.Candidate.Model, Enabled: true}
-		attemptTrace := TraceAttempt{
-			Attempt:   attempt,
-			Provider:  t.Provider,
-			Model:     t.Model,
-			StartedAt: time.Now(),
-			Result:    "pending",
-		}
-		if decision.Skip {
-			attemptTrace.Skipped = true
-			attemptTrace.Result = "skipped"
-			attemptTrace.Error = decision.SkipReason
-			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
-			trace.Attempts = append(trace.Attempts, attemptTrace)
-			session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: true, Outcome: routing.OutcomeSkipped, FailureReason: routing.FailureStrategySkipped})
-			failoverCount++
-			continue
-		}
-		p := state.cfg.FindProvider(t.Provider)
-		if p == nil || !p.IsEnabled() || !config.ProtocolsMatch(protocol, p.Protocol) {
-			s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt, t.Provider)
-			attemptTrace.Skipped = true
-			attemptTrace.Result = "skipped"
-			attemptTrace.Error = fmt.Sprintf("provider %q unavailable", t.Provider)
-			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
-			trace.Attempts = append(trace.Attempts, attemptTrace)
-			reason := routing.FailureProviderMissing
-			if p != nil && !p.IsEnabled() {
-				reason = routing.FailureProviderDisabled
+		session := state.policy.NewSession(routing.SessionInput{Now: startedAt, RequestID: reqID, Protocol: protocol, Alias: aliasName, Candidates: candidates})
+		attemptedTarget := false
+		circuitOpenSkips := 0
+		otherSkips := 0
+		circuitSkippedProviders := map[string]bool{}
+		for {
+			decision, ok := session.Next()
+			if !ok {
+				break
 			}
-			session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: true, Outcome: routing.OutcomeSkipped, FailureReason: reason})
-			failoverCount++
-			continue
-		}
-		s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt, p.ID, t.Model, failoverCount)
-		cloned := cloneMap(payload)
-		cloned["model"] = t.Model
-		state.cfg.ApplyRequestRewriteRules(aliasName, t.Provider, t.Model, cloned)
-		attemptTrace.RequestParams = sanitizeJSONValue("", cloned)
-		newBody, err := json.Marshal(cloned)
-		if err != nil {
-			s.logger.Printf("req=%d marshal error: %v", reqID, err)
-			attemptTrace.Result = "internal_error"
-			attemptTrace.Error = "marshal error"
-			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
-			trace.Attempts = append(trace.Attempts, attemptTrace)
-			session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: false, Outcome: routing.OutcomeTerminalFail, FailureReason: routing.FailureUnknown})
-			trace.Error = "marshal error"
-			writeProtocolError(w, http.StatusInternalServerError, "server_error", "marshal error")
-			return
-		}
+			attempt++
+			t := config.Target{Provider: decision.Candidate.ProviderID, Model: decision.Candidate.Model, Enabled: true}
+			attemptTrace := TraceAttempt{
+				Attempt:   attempt,
+				Provider:  t.Provider,
+				Model:     t.Model,
+				StartedAt: time.Now(),
+				Result:    "pending",
+			}
+			if decision.Skip {
+				if decision.SkipReason == "circuit_open" {
+					circuitOpenSkips++
+					circuitSkippedProviders[decision.Candidate.ProviderID] = true
+				} else {
+					otherSkips++
+				}
+				attemptTrace.Skipped = true
+				attemptTrace.Result = "skipped"
+				attemptTrace.Error = decision.SkipReason
+				attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+				trace.Attempts = append(trace.Attempts, attemptTrace)
+				session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: true, Outcome: routing.OutcomeSkipped, FailureReason: routing.FailureStrategySkipped})
+				failoverCount++
+				continue
+			}
+			p := state.cfg.FindProvider(t.Provider)
+			if p == nil || !p.IsEnabled() || !config.ProtocolsMatch(protocol, p.Protocol) {
+				otherSkips++
+				s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt, t.Provider)
+				attemptTrace.Skipped = true
+				attemptTrace.Result = "skipped"
+				attemptTrace.Error = fmt.Sprintf("provider %q unavailable", t.Provider)
+				attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+				trace.Attempts = append(trace.Attempts, attemptTrace)
+				reason := routing.FailureProviderMissing
+				if p != nil && !p.IsEnabled() {
+					reason = routing.FailureProviderDisabled
+				}
+				session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: true, Outcome: routing.OutcomeSkipped, FailureReason: reason})
+				failoverCount++
+				continue
+			}
+			attemptedTarget = true
+			s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt, p.ID, t.Model, failoverCount)
+			cloned := cloneMap(payload)
+			cloned["model"] = t.Model
+			state.cfg.ApplyRequestRewriteRules(aliasName, t.Provider, t.Model, cloned)
+			attemptTrace.RequestParams = sanitizeJSONValue("", cloned)
+			newBody, err := json.Marshal(cloned)
+			if err != nil {
+				s.logger.Printf("req=%d marshal error: %v", reqID, err)
+				attemptTrace.Result = "internal_error"
+				attemptTrace.Error = "marshal error"
+				attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+				trace.Attempts = append(trace.Attempts, attemptTrace)
+				session.Report(routing.AttemptFeedback{Candidate: decision.Candidate, StartedAt: attemptTrace.StartedAt, FinishedAt: time.Now(), Duration: time.Since(attemptTrace.StartedAt), Retryable: false, Outcome: routing.OutcomeTerminalFail, FailureReason: routing.FailureUnknown})
+				trace.Error = "marshal error"
+				writeProtocolError(w, http.StatusInternalServerError, "server_error", "marshal error")
+				return
+			}
 
-		handled, success, retryable, upstreamErr, failure := s.tryProviderBaseURLs(state, r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
-		attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
-		attemptTrace.Attempt = len(trace.Attempts) + 1
-		trace.Attempts = append(trace.Attempts, attemptTrace)
-		trace.FinalProvider = p.ID
-		trace.FinalModel = t.Model
-		trace.FinalURL = attemptTrace.URL
-		trace.StatusCode = attemptTrace.StatusCode
-		if trace.FirstByteMs == 0 {
-			trace.FirstByteMs = attemptTrace.FirstByteMs
-		}
-		if trace.FirstTokenMs == 0 && attemptTrace.FirstTokenMs > 0 {
-			trace.FirstTokenMs = attemptTrace.StartedAt.Sub(trace.StartedAt).Milliseconds() + attemptTrace.FirstTokenMs
-		}
-		feedback := routing.AttemptFeedback{
-			Candidate:       decision.Candidate,
-			StartedAt:       attemptTrace.StartedAt,
-			FinishedAt:      time.Now(),
-			Duration:        time.Since(attemptTrace.StartedAt),
-			FirstByte:       time.Duration(attemptTrace.FirstByteMs) * time.Millisecond,
-			Retryable:       retryable,
-			ResponseStarted: handled && attemptTrace.FirstByteMs > 0,
-			StatusCode:      attemptTrace.StatusCode,
-			FailureReason:   classifyFailureReason(attemptTrace, retryable),
-		}
-		if success {
-			feedback.Outcome = routing.OutcomeSuccess
-		} else if retryable {
-			feedback.Outcome = routing.OutcomeRetryableFail
-		} else if handled && attemptTrace.FirstByteMs > 0 {
-			feedback.Outcome = routing.OutcomePostCommitFail
-		} else {
-			feedback.Outcome = routing.OutcomeTerminalFail
-		}
-		session.Report(feedback)
-		if handled {
-			trace.Success = success
-			if !success {
-				trace.Error = errorString(upstreamErr)
+			handled, success, retryable, upstreamErr, failure := s.tryProviderBaseURLs(state, r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
+			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
+			attemptTrace.Attempt = len(trace.Attempts) + 1
+			trace.Attempts = append(trace.Attempts, attemptTrace)
+			trace.FinalProvider = p.ID
+			trace.FinalModel = t.Model
+			trace.FinalURL = attemptTrace.URL
+			trace.StatusCode = attemptTrace.StatusCode
+			if trace.FirstByteMs == 0 {
+				trace.FirstByteMs = attemptTrace.FirstByteMs
 			}
-			return
+			if trace.FirstTokenMs == 0 && attemptTrace.FirstTokenMs > 0 {
+				trace.FirstTokenMs = attemptTrace.StartedAt.Sub(trace.StartedAt).Milliseconds() + attemptTrace.FirstTokenMs
+			}
+			feedback := routing.AttemptFeedback{
+				Candidate:       decision.Candidate,
+				StartedAt:       attemptTrace.StartedAt,
+				FinishedAt:      time.Now(),
+				Duration:        time.Since(attemptTrace.StartedAt),
+				FirstByte:       time.Duration(attemptTrace.FirstByteMs) * time.Millisecond,
+				Retryable:       retryable,
+				ResponseStarted: handled && attemptTrace.FirstByteMs > 0,
+				StatusCode:      attemptTrace.StatusCode,
+				FailureReason:   classifyFailureReason(attemptTrace, retryable),
+			}
+			clientCanceled := errors.Is(upstreamErr, errClientCanceled) || traceAttemptIsClientCanceled(attemptTrace)
+			if clientCanceled {
+				feedback.Outcome = routing.OutcomeClientCanceled
+				feedback.FailureReason = routing.FailureClientCanceled
+			} else if success {
+				feedback.Outcome = routing.OutcomeSuccess
+			} else if retryable {
+				feedback.Outcome = routing.OutcomeRetryableFail
+			} else if handled && attemptTrace.FirstByteMs > 0 {
+				feedback.Outcome = routing.OutcomePostCommitFail
+			} else {
+				feedback.Outcome = routing.OutcomeTerminalFail
+			}
+			session.Report(feedback)
+			if clientCanceled {
+				trace.Error = errorString(upstreamErr)
+				return
+			}
+			if handled {
+				trace.Success = success
+				if !success {
+					trace.Error = errorString(upstreamErr)
+				}
+				return
+			}
+			if !retryable {
+				s.logger.Printf("req=%d alias=%s attempt=%d final failure: %v", reqID, aliasName, attempt, upstreamErr)
+				trace.Error = errorString(upstreamErr)
+				return
+			}
+			if failure != nil {
+				lastRetryable = failure
+			}
+			s.logger.Printf("req=%d alias=%s attempt=%d retryable: %v", reqID, aliasName, attempt, upstreamErr)
+			failoverCount++
 		}
-		if !retryable {
-			s.logger.Printf("req=%d alias=%s attempt=%d final failure: %v", reqID, aliasName, attempt, upstreamErr)
-			trace.Error = errorString(upstreamErr)
-			return
+		if !attemptedTarget && !resetCircuitTried && len(candidates) > 0 && circuitOpenSkips == len(candidates) && otherSkips == 0 {
+			resetCircuitTried = true
+			s.logger.Printf("req=%d alias=%s all targets circuit-open; clearing circuit state and retrying once", reqID, aliasName)
+			s.resetCircuitBreakerStates(state, protocol, circuitSkippedProviders)
+			continue
 		}
-		if failure != nil {
-			lastRetryable = failure
-		}
-		s.logger.Printf("req=%d alias=%s attempt=%d retryable: %v", reqID, aliasName, attempt, upstreamErr)
-		failoverCount++
+		break
 	}
 
 	if lastRetryable != nil {
@@ -620,6 +650,21 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 	writeProtocolError(w, http.StatusBadGateway, "server_error", fmt.Sprintf("all upstream targets failed for alias %q", aliasName))
 }
 
+func (s *Server) resetCircuitBreakerStates(state *serverRuntime, protocol string, providerIDs map[string]bool) {
+	if s == nil || state == nil || s.store == nil {
+		return
+	}
+	strategy := state.policy.Name()
+	for providerID := range providerIDs {
+		if providerID == "" {
+			continue
+		}
+		s.store.Update(routing.StateKey{Strategy: strategy, Protocol: protocol, ProviderID: providerID}, func(routing.ProviderState) routing.ProviderState {
+			return routing.ProviderState{}
+		})
+	}
+}
+
 func (s *Server) tryProviderBaseURLs(
 	state *serverRuntime,
 	ctx context.Context,
@@ -635,6 +680,11 @@ func (s *Server) tryProviderBaseURLs(
 	attemptTrace *TraceAttempt,
 	trace *RequestTrace,
 ) (handled bool, success bool, retryable bool, err error, failure *upstreamFailure) {
+	if clientRequestCanceled(clientReq) {
+		cancelErr := clientRequestCancelError(clientReq)
+		markAttemptClientCanceled(attemptTrace, TraceResultClientCanceled, cancelErr)
+		return false, false, false, cancelErr, nil
+	}
 	baseURLs := s.orderedProviderBaseURLs(ctx, provider)
 	if len(baseURLs) == 0 {
 		return false, false, false, fmt.Errorf("provider %q has no base URLs", provider.ID), nil
@@ -644,6 +694,14 @@ func (s *Server) tryProviderBaseURLs(
 	var lastErr error
 	for baseURLIndex, baseURL := range baseURLs {
 		for apiKeyPosition, apiKey := range apiKeys {
+			if clientRequestCanceled(clientReq) {
+				cancelErr := clientRequestCancelError(clientReq)
+				if baseURLIndex > 0 || apiKeyPosition > 0 {
+					resetRetryTraceAttempt(attemptTrace)
+				}
+				markAttemptClientCanceled(attemptTrace, TraceResultClientCanceled, cancelErr)
+				return false, false, false, cancelErr, nil
+			}
 			if baseURLIndex > 0 || apiKeyPosition > 0 {
 				resetRetryTraceAttempt(attemptTrace)
 			}
@@ -665,6 +723,9 @@ func (s *Server) tryProviderBaseURLs(
 				}
 			}
 			handled, success, retryable, err, failure = s.tryOnce(state, ctx, protocol, w, clientReq, &providerCopy, target, body, aliasName, currentAttempt, failoverCount, attemptTrace, trace)
+			if errors.Is(err, errClientCanceled) {
+				return handled, success, false, err, nil
+			}
 			if handled || success || !retryable {
 				if success {
 					s.baseURLLatencyCache.put(provider.ID, baseURL, &opencode.ProviderBaseURLProbe{BaseURL: baseURL, Reachable: true, LatencyMs: attemptTrace.FirstByteMs, StatusCode: attemptTrace.StatusCode})
@@ -706,6 +767,9 @@ func resetRetryTraceAttempt(attempt *TraceAttempt) {
 	attempt.RequestHeaders = nil
 	attempt.ResponseHeaders = nil
 	attempt.ResponseBody = ""
+	attempt.URL = ""
+	attempt.APIKeyIndex = 0
+	attempt.APIKeyMasked = ""
 }
 
 type providerAPIKeyOption struct {
@@ -790,6 +854,11 @@ func (s *Server) tryOnce(
 	firstByteTimeout := timeoutDuration(state.cfg.Server.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
 	resp, err := state.client.Do(upReq)
 	if err != nil {
+		if isUpstreamCanceledByClient(clientReq, err) {
+			cancelErr := clientCanceledError(err)
+			markAttemptClientCanceled(attemptTrace, TraceResultClientCanceled, cancelErr)
+			return false, false, false, cancelErr, nil
+		}
 		if attemptTrace != nil {
 			attemptTrace.Retryable = true
 			attemptTrace.Result = "transport_error"
@@ -831,11 +900,21 @@ func (s *Server) tryOnce(
 	}
 
 	remaining := firstByteTimeout - time.Since(startedAt)
+	if clientRequestCanceled(clientReq) {
+		cancelErr := clientRequestCancelError(clientReq)
+		markAttemptClientCanceled(attemptTrace, TraceResultClientCanceled, cancelErr)
+		return false, false, false, cancelErr, nil
+	}
 	if remaining <= 0 {
 		return false, false, true, fmt.Errorf("upstream first byte timeout after %s", firstByteTimeout), nil
 	}
-	firstChunk, firstErr := readFirstChunk(resp.Body, remaining)
+	firstChunk, firstErr := readFirstChunkWithContext(requestContext(clientReq), resp.Body, remaining)
 	if firstErr != nil {
+		if errors.Is(firstErr, errClientCanceled) || isUpstreamCanceledByClient(clientReq, firstErr) {
+			cancelErr := clientCanceledError(firstErr)
+			markAttemptClientCanceled(attemptTrace, TraceResultClientCanceled, cancelErr)
+			return false, false, false, cancelErr, nil
+		}
 		if errors.Is(firstErr, errFirstByteTimeout) {
 			if attemptTrace != nil {
 				attemptTrace.Retryable = true
@@ -894,6 +973,7 @@ func (s *Server) tryOnce(
 
 	if isEventStream && streamPrecommitBuffer > 0 {
 		precommit, precommitErr := s.runSSEPrecommitBuffer(ssePrecommitInput{
+			ctx:              requestContext(clientReq),
 			body:             resp.Body,
 			firstChunk:       firstChunk,
 			protocol:         protocol,
@@ -907,6 +987,10 @@ func (s *Server) tryOnce(
 			recordFirstToken()
 		}
 		if precommitErr != nil {
+			if errors.Is(precommitErr, errClientCanceled) {
+				markAttemptClientCanceled(attemptTrace, TraceResultClientCanceled, precommitErr)
+				return false, false, false, precommitErr, nil
+			}
 			if trace != nil {
 				applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "upstream stream ended before downstream commit"))
 			}
@@ -927,14 +1011,7 @@ func (s *Server) tryOnce(
 			flusher, _ := w.(http.Flusher)
 			if len(firstChunk) > 0 {
 				if _, werr := w.Write(firstChunk); werr != nil {
-					if trace != nil {
-						applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
-					}
-					if attemptTrace != nil {
-						attemptTrace.Result = "downstream_write_error"
-						attemptTrace.Error = werr.Error()
-					}
-					return true, false, false, werr, nil
+					return true, false, false, markDownstreamWriteError(clientReq, trace, usageCollector, attemptTrace, werr), nil
 				}
 			}
 			if flusher != nil {
@@ -967,14 +1044,7 @@ func (s *Server) tryOnce(
 			}
 			if signal.terminal {
 				if _, werr := w.Write(firstChunk); werr != nil {
-					if trace != nil {
-						applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
-					}
-					if attemptTrace != nil {
-						attemptTrace.Result = "downstream_write_error"
-						attemptTrace.Error = werr.Error()
-					}
-					return true, false, false, werr, nil
+					return true, false, false, markDownstreamWriteError(clientReq, trace, usageCollector, attemptTrace, werr), nil
 				}
 				if flusher != nil {
 					flusher.Flush()
@@ -990,14 +1060,7 @@ func (s *Server) tryOnce(
 			}
 		}
 		if _, werr := w.Write(firstChunk); werr != nil {
-			if trace != nil {
-				applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
-			}
-			if attemptTrace != nil {
-				attemptTrace.Result = "downstream_write_error"
-				attemptTrace.Error = werr.Error()
-			}
-			return true, false, false, werr, nil
+			return true, false, false, markDownstreamWriteError(clientReq, trace, usageCollector, attemptTrace, werr), nil
 		}
 		if flusher != nil {
 			flusher.Flush()
@@ -1009,7 +1072,7 @@ func (s *Server) tryOnce(
 			n    int
 			rerr error
 		)
-		n, rerr = readChunkWithTimeout(resp.Body, buf, streamIdleTimeout)
+		n, rerr = readChunkWithContext(requestContext(clientReq), resp.Body, buf, streamIdleTimeout)
 		if n > 0 {
 			usageCollector.Add(buf[:n])
 			terminal := false
@@ -1021,14 +1084,7 @@ func (s *Server) tryOnce(
 				terminal = signal.terminal
 			}
 			if _, werr := w.Write(buf[:n]); werr != nil {
-				if trace != nil {
-					applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
-				}
-				if attemptTrace != nil {
-					attemptTrace.Result = "downstream_write_error"
-					attemptTrace.Error = werr.Error()
-				}
-				return true, false, false, werr, nil
+				return true, false, false, markDownstreamWriteError(clientReq, trace, usageCollector, attemptTrace, werr), nil
 			}
 			if flusher != nil {
 				flusher.Flush()
@@ -1045,6 +1101,14 @@ func (s *Server) tryOnce(
 			}
 		}
 		if rerr != nil {
+			if errors.Is(rerr, errClientCanceled) || isUpstreamCanceledByClient(clientReq, rerr) {
+				cancelErr := clientCanceledError(rerr)
+				if trace != nil {
+					applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "client canceled before stream completed"))
+				}
+				markAttemptClientCanceled(attemptTrace, TraceResultClientCanceled, cancelErr)
+				return true, false, false, cancelErr, nil
+			}
 			if errors.Is(rerr, io.EOF) {
 				if trace != nil {
 					applyUsageToTrace(trace, usageCollector.Usage())
@@ -1058,14 +1122,7 @@ func (s *Server) tryOnce(
 			if isEventStream && errors.Is(rerr, errStreamIdleTimeout) {
 				message := fmt.Sprintf("upstream stream idle timeout after %s", streamIdleTimeout)
 				if _, werr := w.Write(sseStreamErrorEvent(protocol, "upstream_stream_idle_timeout", message)); werr != nil {
-					if trace != nil {
-						applyUsageToTrace(trace, usageForStreamFailure(usageCollector, "downstream write failed before usage finalized"))
-					}
-					if attemptTrace != nil {
-						attemptTrace.Result = "downstream_write_error"
-						attemptTrace.Error = werr.Error()
-					}
-					return true, false, false, werr, nil
+					return true, false, false, markDownstreamWriteError(clientReq, trace, usageCollector, attemptTrace, werr), nil
 				}
 				if flusher != nil {
 					flusher.Flush()
@@ -1100,6 +1157,7 @@ func isRetryableStatusCode(statusCode int, failoverStatusCodes []int) bool {
 }
 
 type ssePrecommitInput struct {
+	ctx              context.Context
 	body             io.Reader
 	firstChunk       []byte
 	protocol         string
@@ -1119,6 +1177,10 @@ type ssePrecommitResult struct {
 
 func (s *Server) runSSEPrecommitBuffer(in ssePrecommitInput) (ssePrecommitResult, error) {
 	var result ssePrecommitResult
+	ctx := in.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if in.precommitStarted.IsZero() {
 		in.precommitStarted = time.Now()
 	}
@@ -1148,7 +1210,7 @@ func (s *Server) runSSEPrecommitBuffer(in ssePrecommitInput) (ssePrecommitResult
 			return result, fmt.Errorf("upstream stream precommit buffer expired after %s", in.precommitWindow)
 		}
 		deadline := minDuration(in.idleTimeout, remaining)
-		n, rerr := readChunkWithTimeout(in.body, buf, deadline)
+		n, rerr := readChunkWithContext(ctx, in.body, buf, deadline)
 		if n > 0 {
 			chunk := append([]byte(nil), buf[:n]...)
 			_, _ = result.buffered.Write(chunk)
@@ -1166,6 +1228,10 @@ func (s *Server) runSSEPrecommitBuffer(in ssePrecommitInput) (ssePrecommitResult
 			}
 		}
 		if rerr != nil {
+			if errors.Is(rerr, errClientCanceled) {
+				result.result = TraceResultClientCanceled
+				return result, rerr
+			}
 			if errors.Is(rerr, io.EOF) {
 				result.result = "precommit_incomplete_stream"
 				return result, fmt.Errorf("upstream stream ended before commit-worthy SSE content")
@@ -1250,10 +1316,113 @@ func usageForStreamFailure(collector usageCollector, note string) tokenUsage {
 	return usage
 }
 
+func markDownstreamWriteError(clientReq *http.Request, trace *RequestTrace, collector usageCollector, attemptTrace *TraceAttempt, err error) error {
+	if trace != nil {
+		applyUsageToTrace(trace, usageForStreamFailure(collector, "downstream write failed before usage finalized"))
+	}
+	if isDownstreamClientDisconnect(clientReq, err) {
+		cancelErr := clientCanceledError(err)
+		markAttemptClientCanceled(attemptTrace, TraceResultDownstreamCanceled, cancelErr)
+		return cancelErr
+	}
+	if attemptTrace != nil {
+		attemptTrace.Result = "downstream_write_error"
+		attemptTrace.Error = err.Error()
+	}
+	return err
+}
+
+func requestContext(req *http.Request) context.Context {
+	if req == nil {
+		return context.Background()
+	}
+	return req.Context()
+}
+
+func clientRequestCanceled(req *http.Request) bool {
+	return req != nil && req.Context().Err() != nil
+}
+
+func clientRequestCancelError(req *http.Request) error {
+	if req != nil && req.Context().Err() != nil {
+		return clientCanceledError(req.Context().Err())
+	}
+	return errClientCanceled
+}
+
+func clientCanceledError(err error) error {
+	if err == nil {
+		return errClientCanceled
+	}
+	if errors.Is(err, errClientCanceled) {
+		return err
+	}
+	return fmt.Errorf("%w: %v", errClientCanceled, err)
+}
+
+func isUpstreamCanceledByClient(req *http.Request, err error) bool {
+	if errors.Is(err, errClientCanceled) {
+		return true
+	}
+	if !clientRequestCanceled(req) {
+		return false
+	}
+	if err == nil {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(message, "context canceled") || strings.Contains(message, "request canceled")
+}
+
+func isDownstreamClientDisconnect(req *http.Request, err error) bool {
+	if errors.Is(err, errClientCanceled) {
+		return true
+	}
+	if clientRequestCanceled(req) {
+		return true
+	}
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, token := range []string{"broken pipe", "connection reset by peer", "client disconnected", "use of closed network connection", "connection aborted", "forcibly closed", "wsasend", "http2: stream closed", "stream closed"} {
+		if strings.Contains(message, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func markAttemptClientCanceled(attemptTrace *TraceAttempt, result string, err error) {
+	if attemptTrace == nil {
+		return
+	}
+	attemptTrace.Success = false
+	attemptTrace.Retryable = false
+	attemptTrace.Result = result
+	attemptTrace.Error = errorString(err)
+	if attemptTrace.Error == "" {
+		attemptTrace.Error = errClientCanceled.Error()
+	}
+}
+
+func traceAttemptIsClientCanceled(attempt TraceAttempt) bool {
+	result := strings.ToLower(strings.TrimSpace(attempt.Result))
+	return result == TraceResultClientCanceled || result == TraceResultDownstreamCanceled
+}
+
+var errClientCanceled = errors.New("client canceled")
 var errFirstByteTimeout = errors.New("first byte timeout")
 var errStreamIdleTimeout = errors.New("stream idle timeout")
 
 func readFirstChunk(r io.Reader, timeout time.Duration) ([]byte, error) {
+	return readFirstChunkWithContext(context.Background(), r, timeout)
+}
+
+func readFirstChunkWithContext(ctx context.Context, r io.Reader, timeout time.Duration) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	type result struct {
 		buf []byte
 		err error
@@ -1269,15 +1438,26 @@ func readFirstChunk(r io.Reader, timeout time.Duration) ([]byte, error) {
 		}
 		ch <- result{buf: buf, err: err}
 	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case res := <-ch:
 		return res.buf, res.err
-	case <-time.After(timeout):
+	case <-ctx.Done():
+		return nil, clientCanceledError(ctx.Err())
+	case <-timer.C:
 		return nil, errFirstByteTimeout
 	}
 }
 
 func readChunkWithTimeout(r io.Reader, buf []byte, timeout time.Duration) (int, error) {
+	return readChunkWithContext(context.Background(), r, buf, timeout)
+}
+
+func readChunkWithContext(ctx context.Context, r io.Reader, buf []byte, timeout time.Duration) (int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	type result struct {
 		n   int
 		err error
@@ -1287,10 +1467,14 @@ func readChunkWithTimeout(r io.Reader, buf []byte, timeout time.Duration) (int, 
 		n, err := r.Read(buf)
 		ch <- result{n: n, err: err}
 	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case res := <-ch:
 		return res.n, res.err
-	case <-time.After(timeout):
+	case <-ctx.Done():
+		return 0, clientCanceledError(ctx.Err())
+	case <-timer.C:
 		return 0, errStreamIdleTimeout
 	}
 }
@@ -1504,6 +1688,9 @@ func truncate(s string, n int) string {
 }
 
 func classifyFailureReason(attempt TraceAttempt, retryable bool) routing.FailureReason {
+	if traceAttemptIsClientCanceled(attempt) {
+		return routing.FailureClientCanceled
+	}
 	if attempt.Skipped {
 		if strings.Contains(strings.ToLower(attempt.Error), "unavailable") {
 			return routing.FailureProviderDisabled

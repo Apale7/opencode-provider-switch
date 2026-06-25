@@ -1454,6 +1454,95 @@ func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
 	}
 }
 
+func TestQueryProviderHealthExcludesClientCanceledAttempts(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Providers = []config.Provider{
+		{ID: "primary", Name: "Primary", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://primary.example/v1", APIKey: "sk-primary"},
+		{ID: "backup", Name: "Backup", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://backup.example/v1", APIKey: "sk-backup"},
+	}
+	cfg.Aliases = []config.Alias{
+		{Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true, Targets: []config.Target{
+			{Provider: "primary", Model: "model-a", Enabled: true},
+			{Provider: "backup", Model: "model-b", Enabled: true},
+		}},
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	svc.traces = proxy.NewTraceStore(10)
+	startedAt := time.Now().UTC()
+	traces := []proxy.RequestTrace{
+		{
+			ID:            1,
+			StartedAt:     startedAt,
+			Protocol:      config.ProtocolOpenAIResponses,
+			Alias:         "chat",
+			Error:         "client canceled: context canceled",
+			FinalProvider: "primary",
+			AttemptCount:  1,
+			Attempts:      []proxy.TraceAttempt{{Attempt: 1, Provider: "primary", Model: "model-a", Result: proxy.TraceResultClientCanceled, FirstByteMs: 90, DurationMs: 900}},
+		},
+		{
+			ID:            2,
+			StartedAt:     startedAt.Add(time.Second),
+			Protocol:      config.ProtocolOpenAIResponses,
+			Alias:         "chat",
+			Error:         "client canceled: broken pipe",
+			FinalProvider: "backup",
+			AttemptCount:  1,
+			Attempts:      []proxy.TraceAttempt{{Attempt: 1, Provider: "backup", Model: "model-b", Result: proxy.TraceResultDownstreamCanceled, FirstByteMs: 80, DurationMs: 800}},
+		},
+		{
+			ID:            3,
+			StartedAt:     startedAt.Add(2 * time.Second),
+			Protocol:      config.ProtocolOpenAIResponses,
+			Alias:         "chat",
+			Success:       true,
+			StatusCode:    http.StatusOK,
+			FinalProvider: "primary",
+			FirstByteMs:   20,
+			DurationMs:    50,
+			AttemptCount:  1,
+			Attempts:      []proxy.TraceAttempt{{Attempt: 1, Provider: "primary", Model: "model-a", Success: true, StatusCode: http.StatusOK, Result: "success", FirstByteMs: 20, DurationMs: 50}},
+		},
+	}
+	for _, trace := range traces {
+		if err := svc.traces.Add(context.Background(), trace); err != nil {
+			t.Fatalf("traces.Add(%d) error = %v", trace.ID, err)
+		}
+	}
+
+	result, err := svc.QueryProviderHealth(context.Background(), ProviderHealthInput{})
+	if err != nil {
+		t.Fatalf("QueryProviderHealth() error = %v", err)
+	}
+	if result.Summary.RequestCount != 1 || result.Summary.AttemptCount != 1 || result.Summary.Success != 1 || result.Summary.Failed != 0 || result.Summary.Failover != 0 || result.Summary.RetryableFailures != 0 || result.Summary.FirstByteP50Ms != 20 || result.Summary.DurationP50Ms != 50 {
+		t.Fatalf("summary = %#v", result.Summary)
+	}
+	primary := providerHealthByID(result.Providers, "primary")
+	if primary == nil {
+		t.Fatal("primary health missing")
+	}
+	if primary.RequestCount != 1 || primary.AttemptCount != 1 || primary.Success != 1 || primary.ObservedSuccessRate != 1 || primary.FirstByteP50Ms != 20 || primary.DurationP50Ms != 50 {
+		t.Fatalf("primary = %#v", primary)
+	}
+	backup := providerHealthByID(result.Providers, "backup")
+	if backup == nil {
+		t.Fatal("backup health missing")
+	}
+	if backup.RequestCount != 0 || backup.AttemptCount != 0 || backup.TerminalFailures != 0 || backup.StreamErrors != 0 || backup.DurationP50Ms != 0 {
+		t.Fatalf("backup = %#v", backup)
+	}
+}
+
 func containsWarning(warnings []string, want string) bool {
 	for _, warning := range warnings {
 		if strings.Contains(warning, want) {

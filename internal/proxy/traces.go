@@ -19,6 +19,11 @@ const (
 	maxTracePageSize     = 100
 )
 
+const (
+	TraceResultClientCanceled     = "client_canceled"
+	TraceResultDownstreamCanceled = "downstream_canceled"
+)
+
 type RequestTraceStore interface {
 	Add(ctx context.Context, trace RequestTrace) error
 	List(ctx context.Context, limit int) ([]RequestTrace, error)
