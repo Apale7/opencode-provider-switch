@@ -50,6 +50,7 @@ type Service interface {
 	StopProxy(context.Context) (appcore.ProxyStatusView, error)
 	RunDoctor(context.Context) (appcore.DoctorReport, error)
 	PreviewOpenCodeSync(context.Context, appcore.SyncInput) (appcore.SyncPreview, error)
+	PreviewOpenCodeSyncDiff(context.Context, appcore.SyncInput) (appcore.SyncPreview, error)
 	SyncOpenCode(context.Context, appcore.SyncInput) (appcore.SyncResult, error)
 }
 
@@ -511,6 +512,19 @@ func NewHandler(opts Options) (http.Handler, error) {
 			return
 		}
 		data, err := b.PreviewOpenCodeSync(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/opencode-sync/preview-diff", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.SyncInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.PreviewOpenCodeSyncDiff(r.Context(), in)
 		writeResult(w, data, err)
 	})
 

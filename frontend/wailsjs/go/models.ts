@@ -1,5 +1,87 @@
 export namespace app {
 	
+	export class DiffSummaryView {
+	    total: number;
+	    new: number;
+	    changed: number;
+	    unchanged: number;
+	    conflict: number;
+	    failed: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiffSummaryView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total = source["total"];
+	        this.new = source["new"];
+	        this.changed = source["changed"];
+	        this.unchanged = source["unchanged"];
+	        this.conflict = source["conflict"];
+	        this.failed = source["failed"];
+	    }
+	}
+	export class SyncDiffEntryView {
+	    path: string;
+	    userValue?: any;
+	    proposedValue?: any;
+	    status: string;
+	    conflictNote?: string;
+	    autoDetected: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncDiffEntryView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.userValue = source["userValue"];
+	        this.proposedValue = source["proposedValue"];
+	        this.status = source["status"];
+	        this.conflictNote = source["conflictNote"];
+	        this.autoDetected = source["autoDetected"];
+	    }
+	}
+	export class AliasSyncPreviewView {
+	    aliasName: string;
+	    protocol: string;
+	    providerKey: string;
+	    entries: SyncDiffEntryView[];
+	    summary: DiffSummaryView;
+	
+	    static createFrom(source: any = {}) {
+	        return new AliasSyncPreviewView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.aliasName = source["aliasName"];
+	        this.protocol = source["protocol"];
+	        this.providerKey = source["providerKey"];
+	        this.entries = this.convertValues(source["entries"], SyncDiffEntryView);
+	        this.summary = this.convertValues(source["summary"], DiffSummaryView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AliasTargetInput {
 	    alias: string;
 	    provider: string;
@@ -256,6 +338,7 @@ export namespace app {
 		    return a;
 		}
 	}
+	
 	
 	export class DoctorIssue {
 	    code: string;
@@ -1835,6 +1918,7 @@ export namespace app {
 	
 	    }
 	}
+	
 	export class SyncInput {
 	    target?: string;
 	    setModel?: string;
@@ -1888,6 +1972,8 @@ export namespace app {
 	    runtimeSnapshot: OpenCodeRuntimeSnapshot;
 	    doctorIssues?: DoctorIssue[];
 	    summary: OpenCodeReconciliationSummary;
+	    aliasPreviews?: AliasSyncPreviewView[];
+	    overallSummary?: DiffSummaryView;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncPreview(source);
@@ -1907,6 +1993,8 @@ export namespace app {
 	        this.runtimeSnapshot = this.convertValues(source["runtimeSnapshot"], OpenCodeRuntimeSnapshot);
 	        this.doctorIssues = this.convertValues(source["doctorIssues"], DoctorIssue);
 	        this.summary = this.convertValues(source["summary"], OpenCodeReconciliationSummary);
+	        this.aliasPreviews = this.convertValues(source["aliasPreviews"], AliasSyncPreviewView);
+	        this.overallSummary = this.convertValues(source["overallSummary"], DiffSummaryView);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1941,6 +2029,8 @@ export namespace app {
 	    runtimeSnapshot: OpenCodeRuntimeSnapshot;
 	    doctorIssues?: DoctorIssue[];
 	    summary: OpenCodeReconciliationSummary;
+	    aliasPreviews?: AliasSyncPreviewView[];
+	    overallSummary?: DiffSummaryView;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncResult(source);
@@ -1961,6 +2051,8 @@ export namespace app {
 	        this.runtimeSnapshot = this.convertValues(source["runtimeSnapshot"], OpenCodeRuntimeSnapshot);
 	        this.doctorIssues = this.convertValues(source["doctorIssues"], DoctorIssue);
 	        this.summary = this.convertValues(source["summary"], OpenCodeReconciliationSummary);
+	        this.aliasPreviews = this.convertValues(source["aliasPreviews"], AliasSyncPreviewView);
+	        this.overallSummary = this.convertValues(source["overallSummary"], DiffSummaryView);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2025,3 +2117,4 @@ export namespace desktop {
 	}
 
 }
+

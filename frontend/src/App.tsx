@@ -518,7 +518,12 @@ function toggleNumberFilter(values: number[], value: number): number[] {
 }
 
 function pretty(value: unknown): string {
-  return JSON.stringify(value, null, 2)
+  try {
+    const json = JSON.stringify(value, null, 2)
+    return json === undefined ? String(value) : json
+  } catch {
+    return String(value)
+  }
 }
 
 function issueToneClass(severity?: string): string {
@@ -573,6 +578,292 @@ function renderReconciliationSummary(summary?: OpenCodeReconciliationSummary) {
 
 function syncOutputChanged(value: SyncPreview | SyncResult): boolean {
   return 'changed' in value ? value.changed : value.wouldChange
+}
+
+type SyncDiffStatus = NonNullable<SyncPreview['aliasPreviews']>[number]['entries'][number]['status']
+type SyncAliasPreview = NonNullable<SyncPreview['aliasPreviews']>[number]
+type SyncDiffEntryPreview = SyncAliasPreview['entries'][number]
+type SyncDiffSummary = NonNullable<SyncPreview['overallSummary']>
+type SyncDiffProtocolFilter = ProviderProtocol | 'all'
+
+const syncDiffProtocolFilters: SyncDiffProtocolFilter[] = ['all', 'openai-responses', 'anthropic-messages', 'openai-compatible']
+
+function hasSyncDiffPreview(value: SyncPreview | SyncResult): boolean {
+  return Array.isArray(value.aliasPreviews)
+}
+
+function normalizeSyncDiffSummary(summary?: Partial<SyncDiffSummary>): SyncDiffSummary {
+  return {
+    total: summary?.total || 0,
+    new: summary?.new || 0,
+    changed: summary?.changed || 0,
+    unchanged: summary?.unchanged || 0,
+    conflict: summary?.conflict || 0,
+    failed: summary?.failed || 0,
+  }
+}
+
+function normalizeSyncDiffEntries(entries: unknown): SyncDiffEntryPreview[] {
+  if (!Array.isArray(entries)) {
+    return []
+  }
+  return entries.filter((entry): entry is SyncDiffEntryPreview => typeof entry === 'object' && entry !== null)
+}
+
+function normalizeSyncAliasPreview(value: unknown): SyncAliasPreview | null {
+  if (typeof value !== 'object' || value === null) {
+    return null
+  }
+  const alias = value as Partial<SyncAliasPreview>
+  const entries = normalizeSyncDiffEntries(alias.entries)
+  return {
+    aliasName: alias.aliasName || '',
+    protocol: alias.protocol || 'openai-responses',
+    providerKey: alias.providerKey || '',
+    entries,
+    summary: normalizeSyncDiffSummary(alias.summary),
+  }
+}
+
+function syncDiffStatusKey(status: SyncDiffStatus): string {
+  return status === 'new'
+    ? 'sync.diffStatusNew'
+    : status === 'changed'
+      ? 'sync.diffStatusChanged'
+      : status === 'unchanged'
+        ? 'sync.diffStatusUnchanged'
+        : status === 'conflict'
+          ? 'sync.diffStatusConflict'
+          : 'sync.diffStatusFailed'
+}
+
+function syncDiffStatusBadgeClass(status: SyncDiffStatus): string {
+  return `badge status-badge sync-diff-status sync-diff-status-${status}`
+}
+
+function syncDiffStatusIcon(status: SyncDiffStatus): string {
+  return status === 'new' ? '✚' : status === 'changed' ? '↻' : status === 'unchanged' ? '✓' : status === 'conflict' ? '⚠' : '✖'
+}
+
+function syncDiffNeedsAttention(alias: SyncAliasPreview): boolean {
+  return (alias.summary?.conflict || 0) > 0 || (alias.summary?.failed || 0) > 0
+}
+
+function syncDiffSummaryWithFallback(summary?: SyncDiffSummary, aliases?: SyncAliasPreview[]): SyncDiffSummary {
+  if (summary) {
+    return normalizeSyncDiffSummary(summary)
+  }
+  return (aliases || []).reduce<SyncDiffSummary>(
+    (total, alias) => ({
+      total: total.total + (alias.summary?.total || alias.entries.length),
+      new: total.new + (alias.summary?.new || 0),
+      changed: total.changed + (alias.summary?.changed || 0),
+      unchanged: total.unchanged + (alias.summary?.unchanged || 0),
+      conflict: total.conflict + (alias.summary?.conflict || 0),
+      failed: total.failed + (alias.summary?.failed || 0),
+    }),
+    { total: 0, new: 0, changed: 0, unchanged: 0, conflict: 0, failed: 0 },
+  )
+}
+
+function syncDiffValuePreview(value: unknown, emptyValue: string): string {
+  if (value === undefined) {
+    return emptyValue
+  }
+  if (typeof value === 'string') {
+    return value
+  }
+  return pretty(value)
+}
+
+function syncDiffEntryHint(entry: SyncDiffEntryPreview, emptyValue: string): string {
+  if (entry.conflictNote) {
+    return entry.conflictNote
+  }
+  if (entry.status === 'conflict') {
+    return i18n.t('sync.diffConflictHint', {
+      value: syncDiffValuePreview(entry.proposedValue, emptyValue),
+      source: entry.autoDetected ? i18n.t('sync.diffAutoDetected') : i18n.t('sync.diffManual'),
+    })
+  }
+  if (entry.status === 'failed') {
+    return i18n.t('sync.diffFailedHint', { value: syncDiffValuePreview(entry.proposedValue, emptyValue) })
+  }
+  return ''
+}
+
+function SyncDiffStatusBadge({ status, label }: { status: SyncDiffStatus; label: string }) {
+  return (
+    <span className={syncDiffStatusBadgeClass(status)}>
+      <span aria-hidden="true">{syncDiffStatusIcon(status)}</span> {label}
+    </span>
+  )
+}
+
+function SyncDiffJsonDetails({ summary, children }: { summary: { expand: string; collapse: string }; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <details className="details-toggle" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>{open ? summary.collapse : summary.expand}</summary>
+      {children}
+    </details>
+  )
+}
+
+function SyncDiffAliasDetails({ alias, statusItems, emptyValue }: { alias: SyncAliasPreview; statusItems: SyncDiffStatus[]; emptyValue: string }) {
+  const [open, setOpen] = useState(() => syncDiffNeedsAttention(alias))
+
+  return (
+    <details
+      className="details-toggle issue-collapse"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span>{alias.aliasName}</span> · <span className={protocolBadgeClass(alias.protocol)}>{protocolLabel(alias.protocol)}</span> ·{' '}
+        <code>{alias.providerKey}</code>
+        {syncDiffNeedsAttention(alias) ? (
+          <span className={syncDiffStatusBadgeClass((alias.summary?.failed || 0) > 0 ? 'failed' : 'conflict')}>
+            {i18n.t((alias.summary?.failed || 0) > 0 ? 'sync.diffStatusFailed' : 'sync.diffStatusConflict')}
+          </span>
+        ) : null}
+      </summary>
+      <div className="stack-blocks">
+        <div className="resource-card-meta sync-diff-summary-grid">
+          <div className="resource-meta-item">
+            <span className="resource-meta-label">{i18n.t('sync.diffProvider')}</span>
+            <span className="resource-meta-value">{alias.providerKey}</span>
+          </div>
+          {statusItems.map((status) => (
+            <div className="resource-meta-item" key={status}>
+              <span className="resource-meta-label">{i18n.t(syncDiffStatusKey(status))}</span>
+              <span className="resource-meta-value">{alias.summary?.[status] || 0}</span>
+            </div>
+          ))}
+        </div>
+        <div className="trace-table sync-diff-table" role="table" aria-label={i18n.t('sync.diffTitle')}>
+          <div className="trace-table-header" role="row">
+            <span className="trace-table-head" role="columnheader">{i18n.t('sync.diffField')}</span>
+            <span className="trace-table-head" role="columnheader">{i18n.t('sync.diffCurrentValue')}</span>
+            <span className="trace-table-head" role="columnheader">{i18n.t('sync.diffProposedValue')}</span>
+            <span className="trace-table-head trace-table-head-end" role="columnheader">{i18n.t('sync.diffStatus')}</span>
+          </div>
+          <div className="trace-table-body">
+            {alias.entries.map((entry, index) => {
+              const hint = syncDiffEntryHint(entry, emptyValue)
+              return (
+                <article className="trace-table-row" role="row" key={`${alias.aliasName}-${entry.path || index}-${entry.status || 'unknown'}`}>
+                  <div className="trace-table-cell" role="cell" data-label={i18n.t('sync.diffField')}>
+                    <code>{entry.path || `#${index + 1}`}</code>
+                    <span className="trace-table-muted">
+                      {entry.autoDetected ? i18n.t('sync.diffAutoDetected') : i18n.t('sync.diffManual')}
+                    </span>
+                  </div>
+                  <div className="trace-table-cell" role="cell" data-label={i18n.t('sync.diffCurrentValue')}>
+                    <pre className="details sync-diff-value">{syncDiffValuePreview(entry.userValue, emptyValue)}</pre>
+                  </div>
+                  <div className="trace-table-cell" role="cell" data-label={i18n.t('sync.diffProposedValue')}>
+                    <pre className="details sync-diff-value">{syncDiffValuePreview(entry.proposedValue, emptyValue)}</pre>
+                  </div>
+                  <div className="trace-table-cell trace-status-cell" role="cell" data-label={i18n.t('sync.diffStatus')}>
+                    <SyncDiffStatusBadge status={entry.status || 'failed'} label={i18n.t(syncDiffStatusKey(entry.status || 'failed'))} />
+                    {hint ? (
+                      <TraceInfoPopover label={hint}>
+                        <span className={`subtle ${entry.status === 'failed' ? 'tone-error' : 'tone-warning'}`}>{hint}</span>
+                      </TraceInfoPopover>
+                    ) : null}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </div>
+        <SyncDiffJsonDetails summary={{ expand: i18n.t('sync.diffExpandJson'), collapse: i18n.t('sync.diffCollapseJson') }}>
+          <pre className="details">{pretty(alias)}</pre>
+        </SyncDiffJsonDetails>
+      </div>
+    </details>
+  )
+}
+
+function SyncDiffPreview({
+  output,
+  protocolFilter,
+  onProtocolFilterChange,
+}: {
+  output: SyncPreview | SyncResult
+  protocolFilter: SyncDiffProtocolFilter
+  onProtocolFilterChange: (protocol: SyncDiffProtocolFilter) => void
+}) {
+  if (!hasSyncDiffPreview(output)) {
+    return null
+  }
+  const aliases = (output.aliasPreviews || [])
+    .map(normalizeSyncAliasPreview)
+    .filter((alias): alias is SyncAliasPreview => alias !== null)
+  const filteredAliases = protocolFilter === 'all' ? aliases : aliases.filter((alias) => alias.protocol === protocolFilter)
+  const visibleSummary = syncDiffSummaryWithFallback(protocolFilter === 'all' ? output.overallSummary : undefined, filteredAliases)
+  const statusItems: SyncDiffStatus[] = ['new', 'changed', 'unchanged', 'conflict', 'failed']
+  const emptyValue = i18n.t('sync.diffEmptyValue')
+
+  return (
+    <section className="issue-card sync-diff-preview">
+      <div className="issue-card-head">
+        <div>
+          <strong>{i18n.t('sync.diffTitle')}</strong>
+          <p className="subtle">{i18n.t('sync.diffSubtitle')}</p>
+        </div>
+      </div>
+      <div className="toolbar sync-diff-filter-tabs">
+        {syncDiffProtocolFilters.map((filter) => (
+          <button
+            key={filter}
+            type="button"
+            className={protocolFilter === filter ? 'primary' : undefined}
+            onClick={() => onProtocolFilterChange(filter)}
+          >
+            {filter === 'all' ? i18n.t('sync.diffFilterAll') : protocolLabel(filter)}
+          </button>
+        ))}
+      </div>
+      <p className="subtle">
+        {i18n.t('sync.diffSummary', {
+          aliases: filteredAliases.length,
+          conflicts: visibleSummary.conflict,
+          new: visibleSummary.new,
+          failed: visibleSummary.failed,
+        })}
+      </p>
+      <div className="resource-card-meta sync-diff-summary-grid">
+        <div className="resource-meta-item">
+          <span className="resource-meta-label">{i18n.t('sync.diffFieldsTotal')}</span>
+          <span className="resource-meta-value">{visibleSummary.total}</span>
+        </div>
+        {statusItems.map((status) => (
+          <div className="resource-meta-item" key={status}>
+            <span className="resource-meta-label">{i18n.t(syncDiffStatusKey(status))}</span>
+            <span className="resource-meta-value">{visibleSummary[status]}</span>
+          </div>
+        ))}
+      </div>
+      {aliases.length === 0 || filteredAliases.length === 0 ? <p className="subtle">{i18n.t('sync.diffNoChanges')}</p> : null}
+      {filteredAliases.length > 0 ? (
+        <div className="issue-stack">
+          {filteredAliases.map((alias) => (
+            <SyncDiffAliasDetails
+              key={`${alias.protocol}-${alias.providerKey}-${alias.aliasName}`}
+              alias={alias}
+              statusItems={statusItems}
+              emptyValue={emptyValue}
+            />
+          ))}
+        </div>
+      ) : null}
+      <SyncDiffJsonDetails summary={{ expand: i18n.t('sync.diffExpandJson'), collapse: i18n.t('sync.diffCollapseJson') }}>
+        <pre className="details">{pretty({ overallSummary: output.overallSummary, aliasPreviews: output.aliasPreviews })}</pre>
+      </SyncDiffJsonDetails>
+    </section>
+  )
 }
 
 function overviewDebugSnapshot(overview: Overview | null) {
@@ -1920,6 +2211,7 @@ export default function App() {
   const [syncInput, setSyncInput] = useState<SyncInput>(emptySync)
   const [syncOutput, setSyncOutput] = useState<SyncPreview | SyncResult | string>('')
   const [syncAction, setSyncAction] = useState<'preview' | 'apply' | null>(null)
+  const [syncDiffProtocolFilter, setSyncDiffProtocolFilter] = useState<SyncDiffProtocolFilter>('all')
   const [providerStatus, setProviderStatus] = useState('')
   const [providerForm, setProviderForm] = useState<ProviderFormState>(emptyProviderForm)
   const [providerBaseUrlPings, setProviderBaseUrlPings] = useState<ProviderBaseUrlPingState>({})
@@ -3079,6 +3371,7 @@ export default function App() {
     try {
       const result = await previewSync({ ...syncInput, copyOnly: !openCodeDirectSyncAvailable })
       setSyncOutput(result)
+      setSyncDiffProtocolFilter('all')
       setSyncStatus(result.wouldChange ? i18n.t('messages.previewChanges') : i18n.t('messages.previewNoChanges'))
     } catch (error) {
       const message = formatError(error)
@@ -3103,6 +3396,7 @@ export default function App() {
     try {
       const result = await applySync(syncInput)
       setSyncOutput(result)
+      setSyncDiffProtocolFilter('all')
       setSyncStatus(result.changed ? i18n.t('messages.syncApplied') : i18n.t('messages.syncUpToDate'))
     } catch (error) {
       const message = formatError(error)
@@ -4201,7 +4495,7 @@ export default function App() {
               </form>
             </article>
 
-            <article className="panel">
+            <article className="panel sync-output-panel">
               <div className="panel-header">
                 <div>
                   <h3>{t('sync.outputTitle')}</h3>
@@ -4210,7 +4504,7 @@ export default function App() {
               {typeof syncOutput === 'string' ? (
                 <pre className="details">{syncOutput || t('messages.noData')}</pre>
               ) : syncOutput ? (
-                <div className="stack-blocks">
+                <div className="stack-blocks sync-output-scroll">
                   {renderReconciliationSummary(syncOutput.summary)}
                   {!openCodeDirectSyncAvailable && syncGeneratedContent ? (
                     <div className="stack">
@@ -4226,14 +4520,21 @@ export default function App() {
                   <div className="issue-card">
                     <div className="issue-card-head">
                       <span className={`badge status-badge ${syncOutputChanged(syncOutput) ? 'live' : 'idle'}`}>
-                        {syncOutputChanged(syncOutput) ? 'changed' : 'no change'}
+                        {syncOutputChanged(syncOutput) ? t('sync.diffStatusChanged') : t('sync.diffStatusUnchanged')}
                       </span>
                       <code>{syncOutput.targetPath}</code>
                     </div>
                     <div className="subtle">
-                      {(syncOutput.protocols || []).map((provider) => `${provider.key}(${provider.aliasNames.length})`).join(' · ') || t('messages.noData')}
+                      {(Array.isArray(syncOutput.protocols) ? syncOutput.protocols : [])
+                        .map((provider) => `${provider.key}(${(provider.aliasNames || []).length})`)
+                        .join(' · ') || t('messages.noData')}
                     </div>
                   </div>
+                  <SyncDiffPreview
+                    output={syncOutput}
+                    protocolFilter={syncDiffProtocolFilter}
+                    onProtocolFilterChange={setSyncDiffProtocolFilter}
+                  />
                   {syncOutput.doctorIssues && syncOutput.doctorIssues.length > 0 ? (
                     <details className="details-toggle issue-collapse" open={syncOutput.doctorIssues.length <= 4}>
                       <summary>{t('sync.issuesTitle')} ({syncOutput.doctorIssues.length})</summary>

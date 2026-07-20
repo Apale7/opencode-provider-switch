@@ -538,6 +538,32 @@ type SyncInput struct {
 	RuntimeDirectory string `json:"runtimeDirectory,omitempty"`
 }
 
+type SyncDiffEntryView struct {
+	Path          string `json:"path"`
+	UserValue     any    `json:"userValue,omitempty"`
+	ProposedValue any    `json:"proposedValue,omitempty"`
+	Status        string `json:"status"`
+	ConflictNote  string `json:"conflictNote,omitempty"`
+	AutoDetected  bool   `json:"autoDetected"`
+}
+
+type AliasSyncPreviewView struct {
+	AliasName   string              `json:"aliasName"`
+	Protocol    string              `json:"protocol"`
+	ProviderKey string              `json:"providerKey"`
+	Entries     []SyncDiffEntryView `json:"entries"`
+	Summary     DiffSummaryView     `json:"summary"`
+}
+
+type DiffSummaryView struct {
+	Total     int `json:"total"`
+	New       int `json:"new"`
+	Changed   int `json:"changed"`
+	Unchanged int `json:"unchanged"`
+	Conflict  int `json:"conflict"`
+	Failed    int `json:"failed"`
+}
+
 type SyncPreview struct {
 	TargetPath       string                        `json:"targetPath"`
 	Protocols        []SyncedProviderView          `json:"protocols"`
@@ -551,6 +577,8 @@ type SyncPreview struct {
 	RuntimeSnapshot  OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
 	DoctorIssues     []DoctorIssue                 `json:"doctorIssues,omitempty"`
 	Summary          OpenCodeReconciliationSummary `json:"summary"`
+	AliasPreviews    []AliasSyncPreviewView        `json:"aliasPreviews,omitempty"`
+	OverallSummary   *DiffSummaryView              `json:"overallSummary,omitempty"`
 }
 
 type SyncResult struct {
@@ -567,6 +595,8 @@ type SyncResult struct {
 	RuntimeSnapshot  OpenCodeRuntimeSnapshot       `json:"runtimeSnapshot"`
 	DoctorIssues     []DoctorIssue                 `json:"doctorIssues,omitempty"`
 	Summary          OpenCodeReconciliationSummary `json:"summary"`
+	AliasPreviews    []AliasSyncPreviewView        `json:"aliasPreviews,omitempty"`
+	OverallSummary   *DiffSummaryView              `json:"overallSummary,omitempty"`
 }
 
 type SyncedProviderView struct {

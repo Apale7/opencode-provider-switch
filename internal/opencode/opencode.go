@@ -459,12 +459,20 @@ func lineIndent(data []byte, pos int) string {
 // local base URL, local api key and alias set. Existing keys on provider.ocswitch
 // are preserved unless they conflict with the sync intent. For model entries,
 // sync owns only the alias set: same-name model objects are left untouched so
-// OpenCode-only metadata survives round-trips. Returns true if the file would
-// actually change.
-func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, aliases []string) bool {
+// OpenCode-only metadata survives round-trips unless model capabilities are
+// supplied, in which case missing fields are filled from the capability probe.
+// Returns true if the file would actually change.
+func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, aliases []string, modelCapabilities ...map[string]ModelCapabilityProbe) bool {
 	providerKey, providerName, providerNPM, optionsPatch, err := syncedProviderContract(protocol)
 	if err != nil {
 		return false
+	}
+	var capabilitiesByAlias map[string]ModelCapabilityProbe
+	for _, capabilityMap := range modelCapabilities {
+		if capabilityMap != nil {
+			capabilitiesByAlias = capabilityMap
+			break
+		}
 	}
 	changed := false
 	if _, ok := raw["$schema"]; !ok {
@@ -507,18 +515,38 @@ func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, al
 		}
 	}
 	// Build models map from alias list. Preserve any existing per-model objects
-	// verbatim if the alias key matches; drop aliases removed locally.
+	// verbatim if the alias key matches; drop aliases removed locally. When
+	// capabilities are available, merge missing fields from the generated config.
 	existingModels, _ := providerEntry["models"].(map[string]any)
 	newModels := map[string]any{}
 	aliasSet := map[string]bool{}
 	for _, a := range aliases {
 		aliasSet[a] = true
-		if existing, ok := existingModels[a].(map[string]any); ok {
-			newModels[a] = existing
-		} else {
-			newModels[a] = map[string]any{"name": a}
+		existing, exists := existingModels[a]
+		existingModel, isExistingModel := existing.(map[string]any)
+		if !exists {
+			if capabilitiesByAlias != nil {
+				newModels[a] = buildModelConfig(a, capabilitiesByAlias[a])
+			} else {
+				newModels[a] = map[string]any{"name": a}
+			}
 			changed = true
+			continue
 		}
+		if !isExistingModel {
+			if capabilitiesByAlias != nil {
+				newModels[a] = buildModelConfig(a, capabilitiesByAlias[a])
+			} else {
+				newModels[a] = map[string]any{"name": a}
+			}
+			changed = true
+			continue
+		}
+		if capabilitiesByAlias == nil {
+			newModels[a] = existingModel
+			continue
+		}
+		newModels[a] = mergeWithUserPriority(existingModel, buildModelConfig(a, capabilitiesByAlias[a]))
 	}
 	// removed entries?
 	for k := range existingModels {
@@ -528,8 +556,55 @@ func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, al
 	}
 	if !mapsEqualShallow(existingModels, newModels) {
 		providerEntry["models"] = newModels
+		changed = true
 	}
 	return changed
+}
+
+func buildModelConfig(alias string, capability ModelCapabilityProbe) map[string]any {
+	modelID := strings.TrimSpace(alias)
+	if modelID == "" {
+		modelID = strings.TrimSpace(capability.ModelID)
+	}
+	capability.ModelID = modelID
+	config := ModelConfigFromCapabilityProbe(capability)
+	if pricing, ok := LookupModelPricing(modelID); ok {
+		config["cost"] = map[string]any{
+			"input":      pricing.InputPer1K,
+			"output":     pricing.OutputPer1K,
+			"cacheRead":  pricing.CacheReadPer1K,
+			"cacheWrite": pricing.CacheWritePer1K,
+		}
+	}
+	return config
+}
+
+func mergeWithUserPriority(existing, capability map[string]any) map[string]any {
+	if existing == nil {
+		return capability
+	}
+	if capability == nil {
+		return existing
+	}
+	merged := make(map[string]any, len(existing)+len(capability))
+	for key, value := range capability {
+		merged[key] = value
+	}
+	for key, value := range existing {
+		current, ok := merged[key]
+		if !ok {
+			merged[key] = value
+			continue
+		}
+		currentMap, currentOK := current.(map[string]any)
+		valueMap, valueOK := value.(map[string]any)
+		if currentOK && valueOK {
+			merged[key] = mergeWithUserPriority(valueMap, currentMap)
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
 }
 
 // ValidateOcswitchProvider checks that provider.ocswitch matches current sync contract.

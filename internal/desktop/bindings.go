@@ -117,6 +117,10 @@ func (b *Bindings) PreviewOpenCodeSync(ctx context.Context, in app.SyncInput) (a
 	return b.service.PreviewOpenCodeSync(ctx, in)
 }
 
+func (b *Bindings) PreviewOpenCodeSyncDiff(ctx context.Context, in app.SyncInput) (app.SyncPreview, error) {
+	return b.service.PreviewOpenCodeSyncDiff(ctx, in)
+}
+
 func (b *Bindings) GetProxyStatus(ctx context.Context) (app.ProxyStatusView, error) {
 	return b.service.GetProxyStatus(ctx)
 }
@@ -299,6 +303,10 @@ func (b *Bindings) SavePrefs(in app.DesktopPrefsInput) (app.DesktopPrefsView, er
 
 func (b *Bindings) PreviewSync(in app.SyncInput) (app.SyncPreview, error) {
 	return b.PreviewOpenCodeSync(context.Background(), in)
+}
+
+func (b *Bindings) PreviewSyncDiff(in app.SyncInput) (app.SyncPreview, error) {
+	return b.PreviewOpenCodeSyncDiff(context.Background(), in)
 }
 
 func (b *Bindings) ApplySync(in app.SyncInput) (app.SyncResult, error) {

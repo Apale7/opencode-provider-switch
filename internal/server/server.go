@@ -354,6 +354,10 @@ func (s appService) PreviewOpenCodeSync(ctx context.Context, in app.SyncInput) (
 	return s.service.PreviewOpenCodeSyncWithBaseURL(ctx, in, s.publicBaseURL)
 }
 
+func (s appService) PreviewOpenCodeSyncDiff(ctx context.Context, in app.SyncInput) (app.SyncPreview, error) {
+	return s.service.PreviewOpenCodeSyncWithBaseURL(ctx, in, s.publicBaseURL)
+}
+
 func (s appService) SyncOpenCode(ctx context.Context, in app.SyncInput) (app.SyncResult, error) {
 	return s.service.ApplyOpenCodeSync(ctx, in)
 }

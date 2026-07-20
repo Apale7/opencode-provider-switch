@@ -2844,6 +2844,20 @@ html[data-theme='dark'] .detail-empty-card {
   min-width: 0;
 }
 
+.sync-output-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 4.5rem);
+}
+
+.sync-output-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .sync-layout .details,
 .sync-layout .issue-card,
 .sync-layout .issue-summary,
@@ -2864,6 +2878,11 @@ html[data-theme='dark'] .detail-empty-card {
 }
 
 .issue-collapse summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  min-width: 0;
   cursor: pointer;
   font-weight: 700;
 }
@@ -2872,8 +2891,140 @@ html[data-theme='dark'] .detail-empty-card {
   margin-bottom: 0.75rem;
 }
 
+.sync-diff-preview {
+  display: grid;
+  gap: 0.85rem;
+  overflow: hidden;
+}
+
+.sync-diff-filter-tabs {
+  justify-content: flex-start;
+}
+
+.sync-diff-filter-tabs button {
+  min-height: 38px;
+  padding: 0.5rem 0.8rem;
+}
+
+.sync-diff-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+}
+
+.sync-diff-preview > .sync-diff-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(6.8rem, 1fr));
+}
+
+.sync-diff-table {
+  --trace-table-columns: minmax(10rem, 1fr) minmax(10rem, 1fr) minmax(10rem, 1fr) minmax(8rem, max-content);
+  --trace-table-min-width: 44rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 0.85rem;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.sync-diff-table .trace-table-header,
+.sync-diff-table .trace-table-row {
+  min-width: var(--trace-table-min-width);
+}
+
+.sync-diff-table .trace-table-row {
+  min-height: 0;
+}
+
+.sync-diff-table .trace-table-cell {
+  align-self: stretch;
+}
+
+.sync-diff-table .trace-status-cell {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.sync-diff-value {
+  width: 100%;
+  max-height: 8rem;
+  margin: 0;
+  padding: 0.65rem 0.72rem;
+  font-size: 0.78rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sync-diff-status {
+  white-space: nowrap;
+}
+
+.sync-diff-status-new {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  background: var(--success-soft);
+}
+
+.sync-diff-status-changed,
+.sync-diff-status-conflict {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  background: var(--warning-soft);
+}
+
+.sync-diff-status-unchanged {
+  color: var(--text-muted);
+  border-color: var(--border-strong);
+  background: var(--panel-muted);
+}
+
+.sync-diff-status-failed {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: var(--danger-soft);
+}
+
 .trace-scroll-list {
   scrollbar-color: var(--border-strong) transparent;
+}
+
+@media (max-width: 1400px) {
+  .sync-diff-table {
+    --trace-table-min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .sync-diff-table .trace-table-header {
+    display: none;
+  }
+
+  .sync-diff-table .trace-table-body {
+    gap: 0.75rem;
+  }
+
+  .sync-diff-table .trace-table-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.7rem;
+    min-width: 0;
+    padding: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel-muted);
+  }
+
+  .sync-diff-table .trace-table-cell {
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .sync-diff-table .trace-table-cell[data-label]::before {
+    display: block;
+  }
+
+  .sync-diff-table .trace-status-cell {
+    justify-content: start;
+    justify-items: start;
+  }
 }
 
 @media (max-width: 1200px) {

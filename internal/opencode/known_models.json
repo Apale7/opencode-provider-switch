@@ -1,0 +1,7338 @@
+{
+  "big-pickle": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 200000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-10-17"
+  },
+  "c4ai-aya-expanse-32b": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 128000,
+    "outputLimit": 4000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-10-24"
+  },
+  "c4ai-aya-expanse-8b": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 8000,
+    "outputLimit": 4000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-10-24"
+  },
+  "c4ai-aya-vision-32b": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 16000,
+    "outputLimit": 4000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-03-04"
+  },
+  "c4ai-aya-vision-8b": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 16000,
+    "outputLimit": 4000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-03-04"
+  },
+  "canopylabs/orpheus-arabic-saudi": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 4000,
+    "outputLimit": 50000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "audio"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "beta",
+    "releaseDate": "2025-12-16"
+  },
+  "canopylabs/orpheus-v1-english": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 4000,
+    "outputLimit": 50000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "audio"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "beta",
+    "releaseDate": "2025-12-19"
+  },
+  "chatgpt-image-latest": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text",
+      "image"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": false,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-16"
+  },
+  "claude-3-5-haiku": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 200000,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0008,
+      "output": 0.004,
+      "cacheRead": 0.00008,
+      "cacheWrite": 0.001
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-10-22"
+  },
+  "claude-3-5-haiku-20241022": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0008,
+      "output": 0.004,
+      "cacheRead": 0.00008,
+      "cacheWrite": 0.001
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-10-22"
+  },
+  "claude-3-5-haiku-latest": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0008,
+      "output": 0.004,
+      "cacheRead": 0.00008,
+      "cacheWrite": 0.001
+    },
+    "releaseDate": "2024-10-22"
+  },
+  "claude-3-5-sonnet-20240620": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-06-20"
+  },
+  "claude-3-5-sonnet-20241022": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-10-22"
+  },
+  "claude-3-7-sonnet-20250219": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-02-19"
+  },
+  "claude-3-haiku-20240307": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00025,
+      "output": 0.00125,
+      "cacheRead": 0.00003,
+      "cacheWrite": 0.0003
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-03-13"
+  },
+  "claude-3-opus-20240229": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.015,
+      "output": 0.075,
+      "cacheRead": 0.0015,
+      "cacheWrite": 0.01875
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-02-29"
+  },
+  "claude-3-sonnet-20240229": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.0003
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-03-04"
+  },
+  "claude-fable-5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.01,
+      "output": 0.05,
+      "cacheRead": 0.001,
+      "cacheWrite": 0.0125
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-06-09"
+  },
+  "claude-haiku-4-5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 200000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.001,
+      "output": 0.005,
+      "cacheRead": 0.0001,
+      "cacheWrite": 0.00125
+    },
+    "releaseDate": "2025-10-15"
+  },
+  "claude-haiku-4-5-20251001": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.001,
+      "output": 0.005,
+      "cacheRead": 0.0001,
+      "cacheWrite": 0.00125
+    },
+    "releaseDate": "2025-10-15"
+  },
+  "claude-opus-4-0": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.015,
+      "output": 0.075,
+      "cacheRead": 0.0015,
+      "cacheWrite": 0.01875
+    },
+    "releaseDate": "2025-05-22"
+  },
+  "claude-opus-4-1": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 200000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.015,
+      "output": 0.075,
+      "cacheRead": 0.0015,
+      "cacheWrite": 0.01875
+    },
+    "releaseDate": "2025-08-05"
+  },
+  "claude-opus-4-1-20250805": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.015,
+      "output": 0.075,
+      "cacheRead": 0.0015,
+      "cacheWrite": 0.01875
+    },
+    "releaseDate": "2025-08-05"
+  },
+  "claude-opus-4-20250514": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.015,
+      "output": 0.075,
+      "cacheRead": 0.0015,
+      "cacheWrite": 0.01875
+    },
+    "releaseDate": "2025-05-22"
+  },
+  "claude-opus-4-5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 200000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.025,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0.00625
+    },
+    "releaseDate": "2025-11-24"
+  },
+  "claude-opus-4-5-20251101": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.025,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0.00625
+    },
+    "releaseDate": "2025-11-01"
+  },
+  "claude-opus-4-6": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.025,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0.00625
+    },
+    "releaseDate": "2026-02-05"
+  },
+  "claude-opus-4-7": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.025,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0.00625
+    },
+    "releaseDate": "2026-04-16"
+  },
+  "claude-opus-4-8": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.025,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0.00625
+    },
+    "releaseDate": "2026-05-28"
+  },
+  "claude-sonnet-4": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "releaseDate": "2025-05-22"
+  },
+  "claude-sonnet-4-0": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "releaseDate": "2025-05-22"
+  },
+  "claude-sonnet-4-20250514": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "releaseDate": "2025-05-22"
+  },
+  "claude-sonnet-4-5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "releaseDate": "2025-09-29"
+  },
+  "claude-sonnet-4-5-20250929": {
+    "source": "Basellm llm-metadata provider=anthropic",
+    "contextLimit": 200000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "releaseDate": "2025-09-29"
+  },
+  "claude-sonnet-4-6": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0.0003,
+      "cacheWrite": 0.00375
+    },
+    "releaseDate": "2026-02-17"
+  },
+  "codestral-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 256000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0009,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-05-29"
+  },
+  "command-a-03-2025": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 256000,
+    "outputLimit": 8000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-03-13"
+  },
+  "command-a-plus-05-2026": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 128000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-05-20"
+  },
+  "command-a-reasoning-08-2025": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 256000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-21"
+  },
+  "command-a-translate-08-2025": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 8000,
+    "outputLimit": 8000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-28"
+  },
+  "command-a-vision-07-2025": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 128000,
+    "outputLimit": 8000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-07-31"
+  },
+  "command-r-08-2024": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 128000,
+    "outputLimit": 4000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00015,
+      "output": 0.0006,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-08-30"
+  },
+  "command-r-plus-08-2024": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 128000,
+    "outputLimit": 4000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-08-30"
+  },
+  "command-r7b-12-2024": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 128000,
+    "outputLimit": 4000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0000375,
+      "output": 0.00015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-12-02"
+  },
+  "command-r7b-arabic-02-2025": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 128000,
+    "outputLimit": 4000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0000375,
+      "output": 0.00015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-02-27"
+  },
+  "dall-e-2": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 1024,
+    "outputLimit": 1,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "image"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00002,
+      "output": 0.0001,
+      "cacheRead": 0.00001,
+      "cacheWrite": 0.00005
+    },
+    "releaseDate": "2022-04-06"
+  },
+  "dall-e-3": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 2048,
+    "outputLimit": 1,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "image"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00003,
+      "output": 0.00015,
+      "cacheRead": 0.00001,
+      "cacheWrite": 0.00005
+    },
+    "releaseDate": "2024-03-01"
+  },
+  "deepseek-chat": {
+    "source": "Basellm llm-metadata provider=deepseek",
+    "contextLimit": 1000000,
+    "outputLimit": 384000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00014,
+      "output": 0.00028,
+      "cacheRead": 0.0000028,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-01"
+  },
+  "deepseek-r1": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000574,
+      "output": 0.002294,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-r1-0528": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000574,
+      "output": 0.002294,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-05-28"
+  },
+  "deepseek-r1-distill-llama-70b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.000861,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-r1-distill-llama-8b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-r1-distill-qwen-1-5b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-r1-distill-qwen-14b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000144,
+      "output": 0.000431,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-r1-distill-qwen-32b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.000861,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-r1-distill-qwen-7b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000072,
+      "output": 0.000144,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-reasoner": {
+    "source": "Basellm llm-metadata provider=deepseek",
+    "contextLimit": 1000000,
+    "outputLimit": 384000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00014,
+      "output": 0.00028,
+      "cacheRead": 0.0000028,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-01"
+  },
+  "deepseek-v3": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 65536,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.001147,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-12-01"
+  },
+  "deepseek-v3-1": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000574,
+      "output": 0.001721,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-v3-2-exp": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.000431,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "deepseek-v4-flash": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 384000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00014,
+      "output": 0.00028,
+      "cacheRead": 0.000028,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-24"
+  },
+  "deepseek-v4-flash-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 200000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-24"
+  },
+  "deepseek-v4-pro": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 384000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00174,
+      "output": 0.00384,
+      "cacheRead": 0.000145,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-24"
+  },
+  "devstral-2512": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.002,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-09"
+  },
+  "devstral-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.002,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-09"
+  },
+  "devstral-medium-2507": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.002,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-07-10"
+  },
+  "devstral-medium-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.002,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-02"
+  },
+  "devstral-small-2505": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0001,
+      "output": 0.0003,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-05-07"
+  },
+  "devstral-small-2507": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0001,
+      "output": 0.0003,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-07-10"
+  },
+  "gemini-2.0-flash": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0001,
+      "output": 0.0004,
+      "cacheRead": 0.000025,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-12-11"
+  },
+  "gemini-2.0-flash-lite": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000075,
+      "output": 0.0003,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-12-11"
+  },
+  "gemini-2.5-flash": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0025,
+      "cacheRead": 0.00003,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-06-17"
+  },
+  "gemini-2.5-flash-image": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 32768,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.03,
+      "cacheRead": 0.000075,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-26"
+  },
+  "gemini-2.5-flash-lite": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0001,
+      "output": 0.0004,
+      "cacheRead": 0.00001,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-06-17"
+  },
+  "gemini-2.5-flash-preview-tts": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 8192,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "audio"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.01,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-05-01"
+  },
+  "gemini-2.5-pro": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00125,
+      "output": 0.01,
+      "cacheRead": 0.000125,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-06-17"
+  },
+  "gemini-2.5-pro-preview-tts": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 8192,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "audio"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.001,
+      "output": 0.02,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-05-01"
+  },
+  "gemini-3-flash": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.003,
+      "cacheRead": 0.00005,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-17"
+  },
+  "gemini-3-flash-preview": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.003,
+      "cacheRead": 0.00005,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-17"
+  },
+  "gemini-3-pro": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.012,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-11-18"
+  },
+  "gemini-3-pro-image-preview": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 131072,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.002,
+      "output": 0.12,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-11-20"
+  },
+  "gemini-3-pro-preview": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.002,
+      "output": 0.012,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-11-18"
+  },
+  "gemini-3.1-flash-image-preview": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 65536,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.06,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-26"
+  },
+  "gemini-3.1-flash-lite": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00025,
+      "output": 0.0015,
+      "cacheRead": 0.000025,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-05-07"
+  },
+  "gemini-3.1-flash-lite-preview": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.00025,
+      "output": 0.0015,
+      "cacheRead": 0.000025,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-03-03"
+  },
+  "gemini-3.1-pro": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.012,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-19"
+  },
+  "gemini-3.1-pro-preview": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.002,
+      "output": 0.012,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-19"
+  },
+  "gemini-3.1-pro-preview-customtools": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.002,
+      "output": 0.012,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-19"
+  },
+  "gemini-3.5-flash": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0015,
+      "output": 0.009,
+      "cacheRead": 0.00015,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-05-19"
+  },
+  "gemini-embedding-001": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 2048,
+    "outputLimit": 3072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00015,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-06-01"
+  },
+  "gemini-flash-latest": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0025,
+      "cacheRead": 0.000075,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-25"
+  },
+  "gemini-flash-lite-latest": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0001,
+      "output": 0.0004,
+      "cacheRead": 0.000025,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-25"
+  },
+  "gemma-4-26b-a4b-it": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 262144,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-02"
+  },
+  "gemma-4-31b-it": {
+    "source": "Basellm llm-metadata provider=google",
+    "contextLimit": 262144,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-02"
+  },
+  "glm-4.5": {
+    "source": "Basellm llm-metadata provider=zhipuai",
+    "contextLimit": 131072,
+    "outputLimit": 98304,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0006,
+      "output": 0.0022,
+      "cacheRead": 0.00011,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-07-28"
+  },
+  "glm-4.5-air": {
+    "source": "Basellm llm-metadata provider=zhipuai",
+    "contextLimit": 131072,
+    "outputLimit": 98304,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0002,
+      "output": 0.0011,
+      "cacheRead": 0.00003,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-07-28"
+  },
+  "glm-4.5-flash": {
+    "source": "Basellm llm-metadata provider=zhipuai",
+    "contextLimit": 131072,
+    "outputLimit": 98304,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-07-28"
+  },
+  "glm-4.5v": {
+    "source": "Basellm llm-metadata provider=zhipuai",
+    "contextLimit": 64000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0006,
+      "output": 0.0018,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-11"
+  },
+  "glm-4.6": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0006,
+      "output": 0.0022,
+      "cacheRead": 0.0001,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-09-30"
+  },
+  "glm-4.6v": {
+    "source": "Basellm llm-metadata provider=zhipuai",
+    "contextLimit": 128000,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0009,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-08"
+  },
+  "glm-4.7": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0006,
+      "output": 0.0022,
+      "cacheRead": 0.0001,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-22"
+  },
+  "glm-4.7-flash": {
+    "source": "Basellm llm-metadata provider=zhipuai",
+    "contextLimit": 200000,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-01-19"
+  },
+  "glm-4.7-flashx": {
+    "source": "Basellm llm-metadata provider=zhipuai",
+    "contextLimit": 200000,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00007,
+      "output": 0.0004,
+      "cacheRead": 0.00001,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-01-19"
+  },
+  "glm-4.7-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-22"
+  },
+  "glm-5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.001,
+      "output": 0.0032,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-11"
+  },
+  "glm-5-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-02-11"
+  },
+  "glm-5.1": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0014,
+      "output": 0.0044,
+      "cacheRead": 0.00026,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-07"
+  },
+  "glm-5.2": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0014,
+      "output": 0.0044,
+      "cacheRead": 0.00026,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-06-13"
+  },
+  "glm-5v-turbo": {
+    "source": "Basellm llm-metadata provider=zhipuai",
+    "contextLimit": 200000,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.022,
+      "cacheRead": 0.0012,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-01"
+  },
+  "gpt-3.5-turbo": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 16385,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.0015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2023-03-01"
+  },
+  "gpt-4": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 8192,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.03,
+      "output": 0.06,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2023-11-06"
+  },
+  "gpt-4-turbo": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.01,
+      "output": 0.03,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2023-11-06"
+  },
+  "gpt-4.1": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 1047576,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.008,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04-14"
+  },
+  "gpt-4.1-mini": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 1047576,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.0016,
+      "cacheRead": 0.0001,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04-14"
+  },
+  "gpt-4.1-nano": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 1047576,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0001,
+      "output": 0.0004,
+      "cacheRead": 0.000025,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04-14"
+  },
+  "gpt-4o": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0.00125,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-05-13"
+  },
+  "gpt-4o-2024-05-13": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-05-13"
+  },
+  "gpt-4o-2024-08-06": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0.00125,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-08-06"
+  },
+  "gpt-4o-2024-11-20": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.01,
+      "cacheRead": 0.00125,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-11-20"
+  },
+  "gpt-4o-mini": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00015,
+      "output": 0.0006,
+      "cacheRead": 0.000075,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-07-18"
+  },
+  "gpt-5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00107,
+      "output": 0.0085,
+      "cacheRead": 0.000107,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-07"
+  },
+  "gpt-5-chat-latest": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.00125,
+      "output": 0.01,
+      "cacheRead": 0.000125,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-07"
+  },
+  "gpt-5-codex": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00107,
+      "output": 0.0085,
+      "cacheRead": 0.000107,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-15"
+  },
+  "gpt-5-mini": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00025,
+      "output": 0.002,
+      "cacheRead": 0.000025,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-07"
+  },
+  "gpt-5-nano": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00005,
+      "output": 0.0004,
+      "cacheRead": 0.000005,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-07"
+  },
+  "gpt-5-pro": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 400000,
+    "outputLimit": 272000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.015,
+      "output": 0.12,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-10-06"
+  },
+  "gpt-5.1": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00107,
+      "output": 0.0085,
+      "cacheRead": 0.000107,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-11-13"
+  },
+  "gpt-5.1-chat-latest": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": true,
+    "cost": {
+      "input": 0.00125,
+      "output": 0.01,
+      "cacheRead": 0.000125,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-11-13"
+  },
+  "gpt-5.1-codex": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00107,
+      "output": 0.0085,
+      "cacheRead": 0.000107,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-11-13"
+  },
+  "gpt-5.1-codex-max": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00125,
+      "output": 0.01,
+      "cacheRead": 0.000125,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-11-13"
+  },
+  "gpt-5.1-codex-mini": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00025,
+      "output": 0.002,
+      "cacheRead": 0.000025,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-11-13"
+  },
+  "gpt-5.2": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00175,
+      "output": 0.014,
+      "cacheRead": 0.000175,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-11"
+  },
+  "gpt-5.2-chat-latest": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": true,
+    "cost": {
+      "input": 0.00175,
+      "output": 0.014,
+      "cacheRead": 0.000175,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-11"
+  },
+  "gpt-5.2-codex": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00175,
+      "output": 0.014,
+      "cacheRead": 0.000175,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-01-14"
+  },
+  "gpt-5.2-pro": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.021,
+      "output": 0.168,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-11"
+  },
+  "gpt-5.3-chat-latest": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.00175,
+      "output": 0.014,
+      "cacheRead": 0.000175,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-03"
+  },
+  "gpt-5.3-codex": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00175,
+      "output": 0.014,
+      "cacheRead": 0.000175,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-24"
+  },
+  "gpt-5.3-codex-spark": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00175,
+      "output": 0.014,
+      "cacheRead": 0.000175,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-12"
+  },
+  "gpt-5.4": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1050000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.015,
+      "cacheRead": 0.00025,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-05"
+  },
+  "gpt-5.4-mini": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00075,
+      "output": 0.0045,
+      "cacheRead": 0.000075,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-17"
+  },
+  "gpt-5.4-nano": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 400000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.0002,
+      "output": 0.00125,
+      "cacheRead": 0.00002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-17"
+  },
+  "gpt-5.4-pro": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1050000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.03,
+      "output": 0.18,
+      "cacheRead": 0.03,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-05"
+  },
+  "gpt-5.5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1050000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.03,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-23"
+  },
+  "gpt-5.5-pro": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1050000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.03,
+      "output": 0.18,
+      "cacheRead": 0.03,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-24"
+  },
+  "gpt-image-1": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 1000,
+    "outputLimit": 512,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "image"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.01,
+      "output": 0.02,
+      "cacheRead": 0.0001,
+      "cacheWrite": 0.0006
+    },
+    "releaseDate": "2024-01-15"
+  },
+  "gpt-image-1-mini": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text",
+      "image"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-26"
+  },
+  "gpt-image-1.5": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text",
+      "image"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-11-25"
+  },
+  "gpt-image-2": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "image"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.005,
+      "output": 0.03,
+      "cacheRead": 0.00125,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-21"
+  },
+  "grok-4.20-0309-non-reasoning": {
+    "source": "Basellm llm-metadata provider=xai",
+    "contextLimit": 1000000,
+    "outputLimit": 30000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00125,
+      "output": 0.0025,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-09"
+  },
+  "grok-4.20-0309-reasoning": {
+    "source": "Basellm llm-metadata provider=xai",
+    "contextLimit": 1000000,
+    "outputLimit": 30000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00125,
+      "output": 0.0025,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-09"
+  },
+  "grok-4.20-multi-agent-0309": {
+    "source": "Basellm llm-metadata provider=xai",
+    "contextLimit": 1000000,
+    "outputLimit": 30000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00125,
+      "output": 0.0025,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-09"
+  },
+  "grok-4.3": {
+    "source": "Basellm llm-metadata provider=xai",
+    "contextLimit": 1000000,
+    "outputLimit": 30000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00125,
+      "output": 0.0025,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-17"
+  },
+  "grok-build-0.1": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 256000,
+    "outputLimit": 256000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.001,
+      "output": 0.002,
+      "cacheRead": 0.0002,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-05-20"
+  },
+  "grok-code": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 256000,
+    "outputLimit": 256000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-08-20"
+  },
+  "grok-imagine-image": {
+    "source": "Basellm llm-metadata provider=xai",
+    "contextLimit": 8000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "image",
+      "pdf"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-01-28"
+  },
+  "grok-imagine-image-quality": {
+    "source": "Basellm llm-metadata provider=xai",
+    "contextLimit": 8000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "image",
+      "pdf"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-03"
+  },
+  "grok-imagine-video": {
+    "source": "Basellm llm-metadata provider=xai",
+    "contextLimit": 1024,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image",
+      "video",
+      "pdf"
+    ],
+    "outputModalities": [
+      "video"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-01-28"
+  },
+  "groq/compound": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-04"
+  },
+  "groq/compound-mini": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-04"
+  },
+  "hy3-preview-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 256000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-04-20"
+  },
+  "kimi-k2": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.0025,
+      "cacheRead": 0.0004,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-09-05"
+  },
+  "kimi-k2-thinking": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.0025,
+      "cacheRead": 0.0004,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-09-05"
+  },
+  "kimi-k2.5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0006,
+      "output": 0.003,
+      "cacheRead": 0.00008,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-01-27"
+  },
+  "kimi-k2.5-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-01-27"
+  },
+  "kimi-k2.6": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00095,
+      "output": 0.004,
+      "cacheRead": 0.00016,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-21"
+  },
+  "kimi/kimi-k2.5": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.0006,
+      "output": 0.003,
+      "cacheRead": 0.0001,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-01-27"
+  },
+  "labs-devstral-small-2512": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 256000,
+    "outputLimit": 256000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-09"
+  },
+  "ling-2.6-flash-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262100,
+    "outputLimit": 32800,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-04-21"
+  },
+  "llama-3.1-8b-instant": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00005,
+      "output": 0.00008,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-07-23"
+  },
+  "llama-3.3-70b-versatile": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00059,
+      "output": 0.00079,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-12-06"
+  },
+  "magistral-medium-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.002,
+      "output": 0.005,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-03-17"
+  },
+  "magistral-small": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.0015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-03-17"
+  },
+  "meta-llama/llama-4-scout-17b-16e-instruct": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00011,
+      "output": 0.00034,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "beta",
+    "releaseDate": "2025-04-05"
+  },
+  "meta-llama/llama-prompt-guard-2-22m": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 512,
+    "outputLimit": 512,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00003,
+      "output": 0.00003,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "beta",
+    "releaseDate": "2025-05-29"
+  },
+  "meta-llama/llama-prompt-guard-2-86m": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 512,
+    "outputLimit": 512,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.00004,
+      "output": 0.00004,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "beta",
+    "releaseDate": "2025-05-29"
+  },
+  "mimo-v2-flash-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-16"
+  },
+  "mimo-v2-omni-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-03-18"
+  },
+  "mimo-v2-pro-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1048576,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-03-18"
+  },
+  "mimo-v2.5-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 200000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-24"
+  },
+  "MiniMax-M2": {
+    "source": "Basellm llm-metadata provider=minimax",
+    "contextLimit": 196608,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-10-27"
+  },
+  "minimax-m2.1": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0.0001,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-23"
+  },
+  "MiniMax-M2.1": {
+    "source": "Basellm llm-metadata provider=minimax",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-23"
+  },
+  "minimax-m2.1-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-12-23"
+  },
+  "minimax-m2.5": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0.00006,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-12"
+  },
+  "MiniMax-M2.5": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-12"
+  },
+  "minimax-m2.5-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-02-12"
+  },
+  "MiniMax-M2.5-highspeed": {
+    "source": "Basellm llm-metadata provider=minimax",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0006,
+      "output": 0.0024,
+      "cacheRead": 0.00006,
+      "cacheWrite": 0.000375
+    },
+    "releaseDate": "2026-02-13"
+  },
+  "minimax-m2.7": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0.00006,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-18"
+  },
+  "MiniMax-M2.7": {
+    "source": "Basellm llm-metadata provider=minimax",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0.00006,
+      "cacheWrite": 0.000375
+    },
+    "releaseDate": "2026-03-18"
+  },
+  "MiniMax-M2.7-highspeed": {
+    "source": "Basellm llm-metadata provider=minimax",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0006,
+      "output": 0.0024,
+      "cacheRead": 0.00006,
+      "cacheWrite": 0.000375
+    },
+    "releaseDate": "2026-03-18"
+  },
+  "MiniMax-M3": {
+    "source": "Basellm llm-metadata provider=minimax",
+    "contextLimit": 1000000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0.00006,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-06-01"
+  },
+  "minimax-m3-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 200000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-05-31"
+  },
+  "MiniMax/MiniMax-M2.7": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 204800,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0003,
+      "output": 0.0012,
+      "cacheRead": 0.00006,
+      "cacheWrite": 0.000375
+    },
+    "releaseDate": "2026-03-18"
+  },
+  "ministral-3b-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.00004,
+      "output": 0.00004,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-10-01"
+  },
+  "ministral-8b-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0001,
+      "output": 0.0001,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-10-01"
+  },
+  "mistral-embed": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 8000,
+    "outputLimit": 3072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.0001,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2023-12-11"
+  },
+  "mistral-large-2411": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 131072,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.006,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-11-18"
+  },
+  "mistral-large-2512": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.0015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-11-01"
+  },
+  "mistral-large-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.0015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-11-01"
+  },
+  "mistral-medium-2505": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 131072,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.002,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-05-07"
+  },
+  "mistral-medium-2508": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.002,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-12"
+  },
+  "mistral-medium-2604": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0015,
+      "output": 0.0075,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-29"
+  },
+  "mistral-medium-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 262144,
+    "outputLimit": 262144,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.0004,
+      "output": 0.002,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-12"
+  },
+  "mistral-nemo": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00015,
+      "output": 0.00015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-07-01"
+  },
+  "mistral-small-2506": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0001,
+      "output": 0.0003,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-06-20"
+  },
+  "mistral-small-2603": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 256000,
+    "outputLimit": 256000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00015,
+      "output": 0.0006,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-16"
+  },
+  "mistral-small-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 256000,
+    "outputLimit": 256000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.00015,
+      "output": 0.0006,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-03-16"
+  },
+  "moonshot-kimi-k2-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000574,
+      "output": 0.002294,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-01"
+  },
+  "nemotron-3-super-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 204800,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-03-11"
+  },
+  "nemotron-3-ultra-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 1000000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-06-04"
+  },
+  "north-mini-code-1-0": {
+    "source": "Basellm llm-metadata provider=cohere",
+    "contextLimit": 256000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-06-09"
+  },
+  "north-mini-code-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 256000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-06-09"
+  },
+  "o1": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 200000,
+    "outputLimit": 100000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.015,
+      "output": 0.06,
+      "cacheRead": 0.0075,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-12-05"
+  },
+  "o1-pro": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 200000,
+    "outputLimit": 100000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-03-19"
+  },
+  "o3": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 200000,
+    "outputLimit": 100000,
+    "inputModalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.008,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04-16"
+  },
+  "o3-deep-research": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 200000,
+    "outputLimit": 100000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.01,
+      "output": 0.04,
+      "cacheRead": 0.0025,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-06-26"
+  },
+  "o3-mini": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 200000,
+    "outputLimit": 100000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.0011,
+      "output": 0.0044,
+      "cacheRead": 0.00055,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-12-20"
+  },
+  "o3-pro": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 200000,
+    "outputLimit": 100000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.02,
+      "output": 0.08,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-06-10"
+  },
+  "o4-mini": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 200000,
+    "outputLimit": 100000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.0011,
+      "output": 0.0044,
+      "cacheRead": 0.000275,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04-16"
+  },
+  "o4-mini-deep-research": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 200000,
+    "outputLimit": 100000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.008,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-06-26"
+  },
+  "open-mistral-7b": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 8000,
+    "outputLimit": 8000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00025,
+      "output": 0.00025,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2023-09-27"
+  },
+  "open-mistral-nemo": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00015,
+      "output": 0.00015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2024-07-01"
+  },
+  "open-mixtral-8x22b": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 64000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.006,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-04-17"
+  },
+  "open-mixtral-8x7b": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 32000,
+    "outputLimit": 32000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0007,
+      "output": 0.0007,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2023-12-11"
+  },
+  "openai/gpt-oss-120b": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00015,
+      "output": 0.0006,
+      "cacheRead": 0.000075,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-05"
+  },
+  "openai/gpt-oss-20b": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000075,
+      "output": 0.0003,
+      "cacheRead": 0.0000375,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-08-05"
+  },
+  "openai/gpt-oss-safeguard-20b": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000075,
+      "output": 0.0003,
+      "cacheRead": 0.000037,
+      "cacheWrite": 0
+    },
+    "status": "beta",
+    "releaseDate": "2025-10-29"
+  },
+  "pixtral-12b": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00015,
+      "output": 0.00015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09-01"
+  },
+  "pixtral-large-latest": {
+    "source": "Basellm llm-metadata provider=mistral",
+    "contextLimit": 128000,
+    "outputLimit": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.002,
+      "output": 0.006,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-11-01"
+  },
+  "qvq-max": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.001147,
+      "output": 0.004588,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-03-25"
+  },
+  "qwen-deep-research": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.007742,
+      "output": 0.023367,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01"
+  },
+  "qwen-doc-turbo": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000087,
+      "output": 0.000144,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01"
+  },
+  "qwen-flash": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000022,
+      "output": 0.000216,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-07-28"
+  },
+  "qwen-long": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 10000000,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000072,
+      "output": 0.000287,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-25"
+  },
+  "qwen-math-plus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 4096,
+    "outputLimit": 3072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000574,
+      "output": 0.001721,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-08-16"
+  },
+  "qwen-math-turbo": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 4096,
+    "outputLimit": 3072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.000861,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09-19"
+  },
+  "qwen-max": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000345,
+      "output": 0.001377,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-04-03"
+  },
+  "qwen-mt-plus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 16384,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000259,
+      "output": 0.000775,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01"
+  },
+  "qwen-mt-turbo": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 16384,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000101,
+      "output": 0.00028,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01"
+  },
+  "qwen-omni-turbo": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 2048,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video"
+    ],
+    "outputModalities": [
+      "text",
+      "audio"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000058,
+      "output": 0.00023,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-01-19"
+  },
+  "qwen-omni-turbo-realtime": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 2048,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio"
+    ],
+    "outputModalities": [
+      "text",
+      "audio"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00023,
+      "output": 0.000918,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-05-08"
+  },
+  "qwen-plus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000115,
+      "output": 0.000287,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01-25"
+  },
+  "qwen-plus-character": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000115,
+      "output": 0.000287,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01"
+  },
+  "qwen-turbo": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000044,
+      "output": 0.000087,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-11-01"
+  },
+  "qwen-vl-max": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00023,
+      "output": 0.000574,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-04-08"
+  },
+  "qwen-vl-ocr": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 34096,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000717,
+      "output": 0.000717,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-10-28"
+  },
+  "qwen-vl-plus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000115,
+      "output": 0.000287,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01-25"
+  },
+  "qwen/qwen3-32b": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 131072,
+    "outputLimit": 40960,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00029,
+      "output": 0.00059,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "beta",
+    "releaseDate": "2025-06-11"
+  },
+  "qwen2-5-14b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000144,
+      "output": 0.000431,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09"
+  },
+  "qwen2-5-32b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.000861,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09"
+  },
+  "qwen2-5-72b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000574,
+      "output": 0.001721,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09"
+  },
+  "qwen2-5-7b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000072,
+      "output": 0.000144,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09"
+  },
+  "qwen2-5-coder-32b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.000861,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-11"
+  },
+  "qwen2-5-coder-7b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000144,
+      "output": 0.000287,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-11"
+  },
+  "qwen2-5-math-72b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 4096,
+    "outputLimit": 3072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000574,
+      "output": 0.001721,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09"
+  },
+  "qwen2-5-math-7b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 4096,
+    "outputLimit": 3072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000144,
+      "output": 0.000287,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09"
+  },
+  "qwen2-5-omni-7b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 32768,
+    "outputLimit": 2048,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video"
+    ],
+    "outputModalities": [
+      "text",
+      "audio"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000087,
+      "output": 0.000345,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-12"
+  },
+  "qwen2-5-vl-72b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.002294,
+      "output": 0.006881,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09"
+  },
+  "qwen2-5-vl-7b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.000717,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-09"
+  },
+  "qwen3-14b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000144,
+      "output": 0.000574,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04"
+  },
+  "qwen3-235b-a22b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.001147,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04"
+  },
+  "qwen3-32b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.001147,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04"
+  },
+  "qwen3-8b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000072,
+      "output": 0.000287,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04"
+  },
+  "qwen3-asr-flash": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 53248,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "audio"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.000032,
+      "output": 0.000032,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-08"
+  },
+  "qwen3-coder": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00045,
+      "output": 0.0018,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2025-07-23"
+  },
+  "qwen3-coder-30b-a3b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000216,
+      "output": 0.000861,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04"
+  },
+  "qwen3-coder-480b-a35b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000861,
+      "output": 0.003441,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04"
+  },
+  "qwen3-coder-flash": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000144,
+      "output": 0.000574,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-07-28"
+  },
+  "qwen3-coder-plus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1048576,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.001,
+      "output": 0.005,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-07-23"
+  },
+  "qwen3-max": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000861,
+      "output": 0.003441,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-23"
+  },
+  "qwen3-next-80b-a3b-instruct": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000144,
+      "output": 0.000574,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09"
+  },
+  "qwen3-next-80b-a3b-thinking": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.000144,
+      "output": 0.001434,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09"
+  },
+  "qwen3-omni-flash": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 65536,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio",
+      "video"
+    ],
+    "outputModalities": [
+      "text",
+      "audio"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000058,
+      "output": 0.00023,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-15"
+  },
+  "qwen3-omni-flash-realtime": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 65536,
+    "outputLimit": 16384,
+    "inputModalities": [
+      "text",
+      "image",
+      "audio"
+    ],
+    "outputModalities": [
+      "text",
+      "audio"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00023,
+      "output": 0.000918,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-15"
+  },
+  "qwen3-vl-235b-a22b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00028671,
+      "output": 0.00114682,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04"
+  },
+  "qwen3-vl-30b-a3b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000108,
+      "output": 0.000431,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-04"
+  },
+  "qwen3-vl-plus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 262144,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00014335,
+      "output": 0.00143352,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-23"
+  },
+  "qwen3.5-397b-a17b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00043,
+      "output": 0.00258,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-16"
+  },
+  "qwen3.5-flash": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000172,
+      "output": 0.00172,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-02-23"
+  },
+  "qwen3.5-plus": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0002,
+      "output": 0.0012,
+      "cacheRead": 0.00002,
+      "cacheWrite": 0.00025
+    },
+    "releaseDate": "2026-02-16"
+  },
+  "qwen3.6-flash": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0001875,
+      "output": 0.001125,
+      "cacheRead": 0,
+      "cacheWrite": 0.00023437
+    },
+    "releaseDate": "2026-04-27"
+  },
+  "qwen3.6-max-preview": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 245800,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0.00132,
+      "output": 0.0079,
+      "cacheRead": 0.000132,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2026-04-20"
+  },
+  "qwen3.6-plus": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.003,
+      "cacheRead": 0.00005,
+      "cacheWrite": 0.000625
+    },
+    "releaseDate": "2026-04-02"
+  },
+  "qwen3.6-plus-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262144,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-04-02"
+  },
+  "qwen3.7-max": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0025,
+      "output": 0.0075,
+      "cacheRead": 0.0005,
+      "cacheWrite": 0.003125
+    },
+    "releaseDate": "2026-05-21"
+  },
+  "qwen3.7-plus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 1000000,
+    "outputLimit": 64000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.003,
+      "cacheRead": 0.00005,
+      "cacheWrite": 0.000625
+    },
+    "releaseDate": "2026-06-02"
+  },
+  "qwq-32b": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000287,
+      "output": 0.000861,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-12"
+  },
+  "qwq-plus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 131072,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00023,
+      "output": 0.000574,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-03-05"
+  },
+  "ring-2.6-1t-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 262000,
+    "outputLimit": 66000,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-05-08"
+  },
+  "siliconflow/deepseek-r1-0528": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 163840,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.0005,
+      "output": 0.00218,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-05-28"
+  },
+  "siliconflow/deepseek-v3-0324": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 163840,
+    "outputLimit": 163840,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00025,
+      "output": 0.001,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-12-26"
+  },
+  "siliconflow/deepseek-v3.1-terminus": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 163840,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00027,
+      "output": 0.001,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-09-29"
+  },
+  "siliconflow/deepseek-v3.2": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 163840,
+    "outputLimit": 65536,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.00027,
+      "output": 0.00042,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-12-03"
+  },
+  "sonar": {
+    "source": "Basellm llm-metadata provider=perplexity",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.001,
+      "output": 0.001,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01-01"
+  },
+  "sonar-deep-research": {
+    "source": "Basellm llm-metadata provider=perplexity",
+    "contextLimit": 128000,
+    "outputLimit": 32768,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": false,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.008,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2025-02-01"
+  },
+  "sonar-pro": {
+    "source": "Basellm llm-metadata provider=perplexity",
+    "contextLimit": 200000,
+    "outputLimit": 8192,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.003,
+      "output": 0.015,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01-01"
+  },
+  "sonar-reasoning-pro": {
+    "source": "Basellm llm-metadata provider=perplexity",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": true,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.002,
+      "output": 0.008,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01-01"
+  },
+  "text-embedding-3-large": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 64000,
+    "outputLimit": 2048,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "vector"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.007,
+      "output": 0.01,
+      "cacheRead": 0.00005,
+      "cacheWrite": 0.0004
+    },
+    "releaseDate": "2023-12-15"
+  },
+  "text-embedding-3-small": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 32000,
+    "outputLimit": 1024,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "vector"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.004,
+      "output": 0.008,
+      "cacheRead": 0.00004,
+      "cacheWrite": 0.0003
+    },
+    "releaseDate": "2023-11-10"
+  },
+  "text-embedding-ada-002": {
+    "source": "Basellm llm-metadata provider=openai",
+    "contextLimit": 60000,
+    "outputLimit": 1500,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "vector"
+    ],
+    "reasoning": true,
+    "toolCall": true,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.006,
+      "output": 0.012,
+      "cacheRead": 0.00006,
+      "cacheWrite": 0.00045
+    },
+    "releaseDate": "2023-11-20"
+  },
+  "tongyi-intent-detect-v3": {
+    "source": "Basellm llm-metadata provider=alibaba-cn",
+    "contextLimit": 8192,
+    "outputLimit": 1024,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": false,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0.000058,
+      "output": 0.000144,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-01"
+  },
+  "trinity-large-preview-free": {
+    "source": "Basellm llm-metadata provider=opencode",
+    "contextLimit": 131072,
+    "outputLimit": 131072,
+    "inputModalities": [
+      "text"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": true,
+    "attachment": false,
+    "temperature": true,
+    "experimental": true,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "status": "deprecated",
+    "releaseDate": "2026-01-28"
+  },
+  "whisper-large-v3": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "audio"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2023-09-01"
+  },
+  "whisper-large-v3-turbo": {
+    "source": "Basellm llm-metadata provider=groq",
+    "contextLimit": 128000,
+    "outputLimit": 4096,
+    "inputModalities": [
+      "audio"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "reasoning": false,
+    "toolCall": false,
+    "attachment": true,
+    "temperature": true,
+    "experimental": false,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "releaseDate": "2024-10-01"
+  }
+}

@@ -185,6 +185,128 @@ func TestEnsureOcswitchProviderPreservesExistingModelMetadata(t *testing.T) {
 	}
 }
 
+func TestEnsureOcswitchProviderAddsModelCapabilityMetadata(t *testing.T) {
+	raw := Raw{}
+	capabilities := map[string]ModelCapabilityProbe{
+		"gpt-capable": {
+			ModelID:           "gpt-capable",
+			Protocol:          "openai-responses",
+			ContextLimit:      200000,
+			OutputLimit:       8192,
+			InputModalities:   []string{"text", "image"},
+			OutputModalities:  []string{"text"},
+			SupportsReasoning: true,
+			SupportsTools:     true,
+			SupportsImages:    true,
+			ProbeSource:       ModelCapabilityProbeSourceUpstream,
+		},
+	}
+
+	changed := EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-capable"}, capabilities)
+	if !changed {
+		t.Fatal("EnsureOcswitchProvider() reported unchanged for new provider with capabilities")
+	}
+
+	model := mustOcswitchModel(t, raw, ProviderKey, "gpt-capable")
+	if got := model["name"]; got != "gpt-capable" {
+		t.Fatalf("model name = %#v, want gpt-capable", got)
+	}
+	assertModelLimit(t, model, 200000, 8192)
+	assertStringValues(t, model["inputModalities"], []string{"text", "image"})
+	assertStringValues(t, model["outputModalities"], []string{"text"})
+	assertBoolValue(t, model, "reasoning", true)
+	assertBoolValue(t, model, "toolCall", true)
+	assertBoolValue(t, model, "attachment", true)
+}
+
+func TestEnsureOcswitchProviderMergesModelCapabilitiesWithoutOverwritingUserValues(t *testing.T) {
+	raw := Raw{
+		"$schema": "https://opencode.ai/config.json",
+		"provider": map[string]any{
+			ProviderKey: map[string]any{
+				"npm":  "@ai-sdk/openai",
+				"name": ProviderName,
+				"options": map[string]any{
+					"baseURL":     "http://127.0.0.1:9982/v1",
+					"apiKey":      "ocswitch-local",
+					"setCacheKey": true,
+				},
+				"models": map[string]any{
+					"gpt-existing": map[string]any{
+						"name": "custom-display-name",
+						"limit": map[string]any{
+							"context": int64(100000),
+						},
+						"reasoning": false,
+					},
+				},
+			},
+		},
+	}
+	capabilities := map[string]ModelCapabilityProbe{
+		"gpt-existing": {
+			ModelID:           "gpt-existing",
+			Protocol:          "openai-responses",
+			ContextLimit:      200000,
+			OutputLimit:       16384,
+			InputModalities:   []string{"text", "image"},
+			OutputModalities:  []string{"text"},
+			SupportsReasoning: true,
+			SupportsTools:     true,
+			SupportsImages:    true,
+			ProbeSource:       ModelCapabilityProbeSourceUpstream,
+		},
+	}
+
+	changed := EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-existing"}, capabilities)
+	if !changed {
+		t.Fatal("EnsureOcswitchProvider() reported unchanged when capabilities filled missing fields")
+	}
+
+	model := mustOcswitchModel(t, raw, ProviderKey, "gpt-existing")
+	if got := model["name"]; got != "custom-display-name" {
+		t.Fatalf("model name = %#v, want custom-display-name preserved", got)
+	}
+	assertModelLimit(t, model, 100000, 16384)
+	assertStringValues(t, model["inputModalities"], []string{"text", "image"})
+	assertStringValues(t, model["outputModalities"], []string{"text"})
+	assertBoolValue(t, model, "reasoning", false)
+	assertBoolValue(t, model, "toolCall", true)
+	assertBoolValue(t, model, "attachment", true)
+}
+
+func TestEnsureOcswitchProviderUsesSafeDefaultsForMissingCapabilityFields(t *testing.T) {
+	raw := Raw{}
+	capabilities := map[string]ModelCapabilityProbe{
+		"gpt-fallback": {
+			ModelID:     "gpt-fallback",
+			Protocol:    "openai-responses",
+			ProbeSource: ModelCapabilityProbeSourceFallback,
+			ProbeError:  "probe failed",
+		},
+	}
+
+	EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-fallback"}, capabilities)
+
+	model := mustOcswitchModel(t, raw, ProviderKey, "gpt-fallback")
+	assertModelLimit(t, model, SafeDefaultContextLimit, SafeDefaultOutputLimit)
+	assertStringValues(t, model["inputModalities"], []string{"text"})
+	assertStringValues(t, model["outputModalities"], []string{"text"})
+	assertBoolValue(t, model, "reasoning", false)
+	assertBoolValue(t, model, "toolCall", false)
+	assertBoolValue(t, model, "attachment", false)
+}
+
+func TestEnsureOcswitchProviderNilCapabilitiesKeepsMinimalModelConfig(t *testing.T) {
+	raw := Raw{}
+	EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-minimal"})
+
+	model := mustOcswitchModel(t, raw, ProviderKey, "gpt-minimal")
+	if len(model) != 1 || model["name"] != "gpt-minimal" {
+		t.Fatalf("model = %#v, want only name without capability metadata", model)
+	}
+}
+
 func TestEnsureOcswitchProviderDoesNotPanicOnComparableMetadata(t *testing.T) {
 	raw := Raw{
 		"$schema": "https://opencode.ai/config.json",
@@ -626,5 +748,81 @@ func assertStringOrder(t *testing.T, body string, parts []string) {
 			t.Fatalf("order mismatch for %q in output: %s", part, body)
 		}
 		last = idx
+	}
+}
+
+func mustOcswitchModel(t *testing.T, raw Raw, providerKey string, alias string) map[string]any {
+	t.Helper()
+	providerRaw, _ := raw["provider"].(map[string]any)
+	providerEntry, _ := providerRaw[providerKey].(map[string]any)
+	models, _ := providerEntry["models"].(map[string]any)
+	model, _ := models[alias].(map[string]any)
+	if model == nil {
+		t.Fatalf("missing provider.%s.models.%s in %#v", providerKey, alias, raw)
+	}
+	return model
+}
+
+func assertModelLimit(t *testing.T, model map[string]any, wantContext int64, wantOutput int64) {
+	t.Helper()
+	limit, _ := model["limit"].(map[string]any)
+	if limit == nil {
+		t.Fatalf("model limit missing: %#v", model["limit"])
+	}
+	assertNumericValue(t, limit, "context", wantContext)
+	assertNumericValue(t, limit, "output", wantOutput)
+}
+
+func assertNumericValue(t *testing.T, values map[string]any, key string, want int64) {
+	t.Helper()
+	switch got := values[key].(type) {
+	case int:
+		if int64(got) == want {
+			return
+		}
+	case int64:
+		if got == want {
+			return
+		}
+	case float64:
+		if int64(got) == want && got == float64(want) {
+			return
+		}
+	}
+	t.Fatalf("%s = %#v, want %d", key, values[key], want)
+}
+
+func assertStringValues(t *testing.T, got any, want []string) {
+	t.Helper()
+	var values []string
+	switch typed := got.(type) {
+	case []string:
+		values = typed
+	case []any:
+		for _, item := range typed {
+			value, ok := item.(string)
+			if !ok {
+				t.Fatalf("string values contain non-string item: %#v", got)
+			}
+			values = append(values, value)
+		}
+	default:
+		t.Fatalf("string values = %#v, want %#v", got, want)
+	}
+	if len(values) != len(want) {
+		t.Fatalf("string values = %#v, want %#v", values, want)
+	}
+	for i := range want {
+		if values[i] != want[i] {
+			t.Fatalf("string values = %#v, want %#v", values, want)
+		}
+	}
+}
+
+func assertBoolValue(t *testing.T, values map[string]any, key string, want bool) {
+	t.Helper()
+	got, ok := values[key].(bool)
+	if !ok || got != want {
+		t.Fatalf("%s = %#v, want %v", key, values[key], want)
 	}
 }

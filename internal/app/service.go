@@ -152,6 +152,10 @@ func (s *Service) PreviewOpenCodeSync(ctx context.Context, in SyncInput) (SyncPr
 	return s.previewOpenCodeSync(ctx, in, "")
 }
 
+func (s *Service) PreviewOpenCodeSyncDiff(ctx context.Context, in SyncInput) (SyncPreview, error) {
+	return s.PreviewOpenCodeSync(ctx, in)
+}
+
 func (s *Service) PreviewOpenCodeSyncWithBaseURL(ctx context.Context, in SyncInput, publicBaseURL string) (SyncPreview, error) {
 	return s.previewOpenCodeSync(ctx, in, publicBaseURL)
 }
@@ -180,6 +184,8 @@ func (s *Service) previewOpenCodeSync(ctx context.Context, in SyncInput, publicB
 		RuntimeSnapshot:  prepared.runtimeSnapshot,
 		DoctorIssues:     append([]DoctorIssue(nil), prepared.doctorIssues...),
 		Summary:          prepared.summary,
+		AliasPreviews:    cloneAliasSyncPreviews(prepared.aliasPreviews),
+		OverallSummary:   cloneDiffSummaryView(prepared.overallSummary),
 	}, nil
 }
 
@@ -202,6 +208,8 @@ func (s *Service) ApplyOpenCodeSync(ctx context.Context, in SyncInput) (SyncResu
 		RuntimeSnapshot:  prepared.runtimeSnapshot,
 		DoctorIssues:     append([]DoctorIssue(nil), prepared.doctorIssues...),
 		Summary:          prepared.summary,
+		AliasPreviews:    cloneAliasSyncPreviews(prepared.aliasPreviews),
+		OverallSummary:   cloneDiffSummaryView(prepared.overallSummary),
 	}
 	if !prepared.changed || in.DryRun {
 		return result, nil
@@ -447,6 +455,8 @@ type preparedSync struct {
 	runtimeBaseURL   string
 	runtimeDirectory string
 	protocols        []SyncedProviderView
+	aliasPreviews    []AliasSyncPreviewView
+	overallSummary   *DiffSummaryView
 	raw              opencode.Raw
 	content          string
 	changed          bool
@@ -510,14 +520,57 @@ func (s *Service) prepareSyncWithBaseURL(ctx context.Context, in SyncInput, publ
 	if err := validateSyncedModelSelection(in.SetSmallModel, protocolAliases, "--set-small-model"); err != nil {
 		return preparedSync{}, err
 	}
+	aliasPreviews := make([]AliasSyncPreviewView, 0)
+	overallSummary := &DiffSummaryView{}
 	changed := false
 	for _, prepared := range preparedProtocols {
 		protocol := prepared.Protocol
+		providerKey := prepared.Key
 		baseURL := proxyBaseURLForProtocol(cfg, protocol)
 		if strings.TrimSpace(publicBaseURL) != "" {
 			baseURL = publicProxyBaseURLForProtocol(publicBaseURL, protocol)
 		}
-		if opencode.EnsureOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, protocolAliases[protocol]) {
+		aliasNames := protocolAliases[protocol]
+		probeMap := make(map[string]opencode.ModelCapabilityProbe, len(aliasNames))
+		for _, aliasName := range aliasNames {
+			aliasCfg := cfg.FindAlias(aliasName)
+			capability := opencode.ModelCapabilityProbe{ModelID: aliasName, Protocol: protocol, ProbeSource: opencode.ModelCapabilityProbeSourceFallback}
+			if aliasCfg != nil {
+				availableTargets := cfg.AvailableTargets(*aliasCfg)
+				selectedTarget, targetProbe, ok := selectCapabilityProbeTarget(cfg, availableTargets)
+				if ok {
+					capability = opencode.ProbeModelCapability(ctx, targetProbe, selectedTarget.Model)
+					capability.ModelID = selectedTarget.Model
+				} else {
+					capability.ProbeError = "no available provider target"
+				}
+			} else {
+				capability.ProbeError = "alias not found"
+			}
+			probeMap[aliasName] = capability
+			proposedCapability := capability
+			proposedCapability.ModelID = aliasName
+			proposedConfig := opencode.ModelConfigFromCapabilityProbe(proposedCapability)
+			if pricing, ok := opencode.LookupModelPricing(aliasName); ok {
+				proposedConfig["cost"] = map[string]any{
+					"input":      pricing.InputPer1K,
+					"output":     pricing.OutputPer1K,
+					"cacheRead":  pricing.CacheReadPer1K,
+					"cacheWrite": pricing.CacheWritePer1K,
+				}
+			}
+			userModelConfig, _ := providerModelConfigForAlias(raw, providerKey, aliasName)
+			probeErrors := map[string]string{}
+			if strings.TrimSpace(capability.ProbeError) != "" {
+				for _, path := range syncDiffFieldPathsForPreview() {
+					probeErrors[path] = capability.ProbeError
+				}
+			}
+			diff := opencode.ComputeSyncDiff(aliasName, protocol, userModelConfig, proposedConfig, probeErrors)
+			aliasPreviews = append(aliasPreviews, aliasSyncPreviewView(providerKey, diff))
+			overallSummary = addDiffSummaryView(overallSummary, diff.Summary)
+		}
+		if opencode.EnsureOcswitchProvider(protocol, raw, baseURL, cfg.Server.APIKey, aliasNames, probeMap) {
 			changed = true
 		}
 	}
@@ -528,6 +581,9 @@ func (s *Service) prepareSyncWithBaseURL(ctx context.Context, in SyncInput, publ
 	if in.SetSmallModel != "" && raw["small_model"] != in.SetSmallModel {
 		raw["small_model"] = in.SetSmallModel
 		changed = true
+	}
+	if len(aliasPreviews) == 0 {
+		overallSummary = nil
 	}
 	fileSnapshotRaw := opencode.SnapshotFileConfig(targetPath, targetExisted, raw, nil, syncedProtocols())
 	runtimeSnapshotRaw := opencode.ReadRuntimeConfig(ctx, opencode.RuntimeReadOptions{BaseURL: runtimeBaseURL, Directory: runtimeDirectory, RequestTimeout: 3 * time.Second, MaxRetries: 0})
@@ -551,6 +607,8 @@ func (s *Service) prepareSyncWithBaseURL(ctx context.Context, in SyncInput, publ
 		runtimeSnapshot:  runtimeSnapshotView(runtimeSnapshotRaw),
 		doctorIssues:     issues,
 		summary:          summarizeReconciliation(cfg, fileSnapshotRaw, runtimeSnapshotRaw, issues),
+		aliasPreviews:    aliasPreviews,
+		overallSummary:   overallSummary,
 	}, nil
 }
 
@@ -823,6 +881,139 @@ func syncedProviderKey(protocol string) string {
 	default:
 		return opencode.ProviderKey
 	}
+}
+
+func syncDiffFieldPathsForPreview() []string {
+	return []string{
+		"name",
+		"limit.context",
+		"limit.output",
+		"cost.input",
+		"cost.output",
+		"cost.cacheRead",
+		"cost.cacheWrite",
+		"inputModalities",
+		"outputModalities",
+		"reasoning",
+		"toolCall",
+		"attachment",
+		"temperature",
+		"experimental",
+		"variants",
+		"status",
+		"releaseDate",
+	}
+}
+
+func selectCapabilityProbeTarget(cfg *config.Config, availableTargets []config.Target) (config.Target, opencode.ProviderModelProbeTarget, bool) {
+	for _, target := range availableTargets {
+		provider := cfg.FindProvider(target.Provider)
+		if provider == nil {
+			continue
+		}
+		return target, opencode.ProviderModelProbeTarget{
+			ProviderID: provider.ID,
+			Protocol:   provider.Protocol,
+			BaseURLs:   provider.EffectiveBaseURLs(),
+			APIKeys:    provider.EffectiveAPIKeys(),
+			Headers:    cloneHeaders(provider.Headers),
+		}, true
+	}
+	return config.Target{}, opencode.ProviderModelProbeTarget{}, false
+}
+
+func providerModelConfigForAlias(raw opencode.Raw, providerKey, aliasName string) (map[string]any, bool) {
+	providerRaw, _ := raw["provider"].(map[string]any)
+	if providerRaw == nil {
+		return nil, false
+	}
+	providerEntry, _ := providerRaw[providerKey].(map[string]any)
+	if providerEntry == nil {
+		return nil, false
+	}
+	models, _ := providerEntry["models"].(map[string]any)
+	if models == nil {
+		return nil, false
+	}
+	model, _ := models[aliasName].(map[string]any)
+	if model == nil {
+		return nil, false
+	}
+	return cloneAnyMap(model), true
+}
+
+func aliasSyncPreviewView(providerKey string, diff opencode.AliasSyncDiff) AliasSyncPreviewView {
+	entries := make([]SyncDiffEntryView, 0, len(diff.Entries))
+	for _, entry := range diff.Entries {
+		entries = append(entries, SyncDiffEntryView{
+			Path:          entry.Path,
+			UserValue:     cloneJSONValue(entry.UserValue),
+			ProposedValue: cloneJSONValue(entry.ProposedValue),
+			Status:        entry.Status,
+			ConflictNote:  entry.ConflictNote,
+			AutoDetected:  entry.AutoDetected,
+		})
+	}
+	return AliasSyncPreviewView{
+		AliasName:   diff.AliasName,
+		Protocol:    diff.Protocol,
+		ProviderKey: providerKey,
+		Entries:     entries,
+		Summary: DiffSummaryView{
+			Total:     diff.Summary.Total,
+			New:       diff.Summary.New,
+			Changed:   diff.Summary.Changed,
+			Unchanged: diff.Summary.Unchanged,
+			Conflict:  diff.Summary.Conflict,
+			Failed:    diff.Summary.Failed,
+		},
+	}
+}
+
+func addDiffSummaryView(base *DiffSummaryView, summary opencode.DiffSummary) *DiffSummaryView {
+	if base == nil {
+		base = &DiffSummaryView{}
+	}
+	base.Total += summary.Total
+	base.New += summary.New
+	base.Changed += summary.Changed
+	base.Unchanged += summary.Unchanged
+	base.Conflict += summary.Conflict
+	base.Failed += summary.Failed
+	return base
+}
+
+func cloneAliasSyncPreviews(in []AliasSyncPreviewView) []AliasSyncPreviewView {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]AliasSyncPreviewView, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Entries = cloneSyncDiffEntryViews(in[i].Entries)
+	}
+	return out
+}
+
+func cloneSyncDiffEntryViews(in []SyncDiffEntryView) []SyncDiffEntryView {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]SyncDiffEntryView, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].UserValue = cloneJSONValue(in[i].UserValue)
+		out[i].ProposedValue = cloneJSONValue(in[i].ProposedValue)
+	}
+	return out
+}
+
+func cloneDiffSummaryView(in *DiffSummaryView) *DiffSummaryView {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func shouldSyncProtocol(raw opencode.Raw, protocol string, aliasNames []string) bool {

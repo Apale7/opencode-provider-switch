@@ -597,6 +597,38 @@ export type SyncInput = {
   runtimeDirectory?: string
 }
 
+/**
+ * One OpenCode model field diff produced by the backend sync preview.
+ * Existing user values are authoritative when status is `conflict`.
+ */
+export type SyncDiffEntry = {
+  path: string
+  userValue?: unknown
+  proposedValue?: unknown
+  status: 'new' | 'changed' | 'unchanged' | 'conflict' | 'failed'
+  conflictNote?: string
+  autoDetected: boolean
+}
+
+/** Summary counts for sync diff entries. */
+export type DiffSummary = {
+  total: number
+  new: number
+  changed: number
+  unchanged: number
+  conflict: number
+  failed: number
+}
+
+/** Per-alias OpenCode sync preview with provider metadata and field-level diffs. */
+export type AliasSyncPreview = {
+  aliasName: string
+  protocol: ProviderProtocol
+  providerKey: string
+  entries: SyncDiffEntry[]
+  summary: DiffSummary
+}
+
 export type SyncPreview = {
   targetPath: string
   protocols: SyncedProviderView[]
@@ -610,6 +642,8 @@ export type SyncPreview = {
   runtimeSnapshot: OpenCodeRuntimeSnapshot
   doctorIssues?: DoctorIssue[]
   summary: OpenCodeReconciliationSummary
+  aliasPreviews?: AliasSyncPreview[]
+  overallSummary?: DiffSummary
 }
 
 export type SyncResult = {
@@ -626,6 +660,8 @@ export type SyncResult = {
   runtimeSnapshot: OpenCodeRuntimeSnapshot
   doctorIssues?: DoctorIssue[]
   summary: OpenCodeReconciliationSummary
+  aliasPreviews?: AliasSyncPreview[]
+  overallSummary?: DiffSummary
 }
 
 export type MetaView = {
