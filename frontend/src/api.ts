@@ -1,7 +1,10 @@
 import type {
+  AliasLockInput,
   AliasTargetInput,
   AliasTargetReorderInput,
   AliasUpsertInput,
+  AutoAliasSettingsInput,
+  AutoAliasSettingsResult,
   ConfigExportView,
   ConfigImportInput,
   ConfigImportResult,
@@ -17,6 +20,8 @@ import type {
   ProviderHealthResult,
   ProviderPingInput,
   ProviderPingResult,
+  ProviderPriorityInput,
+  ProviderPriorityResult,
   ProviderRefreshModelsInput,
   ProviderSaveResult,
   ProviderStateInput,
@@ -166,6 +171,36 @@ export async function deleteProvider(id: string): Promise<void> {
     return
   }
   await http<{ ok: boolean }>('/api/providers/delete', { method: 'POST', body: JSON.stringify({ id }) })
+}
+
+export function getProviderPriority(): Promise<ProviderPriorityResult> {
+  return isWails()
+    ? bridge().GetProviderPriority()
+    : http<ProviderPriorityResult>('/api/providers/priority')
+}
+
+export function setProviderPriority(input: ProviderPriorityInput): Promise<ProviderPriorityResult> {
+  return isWails()
+    ? bridge().SetProviderPriority(input)
+    : http<ProviderPriorityResult>('/api/providers/priority', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function getAutoAliasSettings(): Promise<AutoAliasSettingsResult> {
+  return isWails()
+    ? bridge().GetAutoAliasSettings()
+    : http<AutoAliasSettingsResult>('/api/auto-alias-settings')
+}
+
+export function setAutoAliasSettings(input: AutoAliasSettingsInput): Promise<AutoAliasSettingsResult> {
+  return isWails()
+    ? bridge().SetAutoAliasSettings(input)
+    : http<AutoAliasSettingsResult>('/api/auto-alias-settings', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function upgradeAutoAlias(input: AliasLockInput): Promise<AliasView> {
+  return isWails()
+    ? bridge().UpgradeAutoAlias(input)
+    : http<AliasView>('/api/aliases/upgrade-manual', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function importProviders(input: ProviderImportInput): Promise<ProviderImportResult> {

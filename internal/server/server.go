@@ -248,6 +248,26 @@ func (s appService) RemoveProvider(ctx context.Context, id string) error {
 	return s.service.RemoveProvider(ctx, id)
 }
 
+func (s appService) GetProviderPriority(ctx context.Context) (app.ProviderPriorityResult, error) {
+	return s.service.GetProviderPriority(ctx)
+}
+
+func (s appService) SetProviderPriority(ctx context.Context, in app.ProviderPriorityInput) (app.ProviderPriorityResult, error) {
+	return s.service.SetProviderPriority(ctx, in)
+}
+
+func (s appService) GetAutoAliasSettings(ctx context.Context) (app.AutoAliasSettingsResult, error) {
+	return s.service.GetAutoAliasSettings(ctx)
+}
+
+func (s appService) SetAutoAliasSettings(ctx context.Context, in app.AutoAliasSettingsInput) (app.AutoAliasSettingsResult, error) {
+	return s.service.SetAutoAliasSettings(ctx, in)
+}
+
+func (s appService) UpgradeAutoAlias(ctx context.Context, in app.AliasLockInput) (app.AliasView, error) {
+	return s.service.UpgradeAutoAlias(ctx, in)
+}
+
 func (s appService) ListAliases(ctx context.Context) ([]app.AliasView, error) {
 	return s.service.ListAliases(ctx)
 }

@@ -1,0 +1,14 @@
+{"file": "docs/design-plans/auto-alias-simplify.md", "reason": "Detailed design plan with step-by-step tasks"}
+{"file": ".trellis/tasks/07-21-07-21-auto-alias-simplify/prd.md", "reason": "Product requirements document"}
+{"file": "internal/config/config.go", "reason": "Core config structures and auto-alias logic"}
+{"file": "internal/config/config_test.go", "reason": "Config unit tests"}
+{"file": "internal/proxy/server.go", "reason": "Proxy routing three-layer fallback"}
+{"file": "internal/proxy/server_test.go", "reason": "Proxy routing tests"}
+{"file": "internal/app/manage.go", "reason": "Service layer integration"}
+{"file": "internal/app/types.go", "reason": "API types"}
+{"file": "internal/app/service_test.go", "reason": "Service tests"}
+{"file": "frontend/src/App.tsx", "reason": "Frontend UI changes"}
+{"file": "frontend/src/types.ts", "reason": "Frontend type definitions"}
+{"file": "frontend/wailsjs/go/models.ts", "reason": "Wails model types"}
+{"file": "frontend/src/i18n/locales/en.json", "reason": "English i18n strings"}
+{"file": "frontend/src/i18n/locales/zh-CN.json", "reason": "Chinese i18n strings"}

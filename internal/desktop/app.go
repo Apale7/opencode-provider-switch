@@ -204,6 +204,26 @@ func (a *App) DeleteProvider(id string) error {
 	return a.bindings.RemoveProvider(a.callContext(), id)
 }
 
+func (a *App) GetProviderPriority() (app.ProviderPriorityResult, error) {
+	return a.bindings.GetProviderPriority(a.callContext())
+}
+
+func (a *App) SetProviderPriority(in app.ProviderPriorityInput) (app.ProviderPriorityResult, error) {
+	return a.bindings.SetProviderPriority(a.callContext(), in)
+}
+
+func (a *App) GetAutoAliasSettings() (app.AutoAliasSettingsResult, error) {
+	return a.bindings.GetAutoAliasSettings(a.callContext())
+}
+
+func (a *App) SetAutoAliasSettings(in app.AutoAliasSettingsInput) (app.AutoAliasSettingsResult, error) {
+	return a.bindings.SetAutoAliasSettings(a.callContext(), in)
+}
+
+func (a *App) UpgradeAutoAlias(in app.AliasLockInput) (app.AliasView, error) {
+	return a.bindings.UpgradeAutoAlias(a.callContext(), in)
+}
+
 func (a *App) ImportProviders(in app.ProviderImportInput) (app.ProviderImportResult, error) {
 	return a.bindings.ImportProviders(a.callContext(), in)
 }

@@ -46,6 +46,14 @@ export function ExportConfig() {
   return window['go']['desktop']['App']['ExportConfig']();
 }
 
+export function GetAutoAliasSettings() {
+  return window['go']['desktop']['App']['GetAutoAliasSettings']();
+}
+
+export function GetProviderPriority() {
+  return window['go']['desktop']['App']['GetProviderPriority']();
+}
+
 export function ImportConfig(arg1) {
   return window['go']['desktop']['App']['ImportConfig'](arg1);
 }
@@ -142,6 +150,14 @@ export function Service() {
   return window['go']['desktop']['App']['Service']();
 }
 
+export function SetAutoAliasSettings(arg1) {
+  return window['go']['desktop']['App']['SetAutoAliasSettings'](arg1);
+}
+
+export function SetProviderPriority(arg1) {
+  return window['go']['desktop']['App']['SetProviderPriority'](arg1);
+}
+
 export function SetProviderState(arg1) {
   return window['go']['desktop']['App']['SetProviderState'](arg1);
 }
@@ -188,4 +204,8 @@ export function TraceList(arg1) {
 
 export function UnbindTarget(arg1) {
   return window['go']['desktop']['App']['UnbindTarget'](arg1);
+}
+
+export function UpgradeAutoAlias(arg1) {
+  return window['go']['desktop']['App']['UpgradeAutoAlias'](arg1);
 }

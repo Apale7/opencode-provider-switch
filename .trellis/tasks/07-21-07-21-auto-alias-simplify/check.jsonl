@@ -1,0 +1,5 @@
+{"check": "go build ./...", "expect": "exit 0"}
+{"check": "go test ./internal/config/...", "expect": "PASS"}
+{"check": "go test ./internal/proxy/...", "expect": "PASS"}
+{"check": "go test ./internal/app/...", "expect": "PASS"}
+{"check": "npm run build", "cwd": "frontend", "expect": "exit 0"}

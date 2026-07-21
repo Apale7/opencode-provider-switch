@@ -27,6 +27,11 @@ declare global {
           PingProviderBaseURL: (input: import('./types').ProviderPingInput) => Promise<import('./types').ProviderPingResult>
           SetProviderState: (input: import('./types').ProviderStateInput) => Promise<import('./types').ProviderView>
           DeleteProvider: (id: string) => Promise<void>
+          GetProviderPriority: () => Promise<import('./types').ProviderPriorityResult>
+          SetProviderPriority: (input: import('./types').ProviderPriorityInput) => Promise<import('./types').ProviderPriorityResult>
+          GetAutoAliasSettings: () => Promise<import('./types').AutoAliasSettingsResult>
+          SetAutoAliasSettings: (input: import('./types').AutoAliasSettingsInput) => Promise<import('./types').AutoAliasSettingsResult>
+          UpgradeAutoAlias: (input: import('./types').AliasLockInput) => Promise<import('./types').AliasView>
           ImportProviders: (input: import('./types').ProviderImportInput) => Promise<import('./types').ProviderImportResult>
           SaveAlias: (input: import('./types').AliasUpsertInput) => Promise<import('./types').AliasView>
           DeleteAlias: (alias: string) => Promise<void>

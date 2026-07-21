@@ -25,6 +25,10 @@ type Service interface {
 	PingProviderBaseURL(context.Context, appcore.ProviderPingInput) (appcore.ProviderPingResult, error)
 	SetProviderDisabled(context.Context, appcore.ProviderStateInput) (appcore.ProviderView, error)
 	RemoveProvider(context.Context, string) error
+	GetProviderPriority(context.Context) (appcore.ProviderPriorityResult, error)
+	SetProviderPriority(context.Context, appcore.ProviderPriorityInput) (appcore.ProviderPriorityResult, error)
+	GetAutoAliasSettings(context.Context) (appcore.AutoAliasSettingsResult, error)
+	SetAutoAliasSettings(context.Context, appcore.AutoAliasSettingsInput) (appcore.AutoAliasSettingsResult, error)
 	ListAliases(context.Context) ([]appcore.AliasView, error)
 	UpsertAlias(context.Context, appcore.AliasUpsertInput) (appcore.AliasView, error)
 	RemoveAlias(context.Context, string) error
@@ -32,6 +36,7 @@ type Service interface {
 	SetAliasTargetDisabled(context.Context, appcore.AliasTargetInput) (appcore.AliasView, error)
 	UnbindAliasTarget(context.Context, appcore.AliasTargetInput) (appcore.AliasView, error)
 	ReorderAliasTargets(context.Context, appcore.AliasTargetReorderInput) (appcore.AliasView, error)
+	UpgradeAutoAlias(context.Context, appcore.AliasLockInput) (appcore.AliasView, error)
 	ListRequestRewriteRules(context.Context) ([]appcore.RequestRewriteRuleView, error)
 	UpsertRequestRewriteRule(context.Context, appcore.RequestRewriteRuleInput) (appcore.RequestRewriteRuleView, error)
 	SetRequestRewriteRuleEnabled(context.Context, appcore.RequestRewriteRuleStateInput) (appcore.RequestRewriteRuleView, error)
@@ -234,6 +239,23 @@ func NewHandler(opts Options) (http.Handler, error) {
 		writeResult(w, map[string]bool{"ok": true}, b.RemoveProvider(r.Context(), payload.ID))
 	})
 
+	api.HandleFunc("/api/providers/priority", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			data, err := b.GetProviderPriority(r.Context())
+			writeResult(w, data, err)
+		case http.MethodPost:
+			var in appcore.ProviderPriorityInput
+			if !decodeJSONBody(w, r, &in) {
+				return
+			}
+			data, err := b.SetProviderPriority(r.Context(), in)
+			writeResult(w, data, err)
+		default:
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	})
+
 	api.HandleFunc("/api/aliases", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -249,6 +271,36 @@ func NewHandler(opts Options) (http.Handler, error) {
 		default:
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
 		}
+	})
+
+	api.HandleFunc("/api/auto-alias-settings", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			data, err := b.GetAutoAliasSettings(r.Context())
+			writeResult(w, data, err)
+		case http.MethodPost:
+			var in appcore.AutoAliasSettingsInput
+			if !decodeJSONBody(w, r, &in) {
+				return
+			}
+			data, err := b.SetAutoAliasSettings(r.Context(), in)
+			writeResult(w, data, err)
+		default:
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	})
+
+	api.HandleFunc("/api/aliases/upgrade-manual", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.AliasLockInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.UpgradeAutoAlias(r.Context(), in)
+		writeResult(w, data, err)
 	})
 
 	api.HandleFunc("/api/aliases/delete", func(w http.ResponseWriter, r *http.Request) {

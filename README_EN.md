@@ -91,9 +91,11 @@ List providers:
 ocswitch provider list
 ```
 
-### 2. Create aliases and bind targets
+### 2. Confirm or customize aliases
 
-This example means: when OpenCode uses `ocswitch/gpt-5.4`, first try `provider-a/gpt-5.4`; if it fails before first byte, try `provider-b/GPT-5.4`.
+When provider model discovery succeeds, `ocswitch` creates a same-name automatic alias for each model by default. If multiple providers expose the same model, they are merged into ordered targets using the priority configured on the Providers page. Normal setups therefore only need providers; manual alias binding is optional.
+
+Create a manual alias when you need a different public model name, fixed targets, or precise failover ordering. This example means: when OpenCode uses `ocswitch/gpt-5.4`, first try `provider-a/gpt-5.4`; if it fails before first byte, try `provider-b/GPT-5.4`.
 
 ```bash
 ocswitch alias add --name gpt-5.4 --display-name "GPT 5.4"
@@ -342,7 +344,50 @@ ocswitch provider enable <id>
 ocswitch provider remove <id>
 ```
 
-Removing a provider does not remove alias references. If references remain, `ocswitch doctor` reports an error.
+Removing a provider cleans its automatic targets from unlocked automatic aliases and deletes aliases that become empty. Manual aliases and aliases upgraded to manual are not rewritten automatically; if they still reference the removed provider, `ocswitch doctor` reports an error.
+
+### Automatic aliases and zero-config routing
+
+After a provider save or model refresh successfully discovers models, `ocswitch` creates same-name aliases for those models. When multiple enabled providers declare the same model, the automatic alias contains multiple targets ordered by the drag-and-drop priority on the Providers page.
+
+Requests are resolved in this order:
+
+1. Same-name manual alias
+2. Same-name automatic alias
+3. Direct match against discovered models of enabled providers
+
+This means the proxy can route a model even when no alias exists, provided that an enabled provider lists that model. Protocols must match; for example, an `openai-compatible` provider cannot handle an `openai-responses` request.
+
+The desktop app and server web admin expose these controls:
+
+- Drag handle on the Providers page: changes provider priority for both automatic alias targets and direct fallback.
+- “Auto-generate aliases” in the provider form: when disabled, future saves or refreshes for that provider do not create or append automatic aliases. Existing targets are not removed by toggling it off.
+- Global “Auto-generate aliases” in Settings: stops automatic generation and skips automatic aliases during routing. Direct provider fallback is still attempted when no manual alias matches.
+- “Upgrade to Manual” on the Aliases page: converts the automatic alias and its current targets into a manual alias. Later model refreshes, priority changes, and automatic provider cleanup no longer rewrite it.
+
+Automatic aliases are created only when `models_source` is `discovered` and the model list is non-empty. `--skip-models`, an upstream without a model catalog, or failed discovery does not create aliases; configure them manually in those cases.
+
+Configuration example:
+
+```json
+{
+  "auto_alias_enabled": true,
+  "provider_priority": ["provider-a", "provider-b"],
+  "providers": [
+    {
+      "id": "provider-a",
+      "protocol": "openai-responses",
+      "base_url": "https://provider-a.example/v1",
+      "api_key": "sk-example",
+      "models": ["gpt-5.4"],
+      "models_source": "discovered",
+      "auto_alias_enabled": true
+    }
+  ]
+}
+```
+
+For legacy configs without these fields, global and per-provider automatic aliases default to enabled. System-managed fields such as `auto_generated`, `locked`, and automatic target markers should normally be managed through the UI rather than edited manually.
 
 ### Alias
 

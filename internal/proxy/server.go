@@ -453,7 +453,40 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		}
 	}()
 	s.logger.Printf("req=%d incoming model=%q alias=%q stream=%v", reqID, rawModel, aliasName, payload["stream"])
+	// Three-layer alias resolution:
+	// 1) manual FindAlias  2) auto FindAutoAlias (if enabled)  3) direct provider fallback
+	aliasSource := "manual"
 	alias := state.cfg.FindAlias(aliasName)
+	if alias == nil {
+		if state.cfg.IsAutoAliasEnabled() {
+			if auto := state.cfg.FindAutoAlias(aliasName); auto != nil {
+				alias = auto
+				aliasSource = "auto"
+				s.logger.Printf("req=%d alias=%q resolved via auto alias fallback=true source=auto", reqID, aliasName)
+			}
+		}
+	}
+	if alias == nil {
+		if providers := state.cfg.FindProvidersByModel(aliasName); len(providers) > 0 {
+			// Virtual alias: Protocol=request protocol so AvailableTargets drops protocol mismatches.
+			virtual := config.Alias{
+				Alias:    aliasName,
+				Protocol: protocol,
+				Enabled:  true,
+				Targets:  make([]config.Target, 0, len(providers)),
+			}
+			for _, p := range providers {
+				virtual.Targets = append(virtual.Targets, config.Target{
+					Provider: p.ID,
+					Model:    aliasName,
+					Enabled:  true,
+				})
+			}
+			alias = &virtual
+			aliasSource = "provider_fallback"
+			s.logger.Printf("req=%d alias=%q resolved via direct provider fallback=true source=provider_fallback providers=%d", reqID, aliasName, len(providers))
+		}
+	}
 	if alias == nil {
 		s.logger.Printf("req=%d alias lookup failed for model=%q alias=%q", reqID, rawModel, aliasName)
 		trace.Error = fmt.Sprintf("alias %q not found", aliasName)
@@ -461,22 +494,27 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		return
 	}
 	if !config.ProtocolsMatch(alias.Protocol, protocol) {
+		// Manual/auto alias found but protocol mismatch: do not fall through to other layers.
 		trace.Error = fmt.Sprintf("alias %q does not support protocol %q", aliasName, protocol)
 		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q does not support protocol %q", aliasName, protocol))
 		return
 	}
 	if !alias.Enabled {
-		s.logger.Printf("req=%d alias=%q disabled", reqID, aliasName)
+		// Manual/auto alias found but disabled: do not fall through to other layers.
+		s.logger.Printf("req=%d alias=%q disabled source=%s", reqID, aliasName, aliasSource)
 		trace.Error = fmt.Sprintf("alias %q is disabled", aliasName)
 		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
 		return
 	}
 	targets := s.availableTargetsForAuth(state, auth, *alias)
 	if len(targets) == 0 {
-		s.logger.Printf("req=%d alias=%q has no available targets", reqID, aliasName)
+		s.logger.Printf("req=%d alias=%q has no available targets source=%s fallback=%v", reqID, aliasName, aliasSource, aliasSource != "manual")
 		trace.Error = fmt.Sprintf("alias %q not found", aliasName)
 		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q not found", aliasName))
 		return
+	}
+	if aliasSource != "manual" {
+		s.logger.Printf("req=%d alias=%q routing with fallback=true source=%s targets=%d", reqID, aliasName, aliasSource, len(targets))
 	}
 
 	failoverCount := 0

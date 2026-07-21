@@ -26,6 +26,10 @@ export function DoctorRun():Promise<app.DoctorRunResult>;
 
 export function ExportConfig():Promise<app.ConfigExportView>;
 
+export function GetAutoAliasSettings():Promise<app.AutoAliasSettingsResult>;
+
+export function GetProviderPriority():Promise<app.ProviderPriorityResult>;
+
 export function ImportConfig(arg1:app.ConfigImportInput):Promise<app.ConfigImportResult>;
 
 export function ImportConfigHTTP(arg1:context.Context,arg2:app.ConfigImportInput):Promise<app.ConfigImportResult>;
@@ -74,6 +78,10 @@ export function SaveRewriteRule(arg1:app.RequestRewriteRuleInput):Promise<app.Re
 
 export function Service():Promise<app.Service>;
 
+export function SetAutoAliasSettings(arg1:app.AutoAliasSettingsInput):Promise<app.AutoAliasSettingsResult>;
+
+export function SetProviderPriority(arg1:app.ProviderPriorityInput):Promise<app.ProviderPriorityResult>;
+
 export function SetProviderState(arg1:app.ProviderStateInput):Promise<app.ProviderView>;
 
 export function SetRewriteRuleState(arg1:app.RequestRewriteRuleStateInput):Promise<app.RequestRewriteRuleView>;
@@ -97,3 +105,5 @@ export function TraceDetail(arg1:number):Promise<app.RequestTrace>;
 export function TraceList(arg1:app.RequestTraceListInput):Promise<app.RequestTraceListResult>;
 
 export function UnbindTarget(arg1:app.AliasTargetInput):Promise<app.AliasView>;
+
+export function UpgradeAutoAlias(arg1:app.AliasLockInput):Promise<app.AliasView>;

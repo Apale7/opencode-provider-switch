@@ -93,9 +93,11 @@ ocswitch provider import-opencode --from ./examples/opencode.jsonc
 ocswitch provider list
 ```
 
-### 2. 创建 alias 并绑定上游 target
+### 2. 确认或自定义 alias
 
-下面例子表示：OpenCode 使用 `ocswitch/gpt-5.4` 时，优先走 `provider-a/gpt-5.4`，首字节前失败后再走 `provider-b/GPT-5.4`。
+当 provider 成功发现模型时，`ocswitch` 默认会为每个模型创建同名自动 alias；多个 provider 提供同一模型时，会按 Provider 页的优先级合并为多个 target。因此常规场景只需添加 provider，无需手动绑定 alias。
+
+如果需要不同的公开模型名、固定 target 或精细控制失败切换顺序，可以继续创建手动 alias。下面例子表示：OpenCode 使用 `ocswitch/gpt-5.4` 时，优先走 `provider-a/gpt-5.4`，首字节前失败后再走 `provider-b/GPT-5.4`。
 
 ```bash
 ocswitch alias add --name gpt-5.4 --display-name "GPT 5.4"
@@ -344,7 +346,50 @@ ocswitch provider enable <id>
 ocswitch provider remove <id>
 ```
 
-删除 provider 不会自动清理 alias 里的引用。引用还在时，`ocswitch doctor` 会报错。
+删除 provider 时，未锁定的自动 alias 会清理该 provider 的自动 target，空 alias 会一并删除。手动 alias 和已经升级为手动的 alias 不会自动改写；其中如果仍引用已删除 provider，`ocswitch doctor` 会报错。
+
+### 自动 alias 与零配置路由
+
+Provider 保存或刷新模型成功后，`ocswitch` 会为发现到的模型自动创建同名 alias。多个启用的 provider 声明同一模型时，自动 alias 会包含多个 target，并按 Provider 页的拖拽优先级排序。
+
+请求解析顺序如下：
+
+1. 同名手动 alias
+2. 同名自动 alias
+3. 从启用 provider 的已发现模型中直接匹配
+
+因此，即使没有 alias，只要 provider 的模型列表中包含请求模型，代理仍可直接路由。协议必须匹配；例如 `openai-compatible` provider 不会接收 `openai-responses` 请求。
+
+桌面应用和服务器版 Web 提供以下控制项：
+
+- Provider 页左侧拖拽手柄：调整 provider 优先级；自动 alias target 和直接回退都会采用该顺序。
+- Provider 表单“自动生成别名”：关闭后，该 provider 后续保存或刷新不会创建、追加自动 alias；已经存在的 target 不会因此删除。
+- Settings 页全局“自动生成别名”：关闭后停止自动 alias 生成，并在路由时跳过自动 alias；没有手动 alias 时仍会尝试直接 provider 回退。
+- Alias 页“升级为手动”：把自动 alias 及其现有 targets 转为手动配置，后续模型刷新、优先级重排和 provider 自动清理都不会再改写它。
+
+只有 `models_source` 为 `discovered` 且模型列表非空时才会自动生成 alias。使用 `--skip-models`、上游不提供模型列表或模型发现失败时，不会自动创建 alias；此时可手动配置 alias。
+
+对应配置示例：
+
+```json
+{
+  "auto_alias_enabled": true,
+  "provider_priority": ["provider-a", "provider-b"],
+  "providers": [
+    {
+      "id": "provider-a",
+      "protocol": "openai-responses",
+      "base_url": "https://provider-a.example/v1",
+      "api_key": "sk-example",
+      "models": ["gpt-5.4"],
+      "models_source": "discovered",
+      "auto_alias_enabled": true
+    }
+  ]
+}
+```
+
+旧配置没有这些字段时，全局和单 provider 自动 alias 都默认开启。`auto_generated`、`locked` 和 target 的自动标记由系统维护，建议通过 UI 管理，不要手工改写。
 
 ### Alias
 

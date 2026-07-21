@@ -788,15 +788,31 @@ func TestOpencodeSyncDoesNotPanicOnSliceModelMetadata(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute opencode sync: %v", err)
 	}
-	if got := stdout.String(); got != "✓ no changes required at "+target+" [openai-responses]\n" {
-		t.Fatalf("stdout = %q", got)
-	}
 	data, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatalf("read target config: %v", err)
 	}
-	if !bytes.Equal(data, seed) {
-		t.Fatalf("sync rewrote unchanged config:\n%s", string(data))
+	if !bytes.Contains(data, []byte(`"tags": [`)) || !bytes.Contains(data, []byte(`"variants": [`)) {
+		t.Fatalf("sync dropped slice metadata:\n%s", string(data))
+	}
+
+	second := newOpencodeSyncCmd()
+	var secondStdout bytes.Buffer
+	second.SetOut(&secondStdout)
+	second.SetErr(&secondStdout)
+	second.SetArgs([]string{"--target", target})
+	if err := second.Execute(); err != nil {
+		t.Fatalf("second opencode sync: %v", err)
+	}
+	if got := secondStdout.String(); got != "✓ no changes required at "+target+" [openai-responses]\n" {
+		t.Fatalf("second stdout = %q", got)
+	}
+	secondData, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read second target config: %v", err)
+	}
+	if !bytes.Equal(secondData, data) {
+		t.Fatalf("second sync was not idempotent:\n%s", string(secondData))
 	}
 }
 

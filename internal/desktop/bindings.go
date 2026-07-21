@@ -57,6 +57,26 @@ func (b *Bindings) RemoveProvider(ctx context.Context, id string) error {
 	return b.service.RemoveProvider(ctx, id)
 }
 
+func (b *Bindings) GetProviderPriority(ctx context.Context) (app.ProviderPriorityResult, error) {
+	return b.service.GetProviderPriority(ctx)
+}
+
+func (b *Bindings) SetProviderPriority(ctx context.Context, in app.ProviderPriorityInput) (app.ProviderPriorityResult, error) {
+	return b.service.SetProviderPriority(ctx, in)
+}
+
+func (b *Bindings) GetAutoAliasSettings(ctx context.Context) (app.AutoAliasSettingsResult, error) {
+	return b.service.GetAutoAliasSettings(ctx)
+}
+
+func (b *Bindings) SetAutoAliasSettings(ctx context.Context, in app.AutoAliasSettingsInput) (app.AutoAliasSettingsResult, error) {
+	return b.service.SetAutoAliasSettings(ctx, in)
+}
+
+func (b *Bindings) UpgradeAutoAlias(ctx context.Context, in app.AliasLockInput) (app.AliasView, error) {
+	return b.service.UpgradeAutoAlias(ctx, in)
+}
+
 func (b *Bindings) ImportProviders(ctx context.Context, in app.ProviderImportInput) (app.ProviderImportResult, error) {
 	return b.service.ImportProviders(ctx, in)
 }
@@ -201,6 +221,26 @@ func (b *Bindings) SetProviderState(in app.ProviderStateInput) (app.ProviderView
 
 func (b *Bindings) DeleteProvider(id string) error {
 	return b.RemoveProvider(context.Background(), id)
+}
+
+func (b *Bindings) ProviderPriority() (app.ProviderPriorityResult, error) {
+	return b.GetProviderPriority(context.Background())
+}
+
+func (b *Bindings) SetProviderPriorityNow(in app.ProviderPriorityInput) (app.ProviderPriorityResult, error) {
+	return b.SetProviderPriority(context.Background(), in)
+}
+
+func (b *Bindings) AutoAliasSettings() (app.AutoAliasSettingsResult, error) {
+	return b.GetAutoAliasSettings(context.Background())
+}
+
+func (b *Bindings) SaveAutoAliasSettings(in app.AutoAliasSettingsInput) (app.AutoAliasSettingsResult, error) {
+	return b.SetAutoAliasSettings(context.Background(), in)
+}
+
+func (b *Bindings) UpgradeAutoAliasNow(in app.AliasLockInput) (app.AliasView, error) {
+	return b.UpgradeAutoAlias(context.Background(), in)
 }
 
 func (b *Bindings) ImportProviderSet(in app.ProviderImportInput) (app.ProviderImportResult, error) {

@@ -1,0 +1,75 @@
+{
+  "id": "07-21-auto-alias-simplify",
+  "name": "07-21-auto-alias-simplify",
+  "title": "自动别名与配置简化",
+  "description": "引入自动别名生成机制和直接 provider 回退路由，让 alias 从必填项变成可选项。用户只需配置 provider 的 API+Key 即可使用，自动 alias 按 provider 优先级排序 targets，保留模型感知路由的精确性优势。高级用户可切换到手动模式精细控制。",
+  "status": "planning",
+  "dev_type": "fullstack",
+  "scope": "auto-alias-simplify",
+  "package": null,
+  "priority": "P1",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-07-21",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/proxy/server.go",
+    "internal/proxy/server_test.go",
+    "internal/app/manage.go",
+    "internal/app/types.go",
+    "internal/app/service_test.go",
+    "frontend/src/App.tsx",
+    "frontend/src/types.ts",
+    "frontend/wailsjs/go/models.ts",
+    "frontend/src/i18n/locales/en.json",
+    "frontend/src/i18n/locales/zh-CN.json"
+  ],
+  "notes": "优化方案源自与竞品 aio-coding-hub 的对比分析。ocswitch 的优势在于 alias 路由灵活模型感知，劣势在于配置复杂。通过自动 alias 生成 + 直接 provider 回退双层简化，保留模型感知优势的同时实现 aio 级的配置简便性。",
+  "meta": {
+    "design_plan": "docs/design-plans/auto-alias-simplify.md",
+    "verification": [
+      "go build ./...",
+      "go test ./internal/config/...",
+      "go test ./internal/proxy/...",
+      "go test ./internal/app/...",
+      "npm run build"
+    ]
+  }
+}
