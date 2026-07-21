@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
@@ -17,7 +18,7 @@ func newRewriteCmd() *cobra.Command {
 		Use:   "rewrite",
 		Short: "Manage outbound request config rewrite rules",
 		Long: `Rewrite commands manage outbound request config changes stored in
-local ocswitch config.
+local ocswitch config via Service/ConfigStore.
 
 Rules match the incoming alias and optional selected target providers after alias
 routing. New rules use --op with RFC 9535 JSONPath paths and op-layer mutation
@@ -37,6 +38,7 @@ func newRewriteAddCmd() *cobra.Command {
 	var name, alias string
 	var disabled, override bool
 	var providers, opItems, setItems, deleteItems []string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Create or update a request rewrite rule",
@@ -52,34 +54,39 @@ func newRewriteAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg, err := loadCfg()
-			if err != nil {
-				return err
-			}
 			enabled := !disabled
-			if existing := cfg.FindRequestRewriteRule(ruleName); existing != nil && !cmd.Flags().Changed("disabled") {
-				enabled = existing.Enabled
+			if !cmd.Flags().Changed("disabled") {
+				// Preserve existing enabled state when updating without --disabled.
+				rules, listErr := appService().ListRequestRewriteRules(cmd.Context())
+				if listErr == nil {
+					for _, rule := range rules {
+						if rule.Name == ruleName {
+							enabled = rule.Enabled
+							break
+						}
+					}
+				}
 			}
-			rule := config.RequestRewriteRule{
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would upsert rewrite rule %q via Service/ConfigStore\n", ruleName)
+				return nil
+			}
+			view, err := appService().UpsertRequestRewriteRule(cmd.Context(), app.RequestRewriteRuleInput{
 				Name:      ruleName,
 				Alias:     strings.TrimSpace(alias),
 				Providers: providers,
 				Enabled:   enabled,
 				Override:  override,
 				Ops:       ops,
-			}
-			cfg.UpsertRequestRewriteRule(rule)
-			if errs := cfg.Validate(); len(errs) > 0 {
-				return errs[0]
-			}
-			if err := cfg.Save(); err != nil {
+			})
+			if err != nil {
 				return err
 			}
 			state := "enabled"
-			if !enabled {
+			if !view.Enabled {
 				state = "disabled"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "saved rewrite rule %q [%s]\n", ruleName, state)
+			fmt.Fprintf(cmd.OutOrStdout(), "saved rewrite rule %q [%s]\n", view.Name, state)
 			return nil
 		},
 	}
@@ -91,6 +98,7 @@ func newRewriteAddCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&opItems, "op", nil, "rewrite op (repeatable): set:$.path=JSON, delete:$.path, append:$.array=JSON, insert:$.array:INDEX=JSON")
 	cmd.Flags().StringArrayVar(&setItems, "set", nil, "legacy inactive syntax; use --op set:$.path=VALUE")
 	cmd.Flags().StringArrayVar(&deleteItems, "delete", nil, "legacy inactive syntax; use --op delete:$.path with --override")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
 	return cmd
 }
 
@@ -99,11 +107,10 @@ func newRewriteListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List request rewrite rules",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
+			rules, err := appService().ListRequestRewriteRules(cmd.Context())
 			if err != nil {
 				return err
 			}
-			rules := cfg.RequestRewriteRulesSnapshot()
 			if len(rules) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "(no rewrite rules)")
 				return nil
@@ -115,11 +122,11 @@ func newRewriteListCmd() *cobra.Command {
 				}
 				scope := rewriteRuleScopeLabel(rule)
 				legacy := ""
-				if config.RequestRewriteRuleUsesLegacySyntax(rule) {
+				if rule.Legacy {
 					legacy = " legacy=skipped"
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%s  [%s] scope=%s override=%v ops=%s%s\n", rule.Name, state, scope, rule.Override, strings.Join(formatRewriteOps(rule.Ops), ","), legacy)
-				for _, warning := range config.RequestRewriteRuleWarnings(rule) {
+				for _, warning := range rule.Warnings {
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 				}
 			}
@@ -141,25 +148,29 @@ func newRewriteStateCmd(use string, enabled bool) *cobra.Command {
 	if !enabled {
 		action = "disabled"
 	}
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   use + " <name>",
 		Args:  cobra.ExactArgs(1),
 		Short: rewriteStateShort(use) + " a request rewrite rule",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
-			if err != nil {
+			name := strings.TrimSpace(args[0])
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would set rewrite rule %q enabled=%v via Service/ConfigStore\n", name, enabled)
+				return nil
+			}
+			if _, err := appService().SetRequestRewriteRuleEnabled(cmd.Context(), app.RequestRewriteRuleStateInput{
+				Name:    name,
+				Enabled: enabled,
+			}); err != nil {
 				return err
 			}
-			if !cfg.SetRequestRewriteRuleEnabled(args[0], enabled) {
-				return fmt.Errorf("rewrite rule %q not found", args[0])
-			}
-			if err := cfg.Save(); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s rewrite rule %q\n", action, args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "%s rewrite rule %q\n", action, name)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
+	return cmd
 }
 
 func rewriteStateShort(use string) string {
@@ -170,25 +181,26 @@ func rewriteStateShort(use string) string {
 }
 
 func newRewriteRemoveCmd() *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "remove <name>",
 		Args:  cobra.ExactArgs(1),
 		Short: "Remove a request rewrite rule",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
-			if err != nil {
+			name := strings.TrimSpace(args[0])
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would remove rewrite rule %q via Service/ConfigStore\n", name)
+				return nil
+			}
+			if _, err := appService().RemoveRequestRewriteRule(cmd.Context(), app.RequestRewriteRuleRemoveInput{Name: name}); err != nil {
 				return err
 			}
-			if !cfg.RemoveRequestRewriteRule(args[0]) {
-				return fmt.Errorf("rewrite rule %q not found", args[0])
-			}
-			if err := cfg.Save(); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed rewrite rule %q\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "removed rewrite rule %q\n", name)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
+	return cmd
 }
 
 func parseRewriteOpItems(items []string) ([]config.RequestRewriteOperation, error) {
@@ -308,7 +320,7 @@ func parseRewriteValue(value string) any {
 	return value
 }
 
-func rewriteRuleScopeLabel(rule config.RequestRewriteRule) string {
+func rewriteRuleScopeLabel(rule app.RequestRewriteRuleView) string {
 	parts := []string{}
 	if rule.Alias != "" {
 		parts = append(parts, "alias="+rule.Alias)

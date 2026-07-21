@@ -517,7 +517,14 @@ func EnsureOcswitchProvider(protocol string, raw Raw, baseURL, apiKey string, al
 	// Build models map from alias list. Preserve any existing per-model objects
 	// verbatim if the alias key matches; drop aliases removed locally. When
 	// capabilities are available, merge missing fields from the generated config.
+	//
+	// Non-destructive empty-set protection: a temporary empty routable alias set
+	// must not wipe previously synced managed models. Connection options above
+	// may still update.
 	existingModels, _ := providerEntry["models"].(map[string]any)
+	if len(aliases) == 0 {
+		return changed
+	}
 	newModels := map[string]any{}
 	aliasSet := map[string]bool{}
 	for _, a := range aliases {

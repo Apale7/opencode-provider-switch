@@ -360,3 +360,32 @@ func (b *Bindings) GetDesktopPrefs(ctx context.Context) (app.DesktopPrefsView, e
 func (b *Bindings) SaveDesktopPrefs(ctx context.Context, in app.DesktopPrefsInput) (app.DesktopPrefsView, error) {
 	return b.service.SaveDesktopPrefs(ctx, in)
 }
+
+func (b *Bindings) GetConfigRevision(ctx context.Context) (app.ConfigRevision, error) {
+	return b.service.GetConfigRevision(ctx)
+}
+
+func (b *Bindings) PreviewLifecycle(ctx context.Context, in app.LifecyclePreviewInput) (app.LifecyclePlanView, error) {
+	return b.service.PreviewLifecycle(ctx, in)
+}
+
+func (b *Bindings) ExecuteLifecycle(ctx context.Context, in app.LifecycleExecuteInput) (app.LifecycleExecuteResult, error) {
+	return b.service.ExecuteLifecycle(ctx, in)
+}
+
+// ConfigRevisionNow is the Wails-friendly no-context revision getter.
+func (b *Bindings) ConfigRevisionNow() (app.ConfigRevision, error) {
+	return b.GetConfigRevision(context.Background())
+}
+
+// PreviewLifecycleNow is the Wails-friendly lifecycle preview entry.
+func (b *Bindings) PreviewLifecycleNow(in app.LifecyclePreviewInput) (app.LifecyclePlanView, error) {
+	return b.PreviewLifecycle(context.Background(), in)
+}
+
+// ExecuteLifecycleNow is the Wails-friendly lifecycle execute entry.
+// Classified business failures are returned as values via error for bridge
+// compatibility; React adapter maps OutcomeError code/params.
+func (b *Bindings) ExecuteLifecycleNow(in app.LifecycleExecuteInput) (app.LifecycleExecuteResult, error) {
+	return b.ExecuteLifecycle(context.Background(), in)
+}

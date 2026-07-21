@@ -380,6 +380,90 @@ func (c *Config) Path() string {
 	return c.path
 }
 
+// MarshalPersistent encodes config using the same normalization and field set as Save.
+func (c *Config) MarshalPersistent() ([]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.marshalPersistentLocked()
+}
+
+func (c *Config) marshalPersistentLocked() ([]byte, error) {
+	providers := cloneProviders(c.Providers)
+	normalizeProviders(providers)
+	sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
+	aliases := cloneAliases(c.Aliases)
+	normalizeAliases(aliases)
+	sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
+	rewriteRules := cloneRequestRewriteRules(c.RequestRewriteRules)
+	normalizeRequestRewriteRules(rewriteRules)
+	server := c.Server
+	normalizeServerTimeouts(&server)
+	normalizeServerFailoverStatusCodes(&server)
+	normalizeServerRouting(&server)
+	snap := struct {
+		Server              Server               `json:"server"`
+		Admin               Admin                `json:"admin,omitempty"`
+		Desktop             Desktop              `json:"desktop,omitempty"`
+		Providers           []Provider           `json:"providers"`
+		Aliases             []Alias              `json:"aliases"`
+		RequestRewriteRules []RequestRewriteRule `json:"request_rewrite_rules,omitempty"`
+		ProviderPriority    []string             `json:"provider_priority,omitempty"`
+		// Persist explicitly so false is not dropped by omitempty on reload.
+		AutoAliasEnabled bool `json:"auto_alias_enabled"`
+	}{server, c.Admin, c.Desktop, providers, aliases, rewriteRules, cloneStrings(c.ProviderPriority), c.AutoAliasEnabled}
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	return append(data, '\n'), nil
+}
+
+// LoadFromBytes decodes config JSON for path without reading disk.
+// Missing/empty data returns a default config anchored to path, matching Load.
+func LoadFromBytes(path string, data []byte) (*Config, error) {
+	if path == "" {
+		path = DefaultPath()
+	}
+	c := Default()
+	c.path = path
+	if len(data) == 0 {
+		return c, nil
+	}
+	serverAPIKeyExplicit := configHasExplicitServerAPIKey(data)
+	if err := json.Unmarshal(data, c); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	normalizeProviders(c.Providers)
+	normalizeAliases(c.Aliases)
+	normalizeRequestRewriteRules(c.RequestRewriteRules)
+	c.ProviderPriority = c.normalizeProviderPriorityLocked(c.ProviderPriority)
+	c.reorderUnlockedAutoAliasTargetsLocked()
+	if c.Server.Host == "" {
+		c.Server.Host = "127.0.0.1"
+	}
+	if c.Server.Port == 0 {
+		c.Server.Port = 9982
+	}
+	if c.Server.APIKey == "" && !serverAPIKeyExplicit {
+		c.Server.APIKey = DefaultLocalAPIKey
+	}
+	normalizeAdmin(&c.Admin)
+	normalizeServerTimeouts(&c.Server)
+	normalizeServerFailoverStatusCodes(&c.Server)
+	normalizeServerRouting(&c.Server)
+	c.path = path
+	return c, nil
+}
+
+// CloneDeep returns a detached deep copy of exported config fields.
+func (c *Config) CloneDeep() (*Config, error) {
+	raw, err := c.MarshalPersistent()
+	if err != nil {
+		return nil, err
+	}
+	return LoadFromBytes(c.Path(), raw)
+}
+
 // Save writes config atomically.
 func (c *Config) Save() error {
 	c.mu.Lock()
@@ -392,34 +476,10 @@ func (c *Config) Save() error {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 	return fileutil.WithLockedFile(path, func() error {
-		providers := cloneProviders(c.Providers)
-		normalizeProviders(providers)
-		sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
-		aliases := cloneAliases(c.Aliases)
-		normalizeAliases(aliases)
-		sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
-		rewriteRules := cloneRequestRewriteRules(c.RequestRewriteRules)
-		normalizeRequestRewriteRules(rewriteRules)
-		server := c.Server
-		normalizeServerTimeouts(&server)
-		normalizeServerFailoverStatusCodes(&server)
-		normalizeServerRouting(&server)
-		snap := struct {
-			Server              Server               `json:"server"`
-			Admin               Admin                `json:"admin,omitempty"`
-			Desktop             Desktop              `json:"desktop,omitempty"`
-			Providers           []Provider           `json:"providers"`
-			Aliases             []Alias              `json:"aliases"`
-			RequestRewriteRules []RequestRewriteRule `json:"request_rewrite_rules,omitempty"`
-			ProviderPriority    []string             `json:"provider_priority,omitempty"`
-			// Persist explicitly so false is not dropped by omitempty on reload.
-			AutoAliasEnabled bool `json:"auto_alias_enabled"`
-		}{server, c.Admin, c.Desktop, providers, aliases, rewriteRules, cloneStrings(c.ProviderPriority), c.AutoAliasEnabled}
-		data, err := json.MarshalIndent(snap, "", "  ")
+		data, err := c.marshalPersistentLocked()
 		if err != nil {
-			return fmt.Errorf("marshal: %w", err)
+			return err
 		}
-		data = append(data, '\n')
 		return fileutil.AtomicWriteFile(path, data, 0o600)
 	})
 }
@@ -1084,8 +1144,20 @@ func (c *Config) availableAliasNamesLocked(protocol string) []string {
 	return names
 }
 
-// Validate returns a non-nil error slice for every structural issue found.
+// Validate returns structural issues plus reference/availability checks used by
+// StartProxy, Doctor, and other strict consumers.
 func (c *Config) Validate() []error {
+	return c.validate(true)
+}
+
+// ValidateForPersist returns only structural issues that must block ConfigStore
+// commits. Dangling provider refs and "no available targets" stay as diagnostics
+// (and lifecycle plans), not unconditional hard blocks on every write.
+func (c *Config) ValidateForPersist() []error {
+	return c.validate(false)
+}
+
+func (c *Config) validate(strictRefs bool) []error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	var errs []error
@@ -1163,24 +1235,28 @@ func (c *Config) Validate() []error {
 		if err := ValidateProtocol(a.Protocol); err != nil {
 			errs = append(errs, fmt.Errorf("alias %q %s", a.Alias, err))
 		}
-		enabled := 0
 		for _, t := range a.Targets {
 			if t.Provider == "" || t.Model == "" {
 				errs = append(errs, fmt.Errorf("alias %q has malformed target", a.Alias))
 				continue
 			}
 			if !ids[t.Provider] {
-				errs = append(errs, fmt.Errorf("alias %q references unknown provider %q", a.Alias, t.Provider))
+				if strictRefs {
+					errs = append(errs, fmt.Errorf("alias %q references unknown provider %q", a.Alias, t.Provider))
+				}
 				continue
 			}
 			provider := c.findProviderLocked(t.Provider)
 			if provider != nil && !ProtocolsMatch(a.Protocol, provider.Protocol) {
+				// Protocol mismatch is structural/illegal identity for routing.
 				errs = append(errs, fmt.Errorf("alias %q target %s/%s protocol %q does not match provider protocol %q", a.Alias, t.Provider, t.Model, a.Protocol, NormalizeProviderProtocol(provider.Protocol)))
 			}
 		}
-		enabled = len(c.availableTargetsLocked(a))
-		if a.Enabled && enabled == 0 {
-			errs = append(errs, fmt.Errorf("alias %q has no available targets", a.Alias))
+		if strictRefs {
+			enabled := len(c.availableTargetsLocked(a))
+			if a.Enabled && enabled == 0 {
+				errs = append(errs, fmt.Errorf("alias %q has no available targets", a.Alias))
+			}
 		}
 	}
 	rewriteNames := map[string]bool{}

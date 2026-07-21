@@ -24,9 +24,13 @@ export function DesktopPrefs():Promise<app.DesktopPrefsView>;
 
 export function DoctorRun():Promise<app.DoctorRunResult>;
 
+export function ExecuteLifecycle(arg1:app.LifecycleExecuteInput):Promise<app.APIEnvelope>;
+
 export function ExportConfig():Promise<app.ConfigExportView>;
 
 export function GetAutoAliasSettings():Promise<app.AutoAliasSettingsResult>;
+
+export function GetConfigRevision():Promise<app.APIEnvelope>;
 
 export function GetProviderPriority():Promise<app.ProviderPriorityResult>;
 
@@ -43,6 +47,8 @@ export function OpenExternalURL(arg1:string):Promise<void>;
 export function Overview():Promise<app.Overview>;
 
 export function PingProviderBaseURL(arg1:app.ProviderPingInput):Promise<app.ProviderPingResult>;
+
+export function PreviewLifecycle(arg1:app.LifecyclePreviewInput):Promise<app.APIEnvelope>;
 
 export function PreviewSync(arg1:app.SyncInput):Promise<app.SyncPreview>;
 

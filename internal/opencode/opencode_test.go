@@ -307,6 +307,101 @@ func TestEnsureOcswitchProviderNilCapabilitiesKeepsMinimalModelConfig(t *testing
 	}
 }
 
+func TestEnsureOcswitchProviderEmptyAliasesDoesNotPruneExistingModels(t *testing.T) {
+	raw := Raw{
+		"$schema": "https://opencode.ai/config.json",
+		"provider": map[string]any{
+			ProviderKey: map[string]any{
+				"npm":  "@ai-sdk/openai",
+				"name": ProviderName,
+				"options": map[string]any{
+					"baseURL": "http://127.0.0.1:9982/v1",
+					"apiKey":  "ocswitch-local",
+				},
+				"models": map[string]any{
+					"gpt-a": map[string]any{"name": "gpt-a"},
+					"gpt-b": map[string]any{"name": "gpt-b"},
+				},
+			},
+		},
+	}
+
+	changed := EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:19982/v1", "ocswitch-local-new", nil)
+	if !changed {
+		t.Fatal("EnsureOcswitchProvider() reported unchanged when baseURL/apiKey should update")
+	}
+
+	providerEntry := raw["provider"].(map[string]any)[ProviderKey].(map[string]any)
+	opts := providerEntry["options"].(map[string]any)
+	if opts["baseURL"] != "http://127.0.0.1:19982/v1" {
+		t.Fatalf("baseURL = %#v, want updated value", opts["baseURL"])
+	}
+	if opts["apiKey"] != "ocswitch-local-new" {
+		t.Fatalf("apiKey = %#v, want updated value", opts["apiKey"])
+	}
+	models := providerEntry["models"].(map[string]any)
+	if len(models) != 2 {
+		t.Fatalf("models = %#v, want existing models preserved under empty alias set", models)
+	}
+	if _, ok := models["gpt-a"]; !ok {
+		t.Fatalf("models missing gpt-a: %#v", models)
+	}
+	if _, ok := models["gpt-b"]; !ok {
+		t.Fatalf("models missing gpt-b: %#v", models)
+	}
+}
+
+func TestEnsureOcswitchProviderNonEmptyAliasesStillPrunesRemovedModels(t *testing.T) {
+	raw := Raw{
+		"$schema": "https://opencode.ai/config.json",
+		"provider": map[string]any{
+			ProviderKey: map[string]any{
+				"npm":  "@ai-sdk/openai",
+				"name": ProviderName,
+				"options": map[string]any{
+					"baseURL": "http://127.0.0.1:9982/v1",
+					"apiKey":  "ocswitch-local",
+				},
+				"models": map[string]any{
+					"gpt-a": map[string]any{"name": "gpt-a"},
+					"gpt-b": map[string]any{"name": "gpt-b"},
+				},
+			},
+		},
+	}
+
+	changed := EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", []string{"gpt-a"})
+	if !changed {
+		t.Fatal("EnsureOcswitchProvider() reported unchanged when gpt-b should be pruned")
+	}
+	models := raw["provider"].(map[string]any)[ProviderKey].(map[string]any)["models"].(map[string]any)
+	if len(models) != 1 {
+		t.Fatalf("models = %#v, want only gpt-a", models)
+	}
+	if _, ok := models["gpt-a"]; !ok {
+		t.Fatalf("models missing gpt-a: %#v", models)
+	}
+	if _, ok := models["gpt-b"]; ok {
+		t.Fatalf("models still contains pruned gpt-b: %#v", models)
+	}
+}
+
+func TestEnsureOcswitchProviderEmptyAliasesOnNewProviderIsNonDestructive(t *testing.T) {
+	raw := Raw{}
+	changed := EnsureOcswitchProvider("openai-responses", raw, "http://127.0.0.1:9982/v1", "ocswitch-local", nil)
+	if !changed {
+		t.Fatal("EnsureOcswitchProvider() reported unchanged for new provider entry")
+	}
+	providerEntry := raw["provider"].(map[string]any)[ProviderKey].(map[string]any)
+	if _, ok := providerEntry["models"]; ok {
+		t.Fatalf("new provider models = %#v, want absent under empty alias set", providerEntry["models"])
+	}
+	opts := providerEntry["options"].(map[string]any)
+	if opts["baseURL"] != "http://127.0.0.1:9982/v1" {
+		t.Fatalf("baseURL = %#v", opts["baseURL"])
+	}
+}
+
 func TestEnsureOcswitchProviderDoesNotPanicOnComparableMetadata(t *testing.T) {
 	raw := Raw{
 		"$schema": "https://opencode.ai/config.json",

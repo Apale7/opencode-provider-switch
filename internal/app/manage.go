@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/configstore"
+	"github.com/Apale7/opencode-provider-switch/internal/lifecycle"
 	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 )
 
@@ -23,7 +25,6 @@ func (s *Service) ListRequestRewriteRules(ctx context.Context) ([]RequestRewrite
 }
 
 func (s *Service) UpsertRequestRewriteRule(ctx context.Context, in RequestRewriteRuleInput) (RequestRewriteRuleView, error) {
-	_ = ctx
 	rule := config.RequestRewriteRule{
 		Name:      strings.TrimSpace(in.Name),
 		Alias:     strings.TrimSpace(in.Alias),
@@ -35,93 +36,74 @@ func (s *Service) UpsertRequestRewriteRule(ctx context.Context, in RequestRewrit
 	if rule.Name == "" {
 		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule name is required")
 	}
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return RequestRewriteRuleView{}, err
-	}
-	cfg.UpsertRequestRewriteRule(rule)
-	if errs := cfg.Validate(); len(errs) > 0 {
-		return RequestRewriteRuleView{}, errs[0]
-	}
-	if err := cfg.Save(); err != nil {
-		return RequestRewriteRuleView{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return RequestRewriteRuleView{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	current := cfg.FindRequestRewriteRule(rule.Name)
-	if current == nil {
-		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule %q not found", rule.Name)
-	}
-	return requestRewriteRuleView(*current), nil
+	var view RequestRewriteRuleView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		cfg.UpsertRequestRewriteRule(rule)
+		if errs := cfg.ValidateForPersist(); len(errs) > 0 {
+			return configstore.Mutation[*config.Config]{}, errs[0]
+		}
+		current := cfg.FindRequestRewriteRule(rule.Name)
+		if current == nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("request rewrite rule %q not found", rule.Name)
+		}
+		view = requestRewriteRuleView(*current)
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return view, err
 }
 
 func (s *Service) SetRequestRewriteRuleEnabled(ctx context.Context, in RequestRewriteRuleStateInput) (RequestRewriteRuleView, error) {
-	_ = ctx
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule name is required")
 	}
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return RequestRewriteRuleView{}, err
-	}
-	if !cfg.SetRequestRewriteRuleEnabled(name, in.Enabled) {
-		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule %q not found", in.Name)
-	}
-	if errs := cfg.Validate(); len(errs) > 0 {
-		return RequestRewriteRuleView{}, errs[0]
-	}
-	if err := cfg.Save(); err != nil {
-		return RequestRewriteRuleView{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return RequestRewriteRuleView{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	current := cfg.FindRequestRewriteRule(name)
-	if current == nil {
-		return RequestRewriteRuleView{}, fmt.Errorf("request rewrite rule %q not found", name)
-	}
-	return requestRewriteRuleView(*current), nil
+	var view RequestRewriteRuleView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		if !cfg.SetRequestRewriteRuleEnabled(name, in.Enabled) {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("request rewrite rule %q not found", in.Name)
+		}
+		if errs := cfg.ValidateForPersist(); len(errs) > 0 {
+			return configstore.Mutation[*config.Config]{}, errs[0]
+		}
+		current := cfg.FindRequestRewriteRule(name)
+		if current == nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("request rewrite rule %q not found", name)
+		}
+		view = requestRewriteRuleView(*current)
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return view, err
 }
 
 func (s *Service) RemoveRequestRewriteRule(ctx context.Context, in RequestRewriteRuleRemoveInput) (RequestRewriteRuleRemoveResult, error) {
-	_ = ctx
-	cfg, err := s.loadConfig()
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		if !cfg.RemoveRequestRewriteRule(strings.TrimSpace(in.Name)) {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("request rewrite rule %q not found", in.Name)
+		}
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
 	if err != nil {
 		return RequestRewriteRuleRemoveResult{}, err
-	}
-	if !cfg.RemoveRequestRewriteRule(strings.TrimSpace(in.Name)) {
-		return RequestRewriteRuleRemoveResult{}, fmt.Errorf("request rewrite rule %q not found", in.Name)
-	}
-	if err := cfg.Save(); err != nil {
-		return RequestRewriteRuleRemoveResult{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return RequestRewriteRuleRemoveResult{}, fmt.Errorf("reload proxy config: %w", err)
 	}
 	return RequestRewriteRuleRemoveResult{OK: true}, nil
 }
 
 func (s *Service) ReorderRequestRewriteRules(ctx context.Context, in RequestRewriteRuleReorderInput) (RequestRewriteRuleReorderResult, error) {
-	_ = ctx
-	cfg, err := s.loadConfig()
+	var rules []RequestRewriteRuleView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		if err := cfg.ReorderRequestRewriteRules(in.Names); err != nil {
+			return configstore.Mutation[*config.Config]{}, err
+		}
+		if errs := cfg.ValidateForPersist(); len(errs) > 0 {
+			return configstore.Mutation[*config.Config]{}, errs[0]
+		}
+		rules = requestRewriteRuleViews(cfg.RequestRewriteRulesSnapshot())
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
 	if err != nil {
 		return RequestRewriteRuleReorderResult{}, err
 	}
-	if err := cfg.ReorderRequestRewriteRules(in.Names); err != nil {
-		return RequestRewriteRuleReorderResult{}, err
-	}
-	if errs := cfg.Validate(); len(errs) > 0 {
-		return RequestRewriteRuleReorderResult{}, errs[0]
-	}
-	if err := cfg.Save(); err != nil {
-		return RequestRewriteRuleReorderResult{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return RequestRewriteRuleReorderResult{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	return RequestRewriteRuleReorderResult{Rules: requestRewriteRuleViews(cfg.RequestRewriteRulesSnapshot())}, nil
+	return RequestRewriteRuleReorderResult{Rules: rules}, nil
 }
 
 func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (ProviderSaveResult, error) {
@@ -195,19 +177,18 @@ func (s *Service) UpsertProvider(ctx context.Context, in ProviderUpsertInput) (P
 		provider.ModelsSource = ""
 		warnings = append(warnings, "provider connection changed with skip models enabled; keeping existing model catalog as untrusted")
 	}
-	cfg.UpsertProvider(provider)
-	warnings = append(warnings, appendAutoAliasWarnings(cfg, provider)...)
-	if err := cfg.Save(); err != nil {
+	_, err = s.commitConfig(ctx, "", func(_ context.Context, live *config.Config) (configstore.Mutation[*config.Config], error) {
+		live.UpsertProvider(provider)
+		warnings = append(warnings, appendAutoAliasWarnings(live, provider)...)
+		return configstore.Mutation[*config.Config]{Value: live, Changed: true}, nil
+	})
+	if err != nil {
 		return ProviderSaveResult{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return ProviderSaveResult{}, fmt.Errorf("reload proxy config: %w", err)
 	}
 	return ProviderSaveResult{Provider: providerView(provider), Warnings: warnings}, nil
 }
 
 func (s *Service) RefreshProviderModels(ctx context.Context, in ProviderRefreshModelsInput) (ProviderSaveResult, error) {
-	_ = ctx
 	id := strings.TrimSpace(in.ID)
 	if id == "" {
 		return ProviderSaveResult{}, fmt.Errorf("provider id is required")
@@ -222,13 +203,13 @@ func (s *Service) RefreshProviderModels(ctx context.Context, in ProviderRefreshM
 	}
 	provider := *existing
 	warnings := discoverProviderModels(&provider, existing)
-	cfg.UpsertProvider(provider)
-	warnings = append(warnings, appendAutoAliasWarnings(cfg, provider)...)
-	if err := cfg.Save(); err != nil {
+	_, err = s.commitConfig(ctx, "", func(_ context.Context, live *config.Config) (configstore.Mutation[*config.Config], error) {
+		live.UpsertProvider(provider)
+		warnings = append(warnings, appendAutoAliasWarnings(live, provider)...)
+		return configstore.Mutation[*config.Config]{Value: live, Changed: true}, nil
+	})
+	if err != nil {
 		return ProviderSaveResult{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return ProviderSaveResult{}, fmt.Errorf("reload proxy config: %w", err)
 	}
 	return ProviderSaveResult{Provider: providerView(provider), Warnings: warnings}, nil
 }
@@ -305,43 +286,82 @@ func (s *Service) PingProviderBaseURL(ctx context.Context, in ProviderPingInput)
 }
 
 func (s *Service) RemoveProvider(ctx context.Context, id string) error {
-	_ = ctx
-	cfg, err := s.loadConfig()
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("provider id is required")
+	}
+	// Convenience path: plan with no explicit selections. Protected targets block.
+	rev, cfg, err := s.SnapshotConfigRevision(ctx)
 	if err != nil {
 		return err
 	}
-	id = strings.TrimSpace(id)
-	if !cfg.RemoveProvider(id) {
-		return fmt.Errorf("provider %q not found", id)
-	}
-	_ = cfg.RemoveProviderAutoTargets(id)
-	if err := cfg.Save(); err != nil {
+	planned, err := lifecycle.PlanProviderRemove(cfg, string(rev), id, nil)
+	if err != nil {
 		return err
 	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return fmt.Errorf("reload proxy config: %w", err)
+	if !planned.Plan.Executable {
+		return &OutcomeError{
+			Code: "plan_not_executable",
+			Params: map[string]any{
+				"operationKind": lifecycle.OpProviderRemove,
+				"providerId":    id,
+				"blockerCount":  len(planned.Plan.Blockers),
+				"choiceCount":   len(planned.Plan.Choices),
+			},
+		}
 	}
-	return nil
+	if planned.Plan.NoOp || planned.Candidate == nil {
+		if cfg.FindProvider(id) == nil {
+			return fmt.Errorf("provider %q not found", id)
+		}
+		return nil
+	}
+	_, err = s.commitConfigReplace(ctx, rev, planned.Candidate)
+	return err
+}
+
+// RemoveProviderWithPlan executes provider removal with explicit lifecycle selections.
+func (s *Service) RemoveProviderWithPlan(ctx context.Context, id string, selections []lifecycle.Selection) error {
+	id = strings.TrimSpace(id)
+	rev, cfg, err := s.SnapshotConfigRevision(ctx)
+	if err != nil {
+		return err
+	}
+	planned, err := lifecycle.PlanProviderRemove(cfg, string(rev), id, selections)
+	if err != nil {
+		return err
+	}
+	if !planned.Plan.Executable {
+		return &OutcomeError{
+			Code: "plan_not_executable",
+			Params: map[string]any{
+				"operationKind": lifecycle.OpProviderRemove,
+				"providerId":    id,
+				"blockerCount":  len(planned.Plan.Blockers),
+				"choiceCount":   len(planned.Plan.Choices),
+			},
+		}
+	}
+	if planned.Candidate == nil {
+		return nil
+	}
+	_, err = s.commitConfigReplace(ctx, rev, planned.Candidate)
+	return err
 }
 
 func (s *Service) SetProviderPriority(ctx context.Context, in ProviderPriorityInput) (ProviderPriorityResult, error) {
-	_ = ctx
-	cfg, err := s.loadConfig()
+	var warnings []string
+	var ordered []string
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		warnings = providerPriorityInputWarnings(cfg, in.OrderedIDs)
+		cfg.SetProviderPriority(in.OrderedIDs)
+		ordered = cfg.ProviderPriorityOrder()
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
 	if err != nil {
 		return ProviderPriorityResult{}, err
 	}
-	warnings := providerPriorityInputWarnings(cfg, in.OrderedIDs)
-	cfg.SetProviderPriority(in.OrderedIDs)
-	if err := cfg.Save(); err != nil {
-		return ProviderPriorityResult{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return ProviderPriorityResult{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	return ProviderPriorityResult{
-		OrderedIDs: cfg.ProviderPriorityOrder(),
-		Warnings:   warnings,
-	}, nil
+	return ProviderPriorityResult{OrderedIDs: ordered, Warnings: warnings}, nil
 }
 
 func (s *Service) GetProviderPriority(ctx context.Context) (ProviderPriorityResult, error) {
@@ -363,108 +383,113 @@ func (s *Service) GetAutoAliasSettings(ctx context.Context) (AutoAliasSettingsRe
 }
 
 func (s *Service) SetAutoAliasSettings(ctx context.Context, in AutoAliasSettingsInput) (AutoAliasSettingsResult, error) {
-	_ = ctx
-	cfg, err := s.loadConfig()
+	var enabled bool
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		cfg.SetAutoAliasEnabled(in.Enabled)
+		enabled = cfg.IsAutoAliasEnabled()
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
 	if err != nil {
 		return AutoAliasSettingsResult{}, err
 	}
-	cfg.SetAutoAliasEnabled(in.Enabled)
-	if err := cfg.Save(); err != nil {
-		return AutoAliasSettingsResult{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return AutoAliasSettingsResult{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	return AutoAliasSettingsResult{Enabled: cfg.IsAutoAliasEnabled()}, nil
+	return AutoAliasSettingsResult{Enabled: enabled}, nil
 }
 
 func (s *Service) UpgradeAutoAlias(ctx context.Context, in AliasLockInput) (AliasView, error) {
-	_ = ctx
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		return AliasView{}, fmt.Errorf("alias name is required")
 	}
-	cfg, err := s.loadConfig()
+	rev, cfg, err := s.SnapshotConfigRevision(ctx)
 	if err != nil {
 		return AliasView{}, err
 	}
-	locked, err := cfg.LockAutoAlias(name)
+	planned, err := lifecycle.PlanAliasUpgrade(cfg, string(rev), name)
 	if err != nil {
 		return AliasView{}, err
 	}
-	locked.AutoGenerated = false
-	locked.Locked = false
-	for i := range locked.Targets {
-		locked.Targets[i].AutoGenerated = false
+	if !planned.Plan.Executable {
+		return AliasView{}, &OutcomeError{
+			Code:   "plan_not_executable",
+			Params: map[string]any{"operationKind": lifecycle.OpAliasUpgrade, "alias": name},
+		}
 	}
-	cfg.UpsertAlias(locked)
-	if err := cfg.Save(); err != nil {
+	out := planned.Candidate
+	if out == nil {
+		out = cfg
+	} else {
+		if _, err := s.commitConfigReplace(ctx, rev, out); err != nil {
+			return AliasView{}, err
+		}
+	}
+	idx, err := lifecycle.RequireUniqueAlias(out, name)
+	if err != nil {
 		return AliasView{}, err
 	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	return aliasView(cfg, locked), nil
+	return aliasView(out, out.Aliases[idx]), nil
 }
 
 func (s *Service) SetAliasTargetDisabled(ctx context.Context, in AliasTargetInput) (AliasView, error) {
-	_ = ctx
 	alias := strings.TrimSpace(in.Alias)
 	providerID := strings.TrimSpace(in.Provider)
 	model := strings.TrimSpace(in.Model)
 	if alias == "" || providerID == "" || model == "" {
 		return AliasView{}, fmt.Errorf("alias, provider and model are required")
 	}
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return AliasView{}, err
-	}
-	current := cfg.FindAlias(alias)
-	if current == nil {
-		return AliasView{}, fmt.Errorf("alias %q not found", alias)
-	}
-	updated := *current
-	found := false
-	for i := range updated.Targets {
-		if updated.Targets[i].Provider == providerID && updated.Targets[i].Model == model {
-			updated.Targets[i].Enabled = !in.Disabled
-			found = true
-			break
+	var view AliasView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		if err := lifecycle.RequireManualAliasMutation(cfg, alias); err != nil {
+			return configstore.Mutation[*config.Config]{}, &OutcomeError{Code: "plan_not_executable", Err: err}
 		}
-	}
-	if !found {
-		return AliasView{}, fmt.Errorf("target %s/%s not found on alias %s", providerID, model, alias)
-	}
-	cfg.UpsertAlias(updated)
-	if err := cfg.Save(); err != nil {
-		return AliasView{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	return aliasView(cfg, updated), nil
+		current := cfg.FindAlias(alias)
+		if current == nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("alias %q not found", alias)
+		}
+		updated := *current
+		found := false
+		for i := range updated.Targets {
+			if updated.Targets[i].Provider == providerID && updated.Targets[i].Model == model {
+				updated.Targets[i].Enabled = !in.Disabled
+				found = true
+				break
+			}
+		}
+		if !found {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("target %s/%s not found on alias %s", providerID, model, alias)
+		}
+		cfg.UpsertAlias(updated)
+		view = aliasView(cfg, updated)
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return view, err
 }
 
 func (s *Service) SetProviderDisabled(ctx context.Context, in ProviderStateInput) (ProviderView, error) {
-	_ = ctx
-	cfg, err := s.loadConfig()
+	id := strings.TrimSpace(in.ID)
+	rev, cfg, err := s.SnapshotConfigRevision(ctx)
 	if err != nil {
 		return ProviderView{}, err
 	}
-	existing := cfg.FindProvider(strings.TrimSpace(in.ID))
-	if existing == nil {
-		return ProviderView{}, fmt.Errorf("provider %q not found", in.ID)
-	}
-	updated := *existing
-	updated.Disabled = in.Disabled
-	cfg.UpsertProvider(updated)
-	if err := cfg.Save(); err != nil {
+	planned, err := lifecycle.PlanProviderDisabled(cfg, string(rev), id, in.Disabled)
+	if err != nil {
 		return ProviderView{}, err
 	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return ProviderView{}, fmt.Errorf("reload proxy config: %w", err)
+	if !planned.Plan.Executable {
+		return ProviderView{}, &OutcomeError{Code: "plan_not_executable", Params: map[string]any{"providerId": id}}
 	}
-	return providerView(updated), nil
+	out := planned.Candidate
+	if out == nil {
+		out = cfg
+	} else if !planned.Plan.NoOp {
+		if _, err := s.commitConfigReplace(ctx, rev, out); err != nil {
+			return ProviderView{}, err
+		}
+	}
+	p := out.FindProvider(id)
+	if p == nil {
+		return ProviderView{}, fmt.Errorf("provider %q not found", id)
+	}
+	return providerView(*p), nil
 }
 
 func (s *Service) ImportProviders(ctx context.Context, in ProviderImportInput) (ProviderImportResult, error) {
@@ -486,174 +511,185 @@ func (s *Service) ImportProviders(ctx context.Context, in ProviderImportInput) (
 	if len(imports) == 0 {
 		return result, nil
 	}
-	cfg, err := s.loadConfig()
+	_, err = s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		changed := false
+		for _, ip := range imports {
+			if !in.Overwrite && cfg.FindProvider(ip.ID) != nil {
+				result.Skipped++
+				result.Warnings = append(result.Warnings, fmt.Sprintf("skip %q (already exists, enable overwrite to replace it)", ip.ID))
+				continue
+			}
+			baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
+			if err := config.ValidateProviderBaseURL(ip.Protocol, baseURL); err != nil {
+				result.Skipped++
+				result.Warnings = append(result.Warnings, fmt.Sprintf("skip %q (invalid baseURL %q: %v)", ip.ID, ip.BaseURL, err))
+				continue
+			}
+			merged := mergeImportedProvider(cfg.FindProvider(ip.ID), opencode.ImportableProvider{
+				ID:       ip.ID,
+				Name:     ip.Name,
+				Protocol: ip.Protocol,
+				BaseURL:  baseURL,
+				APIKey:   ip.APIKey,
+				Headers:  ip.Headers,
+				Models:   ip.Models,
+			})
+			cfg.UpsertProvider(merged)
+			result.Imported++
+			result.Providers = append(result.Providers, providerView(merged))
+			changed = true
+		}
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: changed}, nil
+	})
 	if err != nil {
 		return ProviderImportResult{}, err
-	}
-	for _, ip := range imports {
-		if !in.Overwrite && cfg.FindProvider(ip.ID) != nil {
-			result.Skipped++
-			result.Warnings = append(result.Warnings, fmt.Sprintf("skip %q (already exists, enable overwrite to replace it)", ip.ID))
-			continue
-		}
-		baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
-		if err := config.ValidateProviderBaseURL(ip.Protocol, baseURL); err != nil {
-			result.Skipped++
-			result.Warnings = append(result.Warnings, fmt.Sprintf("skip %q (invalid baseURL %q: %v)", ip.ID, ip.BaseURL, err))
-			continue
-		}
-		merged := mergeImportedProvider(cfg.FindProvider(ip.ID), opencode.ImportableProvider{
-			ID:       ip.ID,
-			Name:     ip.Name,
-			Protocol: ip.Protocol,
-			BaseURL:  baseURL,
-			APIKey:   ip.APIKey,
-			Headers:  ip.Headers,
-			Models:   ip.Models,
-		})
-		cfg.UpsertProvider(merged)
-		result.Imported++
-	}
-	if result.Imported > 0 {
-		if err := cfg.Save(); err != nil {
-			return ProviderImportResult{}, err
-		}
-		if err := s.reloadRunningProxyConfig(cfg); err != nil {
-			return ProviderImportResult{}, fmt.Errorf("reload proxy config: %w", err)
-		}
 	}
 	return result, nil
 }
 
 func (s *Service) UpsertAlias(ctx context.Context, in AliasUpsertInput) (AliasView, error) {
-	_ = ctx
 	name := strings.TrimSpace(in.Alias)
 	if name == "" {
 		return AliasView{}, fmt.Errorf("alias name is required")
 	}
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return AliasView{}, err
-	}
-	a := config.Alias{Alias: name, DisplayName: strings.TrimSpace(in.DisplayName), Protocol: config.NormalizeAliasProtocol(strings.TrimSpace(in.Protocol)), Enabled: !in.Disabled}
-	existing := cfg.FindAlias(name)
-	if existing == nil {
-		if auto := cfg.FindAutoAlias(name); auto != nil {
-			if !auto.Locked {
-				return AliasView{}, fmt.Errorf("auto-generated alias %q must be upgraded to manual before editing", name)
+	var view AliasView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		// Any existing auto alias must be upgraded first (manual-only lookup is insufficient).
+		if err := lifecycle.RequireManualAliasMutation(cfg, name); err != nil {
+			// Allow create when alias is missing.
+			if !strings.Contains(err.Error(), lifecycle.ReasonAliasMissing) {
+				return configstore.Mutation[*config.Config]{}, &OutcomeError{Code: "plan_not_executable", Err: err}
 			}
-			existing = auto
 		}
-	}
-	if existing != nil {
-		if a.DisplayName == "" {
-			a.DisplayName = existing.DisplayName
+		a := config.Alias{Alias: name, DisplayName: strings.TrimSpace(in.DisplayName), Protocol: config.NormalizeAliasProtocol(strings.TrimSpace(in.Protocol)), Enabled: !in.Disabled}
+		if existing := cfg.FindAlias(name); existing != nil {
+			if a.DisplayName == "" {
+				a.DisplayName = existing.DisplayName
+			}
+			if strings.TrimSpace(in.Protocol) == "" {
+				a.Protocol = existing.Protocol
+			}
+			a.Targets = existing.Targets
 		}
-		if strings.TrimSpace(in.Protocol) == "" {
-			a.Protocol = existing.Protocol
-		}
-		a.Targets = existing.Targets
-	}
-	cfg.UpsertAlias(a)
-	if err := cfg.Save(); err != nil {
-		return AliasView{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	return aliasView(cfg, a), nil
+		cfg.UpsertAlias(a)
+		view = aliasView(cfg, a)
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return view, err
 }
 
 func (s *Service) RemoveAlias(ctx context.Context, name string) error {
-	_ = ctx
-	cfg, err := s.loadConfig()
+	name = strings.TrimSpace(name)
+	rev, cfg, err := s.SnapshotConfigRevision(ctx)
 	if err != nil {
 		return err
 	}
-	if !cfg.RemoveAlias(strings.TrimSpace(name)) {
-		return fmt.Errorf("alias %q not found", name)
-	}
-	if err := cfg.Save(); err != nil {
+	// Default selections: keep rewrite rules (explicit keep for each impact).
+	planned, err := lifecycle.PlanAliasRemove(cfg, string(rev), name, nil, lifecycle.ExternalRefs{})
+	if err != nil {
 		return err
 	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return fmt.Errorf("reload proxy config: %w", err)
+	// Auto-resolve rewrite impacts as keep_rule for legacy RemoveAlias convenience.
+	if !planned.Plan.Executable && len(planned.Plan.Choices) > 0 {
+		selections := make([]lifecycle.Selection, 0, len(planned.Plan.Choices))
+		for _, choice := range planned.Plan.Choices {
+			if choice.Code == lifecycle.ReasonRewriteSelectorImpact {
+				selections = append(selections, lifecycle.Selection{ChoiceID: choice.ID, OptionID: lifecycle.OptionKeepRule})
+			}
+		}
+		planned, err = lifecycle.PlanAliasRemove(cfg, string(rev), name, selections, lifecycle.ExternalRefs{})
+		if err != nil {
+			return err
+		}
 	}
-	return nil
+	if !planned.Plan.Executable {
+		return &OutcomeError{
+			Code: "plan_not_executable",
+			Params: map[string]any{
+				"operationKind": lifecycle.OpAliasRemove,
+				"alias":         name,
+				"blockerCount":  len(planned.Plan.Blockers),
+			},
+		}
+	}
+	if planned.Candidate == nil {
+		return fmt.Errorf("alias %q not found", name)
+	}
+	_, err = s.commitConfigReplace(ctx, rev, planned.Candidate)
+	return err
 }
 
 func (s *Service) BindAliasTarget(ctx context.Context, in AliasTargetInput) (AliasView, error) {
-	_ = ctx
 	alias := strings.TrimSpace(in.Alias)
 	providerID := strings.TrimSpace(in.Provider)
 	model := strings.TrimSpace(in.Model)
 	if alias == "" || providerID == "" || model == "" {
 		return AliasView{}, fmt.Errorf("alias, provider and model are required")
 	}
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return AliasView{}, err
-	}
-	p := cfg.FindProvider(providerID)
-	if p == nil {
-		return AliasView{}, fmt.Errorf("provider %q does not exist; add it first", providerID)
-	}
-	providerProtocol := config.NormalizeProviderProtocol(p.Protocol)
-	if err := validateProviderModelKnown(providerID, p.Models, p.ModelsSource, model); err != nil {
-		return AliasView{}, err
-	}
-	currentAlias := cfg.FindAlias(alias)
-	if currentAlias == nil {
-		cfg.UpsertAlias(config.Alias{Alias: alias, Protocol: providerProtocol, Enabled: true})
-	} else if !config.ProtocolsMatch(currentAlias.Protocol, providerProtocol) {
-		return AliasView{}, fmt.Errorf("alias %q protocol %q does not match provider %q protocol %q", alias, config.NormalizeAliasProtocol(currentAlias.Protocol), providerID, providerProtocol)
-	}
-	if err := cfg.AddTarget(alias, config.Target{Provider: providerID, Model: model, Enabled: !in.Disabled}); err != nil {
-		return AliasView{}, err
-	}
-	if err := cfg.Save(); err != nil {
-		return AliasView{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	current := cfg.FindAlias(alias)
-	if current == nil {
-		return AliasView{}, fmt.Errorf("alias %q not found", alias)
-	}
-	return aliasView(cfg, *current), nil
+	var view AliasView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		p := cfg.FindProvider(providerID)
+		if p == nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("provider %q does not exist; add it first", providerID)
+		}
+		providerProtocol := config.NormalizeProviderProtocol(p.Protocol)
+		if err := validateProviderModelKnown(providerID, p.Models, p.ModelsSource, model); err != nil {
+			return configstore.Mutation[*config.Config]{}, err
+		}
+		indexes := lifecycle.FindAliasesByName(cfg, alias)
+		if len(indexes) > 1 {
+			return configstore.Mutation[*config.Config]{}, &OutcomeError{Code: "plan_not_executable", Params: map[string]any{"reason": lifecycle.ReasonAliasAmbiguous}}
+		}
+		if len(indexes) == 1 {
+			if err := lifecycle.RequireManualAliasMutation(cfg, alias); err != nil {
+				return configstore.Mutation[*config.Config]{}, &OutcomeError{Code: "plan_not_executable", Err: err}
+			}
+			currentAlias := cfg.Aliases[indexes[0]]
+			if !config.ProtocolsMatch(currentAlias.Protocol, providerProtocol) {
+				return configstore.Mutation[*config.Config]{}, fmt.Errorf("alias %q protocol %q does not match provider %q protocol %q", alias, config.NormalizeAliasProtocol(currentAlias.Protocol), providerID, providerProtocol)
+			}
+		} else {
+			cfg.UpsertAlias(config.Alias{Alias: alias, Protocol: providerProtocol, Enabled: true})
+		}
+		if err := cfg.AddTarget(alias, config.Target{Provider: providerID, Model: model, Enabled: !in.Disabled}); err != nil {
+			return configstore.Mutation[*config.Config]{}, err
+		}
+		current := cfg.FindAlias(alias)
+		if current == nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("alias %q not found", alias)
+		}
+		view = aliasView(cfg, *current)
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return view, err
 }
 
 func (s *Service) UnbindAliasTarget(ctx context.Context, in AliasTargetInput) (AliasView, error) {
-	_ = ctx
 	alias := strings.TrimSpace(in.Alias)
 	providerID := strings.TrimSpace(in.Provider)
 	model := strings.TrimSpace(in.Model)
 	if alias == "" || providerID == "" || model == "" {
 		return AliasView{}, fmt.Errorf("alias, provider and model are required")
 	}
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return AliasView{}, err
-	}
-	if err := cfg.RemoveTarget(alias, providerID, model); err != nil {
-		return AliasView{}, err
-	}
-	if err := cfg.Save(); err != nil {
-		return AliasView{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	current := cfg.FindAlias(alias)
-	if current == nil {
-		return AliasView{}, fmt.Errorf("alias %q not found", alias)
-	}
-	return aliasView(cfg, *current), nil
+	var view AliasView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		if err := lifecycle.RequireManualAliasMutation(cfg, alias); err != nil {
+			return configstore.Mutation[*config.Config]{}, &OutcomeError{Code: "plan_not_executable", Err: err}
+		}
+		if err := cfg.RemoveTarget(alias, providerID, model); err != nil {
+			return configstore.Mutation[*config.Config]{}, err
+		}
+		current := cfg.FindAlias(alias)
+		if current == nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("alias %q not found", alias)
+		}
+		view = aliasView(cfg, *current)
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return view, err
 }
 
 func (s *Service) ReorderAliasTargets(ctx context.Context, in AliasTargetReorderInput) (AliasView, error) {
-	_ = ctx
 	alias := strings.TrimSpace(in.Alias)
 	if alias == "" {
 		return AliasView{}, fmt.Errorf("alias is required")
@@ -667,24 +703,22 @@ func (s *Service) ReorderAliasTargets(ctx context.Context, in AliasTargetReorder
 		}
 		refs = append(refs, config.TargetRef{Provider: providerID, Model: model})
 	}
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return AliasView{}, err
-	}
-	if err := cfg.ReorderTargets(alias, refs); err != nil {
-		return AliasView{}, err
-	}
-	if err := cfg.Save(); err != nil {
-		return AliasView{}, err
-	}
-	if err := s.reloadRunningProxyConfig(cfg); err != nil {
-		return AliasView{}, fmt.Errorf("reload proxy config: %w", err)
-	}
-	current := cfg.FindAlias(alias)
-	if current == nil {
-		return AliasView{}, fmt.Errorf("alias %q not found", alias)
-	}
-	return aliasView(cfg, *current), nil
+	var view AliasView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		if err := lifecycle.RequireManualAliasMutation(cfg, alias); err != nil {
+			return configstore.Mutation[*config.Config]{}, &OutcomeError{Code: "plan_not_executable", Err: err}
+		}
+		if err := cfg.ReorderTargets(alias, refs); err != nil {
+			return configstore.Mutation[*config.Config]{}, err
+		}
+		current := cfg.FindAlias(alias)
+		if current == nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("alias %q not found", alias)
+		}
+		view = aliasView(cfg, *current)
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return view, err
 }
 
 func providerConnectionEqual(a, b config.Provider) bool {

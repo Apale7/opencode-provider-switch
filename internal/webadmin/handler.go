@@ -57,6 +57,9 @@ type Service interface {
 	PreviewOpenCodeSync(context.Context, appcore.SyncInput) (appcore.SyncPreview, error)
 	PreviewOpenCodeSyncDiff(context.Context, appcore.SyncInput) (appcore.SyncPreview, error)
 	SyncOpenCode(context.Context, appcore.SyncInput) (appcore.SyncResult, error)
+	GetConfigRevision(context.Context) (appcore.ConfigRevision, error)
+	PreviewLifecycle(context.Context, appcore.LifecyclePreviewInput) (appcore.LifecyclePlanView, error)
+	ExecuteLifecycle(context.Context, appcore.LifecycleExecuteInput) (appcore.LifecycleExecuteResult, error)
 }
 
 type ImportConfigFunc func(context.Context, appcore.ConfigImportInput) (appcore.ConfigImportResult, error)
@@ -74,10 +77,8 @@ type Options struct {
 	ServerMode       bool
 }
 
-type apiEnvelope struct {
-	Data  any    `json:"data,omitempty"`
-	Error string `json:"error,omitempty"`
-}
+// apiEnvelope keeps legacy data/error fields and adds artifact-06 ok/outcome.
+type apiEnvelope = appcore.APIEnvelope
 
 type MetaView struct {
 	Version      string       `json:"version"`
@@ -87,9 +88,11 @@ type MetaView struct {
 }
 
 type Capabilities struct {
-	DesktopPrefs       bool `json:"desktopPrefs"`
-	OpenCodeDirectSync bool `json:"openCodeDirectSync"`
-	ProxyControl       bool `json:"proxyControl"`
+	DesktopPrefs              bool   `json:"desktopPrefs"`
+	OpenCodeDirectSync        bool   `json:"openCodeDirectSync"`
+	ProxyControl              bool   `json:"proxyControl"`
+	TransportEnvelopeVersion  int    `json:"transportEnvelopeVersion"`
+	LifecycleContractVersion  int    `json:"lifecycleContractVersion"`
 }
 
 func NewHandler(opts Options) (http.Handler, error) {
@@ -107,9 +110,11 @@ func NewHandler(opts Options) (http.Handler, error) {
 	api := http.NewServeMux()
 	b := opts.Service
 	capabilities := Capabilities{
-		DesktopPrefs:       !opts.ServerMode,
-		OpenCodeDirectSync: !opts.ServerMode,
-		ProxyControl:       true,
+		DesktopPrefs:             !opts.ServerMode,
+		OpenCodeDirectSync:       !opts.ServerMode,
+		ProxyControl:             true,
+		TransportEnvelopeVersion: 1,
+		LifecycleContractVersion: 1,
 	}
 
 	api.HandleFunc("/api/meta", func(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +122,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 			writeMethodNotAllowed(w, http.MethodGet)
 			return
 		}
-		writeJSON(w, http.StatusOK, apiEnvelope{Data: MetaView{Version: opts.Version, Shell: opts.Shell, URL: opts.BaseURL, Capabilities: capabilities}})
+		writeSuccess(w, MetaView{Version: opts.Version, Shell: opts.Shell, URL: opts.BaseURL, Capabilities: capabilities})
 	})
 
 	api.HandleFunc("/api/overview", func(w http.ResponseWriter, r *http.Request) {
@@ -425,11 +430,19 @@ func NewHandler(opts Options) (http.Handler, error) {
 		writeResult(w, data, err)
 	})
 
-	api.HandleFunc("/api/desktop-prefs", func(w http.ResponseWriter, r *http.Request) {
-		if opts.ServerMode {
-			writeJSON(w, http.StatusNotFound, apiEnvelope{Error: "desktop preferences are not available in server mode"})
-			return
-		}
+		api.HandleFunc("/api/desktop-prefs", func(w http.ResponseWriter, r *http.Request) {
+			if opts.ServerMode {
+				writeOutcome(w, http.StatusNotFound, apiEnvelope{
+					OK:    false,
+					Error: "not_found",
+					Outcome: appcore.TransportOutcome{
+						Code:      "not_found",
+						Params:    map[string]any{"resourceType": "desktop_prefs"},
+						Retryable: false,
+					},
+				})
+				return
+			}
 		switch r.Method {
 		case http.MethodGet:
 			data, err := b.GetDesktopPrefs(r.Context())
@@ -551,7 +564,8 @@ func NewHandler(opts Options) (http.Handler, error) {
 			return
 		}
 		data, err := b.RunDoctor(r.Context())
-		writeJSON(w, http.StatusOK, apiEnvelope{Data: appcore.DoctorRunResult{Report: data, Error: errorString(err)}})
+		// Doctor keeps soft-error payload shape for UI continuity.
+		writeSuccess(w, appcore.DoctorRunResult{Report: data, Error: errorString(err)})
 	})
 
 	api.HandleFunc("/api/opencode-sync/preview", func(w http.ResponseWriter, r *http.Request) {
@@ -582,7 +596,15 @@ func NewHandler(opts Options) (http.Handler, error) {
 
 	api.HandleFunc("/api/opencode-sync/apply", func(w http.ResponseWriter, r *http.Request) {
 		if opts.ServerMode {
-			writeJSON(w, http.StatusForbidden, apiEnvelope{Error: "direct OpenCode sync is disabled in server mode; copy the generated config instead"})
+			writeOutcome(w, http.StatusForbidden, apiEnvelope{
+				OK:    false,
+				Error: "forbidden",
+				Outcome: appcore.TransportOutcome{
+					Code:      "forbidden",
+					Params:    map[string]any{"reason": "opencode_direct_sync_disabled"},
+					Retryable: false,
+				},
+			})
 			return
 		}
 		if r.Method != http.MethodPost {
@@ -594,6 +616,41 @@ func NewHandler(opts Options) (http.Handler, error) {
 			return
 		}
 		data, err := b.SyncOpenCode(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/config/revision", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		data, err := b.GetConfigRevision(r.Context())
+		writeResult(w, map[string]appcore.ConfigRevision{"revision": data}, err)
+	})
+
+	api.HandleFunc("/api/lifecycle/preview", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.LifecyclePreviewInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.PreviewLifecycle(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/lifecycle/execute", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.LifecycleExecuteInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.ExecuteLifecycle(r.Context(), in)
 		writeResult(w, data, err)
 	})
 
@@ -631,36 +688,72 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	defer r.Body.Close()
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, apiEnvelope{Error: err.Error()})
+		writeOutcome(w, http.StatusBadRequest, apiEnvelope{
+			OK:    false,
+			Error: "invalid_request",
+			Outcome: appcore.TransportOutcome{
+				Code:      "invalid_request",
+				Params:    map[string]any{"reason": "body_read_failed"},
+				Retryable: false,
+			},
+		})
 		return false
 	}
 	if len(strings.TrimSpace(string(body))) == 0 {
 		return true
 	}
 	if err := json.Unmarshal(body, dst); err != nil {
-		writeJSON(w, http.StatusBadRequest, apiEnvelope{Error: "invalid json: " + err.Error()})
+		writeOutcome(w, http.StatusBadRequest, apiEnvelope{
+			OK:    false,
+			Error: "invalid_request",
+			Outcome: appcore.TransportOutcome{
+				Code:      "invalid_request",
+				Params:    map[string]any{"reason": "invalid_json"},
+				Retryable: false,
+			},
+		})
 		return false
 	}
 	return true
 }
 
 func writeResult(w http.ResponseWriter, data any, err error) {
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, apiEnvelope{Error: err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, apiEnvelope{Data: data})
+	status, env := appcore.ClassifyOutcome(err, data)
+	writeOutcome(w, status, env)
+}
+
+func writeSuccess(w http.ResponseWriter, data any) {
+	writeResult(w, data, nil)
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter, allowed ...string) {
 	if len(allowed) > 0 {
 		w.Header().Set("Allow", strings.Join(allowed, ", "))
 	}
-	writeJSON(w, http.StatusMethodNotAllowed, apiEnvelope{Error: "method not allowed"})
+	writeOutcome(w, http.StatusMethodNotAllowed, apiEnvelope{
+		OK:    false,
+		Error: "method_not_allowed",
+		Outcome: appcore.TransportOutcome{
+			Code:      "method_not_allowed",
+			Params:    map[string]any{},
+			Retryable: false,
+		},
+	})
+}
+
+func writeOutcome(w http.ResponseWriter, status int, v apiEnvelope) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if status == http.StatusServiceUnavailable && v.Outcome.Code == "config_store_busy" {
+		w.Header().Set("Retry-After", "1")
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

@@ -2,12 +2,13 @@ package cli
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/lifecycle"
 )
 
 func newAliasCmd() *cobra.Command {
@@ -35,14 +36,14 @@ result with alias list, then run doctor and opencode sync.`,
 func newAliasAddCmd() *cobra.Command {
 	var name, display, protocol string
 	var disabled bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Create or update an alias (without targets)",
-		Long: `alias add creates or updates alias metadata in local ocswitch config.
+		Long: `alias add creates or updates alias metadata in local ocswitch config via Service.
 
 It writes the alias record itself, but it does not add or validate targets.
-Enabled aliases still need at least one routable target before doctor and
-opencode sync will treat them as usable.
+Auto-generated aliases must be upgraded before mutation.
 
 When updating an existing alias, omitted display-name preserves the current
 value and existing targets stay attached. Typical next step: add targets with
@@ -54,30 +55,20 @@ ocswitch alias bind.`,
 			if name == "" {
 				return fmt.Errorf("--name is required")
 			}
-			cfg, err := loadCfg()
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would upsert alias %q via Service/ConfigStore\n", name)
+				return nil
+			}
+			view, err := appService().UpsertAlias(cmd.Context(), app.AliasUpsertInput{
+				Alias:       name,
+				DisplayName: display,
+				Protocol:    protocol,
+				Disabled:    disabled,
+			})
 			if err != nil {
 				return err
 			}
-			existing := cfg.FindAlias(name)
-			a := config.Alias{Alias: name, DisplayName: display, Protocol: config.NormalizeAliasProtocol(protocol), Enabled: !disabled}
-			if existing != nil {
-				if display == "" {
-					a.DisplayName = existing.DisplayName
-				}
-				if strings.TrimSpace(protocol) == "" {
-					a.Protocol = existing.Protocol
-				}
-				a.Enabled = existing.Enabled
-				if disabled {
-					a.Enabled = false
-				}
-				a.Targets = existing.Targets
-			}
-			cfg.UpsertAlias(a)
-			if err := cfg.Save(); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "saved alias %q [%s] (enabled=%v)\n", name, a.Protocol, a.Enabled)
+			fmt.Fprintf(cmd.OutOrStdout(), "saved alias %q [%s] (enabled=%v)\n", view.Alias, view.Protocol, view.Enabled)
 			return nil
 		},
 	}
@@ -85,6 +76,7 @@ ocswitch alias bind.`,
 	cmd.Flags().StringVar(&display, "display-name", "", "human-friendly display name")
 	cmd.Flags().StringVar(&protocol, "protocol", config.ProtocolOpenAIResponses, "alias protocol")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "create in disabled state")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
 	return cmd
 }
 
@@ -103,12 +95,19 @@ This command does not modify config and does not contact upstream providers.`,
 		Example: `  ocswitch alias list
   ocswitch --config /path/to/config.json alias list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
+			svc := appService()
+			aliases, err := svc.ListAliases(cmd.Context())
 			if err != nil {
 				return err
 			}
-			aliases := append([]config.Alias(nil), cfg.Aliases...)
-			sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
+			providers, err := svc.ListProviders(cmd.Context())
+			if err != nil {
+				return err
+			}
+			providerByID := make(map[string]app.ProviderView, len(providers))
+			for _, p := range providers {
+				providerByID[p.ID] = p
+			}
 			if len(aliases) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "(no aliases)")
 				return nil
@@ -125,11 +124,11 @@ This command does not modify config and does not contact upstream providers.`,
 						mark = " "
 					}
 					note := ""
-					provider := cfg.FindProvider(t.Provider)
+					p, ok := providerByID[t.Provider]
 					switch {
-					case provider == nil:
+					case !ok:
 						note = " (missing provider)"
-					case !provider.IsEnabled():
+					case p.Disabled:
 						note = " (provider disabled)"
 					}
 					fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %d. %s/%s%s\n", mark, i+1, t.Provider, t.Model, note)
@@ -143,11 +142,12 @@ This command does not modify config and does not contact upstream providers.`,
 func newAliasBindCmd() *cobra.Command {
 	var alias, provider, model string
 	var disabled bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "bind",
 		Short: "Append a target (provider/model) to an alias in failover order",
 		Long: `alias bind appends one provider/model target to an alias's ordered failover
-chain in local ocswitch config.
+chain in local ocswitch config via Service.
 
 The provider must already exist. If the alias does not exist yet, this command
 auto-creates an enabled alias for convenience. You can pass the target either as
@@ -158,7 +158,8 @@ provider has a stored model catalog discovered from /v1/models, bind validates
 the model name against that discovered list.
 
 Order matters: the first bound target is tried first, the second is fallback,
-and so on. Typical next step: inspect with alias list, then run doctor.`,
+and so on. Auto aliases must be upgraded before bind. Typical next step: inspect
+with alias list, then run doctor.`,
 		Example: `  ocswitch alias bind --alias gpt-5.4 --model su8/gpt-5.4
   ocswitch alias bind --alias gpt-5.4 --model codex/GPT-5.4
   ocswitch alias bind --alias gpt-5.4 --provider relay --model gpt-5.4 --disabled`,
@@ -174,31 +175,20 @@ and so on. Typical next step: inspect with alias list, then run doctor.`,
 				provider = combinedProvider
 				model = combinedModel
 			}
-			cfg, err := loadCfg()
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would bind %s → %s/%s via Service/ConfigStore\n", alias, provider, model)
+				return nil
+			}
+			view, err := appService().BindAliasTarget(cmd.Context(), app.AliasTargetInput{
+				Alias:    alias,
+				Provider: provider,
+				Model:    model,
+				Disabled: disabled,
+			})
 			if err != nil {
 				return err
 			}
-			p := cfg.FindProvider(provider)
-			if p == nil {
-				return fmt.Errorf("provider %q does not exist; add it first", provider)
-			}
-			providerProtocol := config.NormalizeProviderProtocol(p.Protocol)
-			if err := validateProviderModelKnown(provider, p.Models, p.ModelsSource, model); err != nil {
-				return err
-			}
-			currentAlias := cfg.FindAlias(alias)
-			if currentAlias == nil {
-				cfg.UpsertAlias(config.Alias{Alias: alias, Protocol: providerProtocol, Enabled: true})
-			} else if !config.ProtocolsMatch(currentAlias.Protocol, providerProtocol) {
-				return fmt.Errorf("alias %q protocol %q does not match provider %q protocol %q", alias, config.NormalizeAliasProtocol(currentAlias.Protocol), provider, providerProtocol)
-			}
-			if err := cfg.AddTarget(alias, config.Target{Provider: provider, Model: model, Enabled: !disabled}); err != nil {
-				return err
-			}
-			if err := cfg.Save(); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "bound %s [%s] → %s/%s\n", alias, providerProtocol, provider, model)
+			fmt.Fprintf(cmd.OutOrStdout(), "bound %s [%s] → %s/%s\n", view.Alias, view.Protocol, provider, model)
 			return nil
 		},
 	}
@@ -206,26 +196,25 @@ and so on. Typical next step: inspect with alias list, then run doctor.`,
 	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (fallback; prefer --model provider/model)")
 	cmd.Flags().StringVar(&model, "model", "", "upstream target model, or provider/model when --provider is omitted (required)")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "add target in disabled state")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
 	return cmd
 }
+
 func newAliasUnbindCmd() *cobra.Command {
 	var alias, provider, model string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "unbind",
 		Short: "Remove a target from an alias",
 		Long: `alias unbind removes one concrete provider/model target tuple from an alias in
-local ocswitch config.
+local ocswitch config via Service.
 
 It does not delete the alias itself. Removing a target can leave the alias with
 no routable targets, which doctor and opencode sync will then treat as invalid
 or unavailable.
 
 You can identify the target either as --provider <id> --model <name> or in the
-recommended combined form --model <provider>/<model> when --provider is omitted.
-The explicit --provider flag remains available as a compatibility fallback.
-
-Typical next step: run alias list or doctor to confirm the remaining target
-chain.`,
+recommended combined form --model <provider>/<model> when --provider is omitted.`,
 		Example: `  ocswitch alias unbind --alias gpt-5.4 --model codex/GPT-5.4
   ocswitch alias unbind --alias gpt-5.4 --provider codex --model GPT-5.4
   ocswitch doctor`,
@@ -241,14 +230,15 @@ chain.`,
 				provider = combinedProvider
 				model = combinedModel
 			}
-			cfg, err := loadCfg()
-			if err != nil {
-				return err
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would unbind %s → %s/%s via Service/ConfigStore\n", alias, provider, model)
+				return nil
 			}
-			if err := cfg.RemoveTarget(alias, provider, model); err != nil {
-				return err
-			}
-			if err := cfg.Save(); err != nil {
+			if _, err := appService().UnbindAliasTarget(cmd.Context(), app.AliasTargetInput{
+				Alias:    alias,
+				Provider: provider,
+				Model:    model,
+			}); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "unbound %s → %s/%s\n", alias, provider, model)
@@ -258,40 +248,81 @@ chain.`,
 	cmd.Flags().StringVar(&alias, "alias", "", "alias name (required)")
 	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (fallback; prefer --model provider/model)")
 	cmd.Flags().StringVar(&model, "model", "", "upstream target model, or provider/model when --provider is omitted (required)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
 	return cmd
 }
 
 func newAliasRemoveCmd() *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	var yes bool
+	cmd := &cobra.Command{
 		Use:   "remove <alias>",
 		Args:  cobra.ExactArgs(1),
 		Short: "Delete an alias entirely",
 		Long: `alias remove deletes one alias and all of its target bindings from local ocswitch
-config.
+config via Service lifecycle planning.
 
-Future opencode sync runs will stop exposing that alias in provider.ocswitch.models.
-This command does not directly clear top-level model selections that may still
-reference the old alias in OpenCode config.
-
-Typical next step: run ocswitch opencode sync if OpenCode exposure should be updated.`,
-		Example: `  ocswitch alias remove gpt-5.4
+Rewrite selector impacts default to keep_rule on this convenience path.
+Use --dry-run to print the impact plan without persisting. Non-interactive
+shells require --yes to execute. Use --json for a single envelope on stdout.`,
+		Example: `  ocswitch alias remove gpt-5.4 --dry-run
+  ocswitch alias remove gpt-5.4 --yes
   ocswitch opencode sync`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
+			name := strings.TrimSpace(args[0])
+			rev, plan, selections, err := previewRemoveAliasWithSelections(cmd, name)
 			if err != nil {
-				return err
+				return finishOutcome(cmd, err, nil)
 			}
-			if !cfg.RemoveAlias(args[0]) {
-				return fmt.Errorf("alias %q not found", args[0])
+			payload, _ := marshalPayload(lifecycle.AliasRemovePayload{Alias: name})
+			op := lifecycle.Operation{Kind: lifecycle.OpAliasRemove, Payload: payload}
+
+			if jsonOutput && dryRun {
+				_, env := app.ClassifyOutcome(nil, plan)
+				return writeJSONEnvelope(cmd.OutOrStdout(), env)
 			}
-			if err := cfg.Save(); err != nil {
-				return err
+			if !jsonOutput {
+				if dryRun {
+					fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would remove alias %q\n", name)
+				}
+				printPlanHuman(cmd.OutOrStdout(), plan)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed alias %q\n", args[0])
+			if dryRun {
+				return nil
+			}
+			if !plan.Executable || strings.TrimSpace(plan.PlanToken) == "" {
+				return finishOutcome(cmd, &app.OutcomeError{
+					Code: "plan_not_executable",
+					Params: map[string]any{
+						"operationKind": lifecycle.OpAliasRemove,
+						"alias":         name,
+						"blockerCount":  len(plan.Blockers),
+						"choiceCount":   len(plan.Choices),
+					},
+				}, plan)
+			}
+			ok, cerr := confirmExecute(cmd, yes)
+			if cerr != nil {
+				return finishOutcome(cmd, cerr, plan)
+			}
+			if !ok {
+				fmt.Fprintln(cmd.OutOrStdout(), "aborted")
+				return nil
+			}
+			result, err := executeLifecyclePlan(cmd, rev, plan, op, selections)
+			if err != nil {
+				return finishOutcome(cmd, err, result)
+			}
+			if jsonOutput {
+				_, env := app.ClassifyOutcome(nil, result)
+				return writeJSONEnvelope(cmd.OutOrStdout(), env)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed alias %q\n", name)
+			printExecuteHuman(cmd.OutOrStdout(), result)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview impact plan without persisting")
+	cmd.Flags().BoolVar(&yes, "yes", false, "execute without interactive confirmation")
+	return cmd
 }
-
-// unused helper kept for clarity if future commands want to normalize lists
-var _ = strings.TrimSpace

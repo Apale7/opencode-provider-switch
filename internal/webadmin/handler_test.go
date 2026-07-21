@@ -147,6 +147,67 @@ func (s *pingSpyService) StopProxy(ctx context.Context) (appcore.ProxyStatusView
 	return s.Service.GetProxyStatus(ctx)
 }
 
+func TestLifecycleRoutesAndRevisionConflictMapping(t *testing.T) {
+	t.Parallel()
+
+	service := &pingSpyService{Service: appcore.NewService(filepath.Join(t.TempDir(), "config.json"))}
+	h, err := NewHandler(Options{
+		Version:    "test",
+		Shell:      "server",
+		Service:    service,
+		ServerMode: true,
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+
+	revReq := httptest.NewRequest(http.MethodGet, "/api/config/revision", nil)
+	revResp := httptest.NewRecorder()
+	h.ServeHTTP(revResp, revReq)
+	if revResp.Code != http.StatusOK {
+		t.Fatalf("revision status = %d body=%s", revResp.Code, revResp.Body.String())
+	}
+	var revPayload struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Revision appcore.ConfigRevision `json:"revision"`
+		} `json:"data"`
+		Outcome struct {
+			Code string `json:"code"`
+		} `json:"outcome"`
+	}
+	if err := json.Unmarshal(revResp.Body.Bytes(), &revPayload); err != nil {
+		t.Fatalf("unmarshal revision: %v", err)
+	}
+	if !revPayload.OK || revPayload.Outcome.Code != "ok" || revPayload.Data.Revision == "" {
+		t.Fatalf("revision payload = %#v", revPayload)
+	}
+
+	// Stale revision must map to HTTP 409 + stable code.
+	body := `{"revision":"stale-revision","operation":{"kind":"provider.remove","payload":{"providerId":"missing"}},"selections":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/lifecycle/preview", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	h.ServeHTTP(resp, req)
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("preview stale status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	var conflict struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		Outcome struct {
+			Code   string         `json:"code"`
+			Params map[string]any `json:"params"`
+		} `json:"outcome"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &conflict); err != nil {
+		t.Fatalf("unmarshal conflict: %v", err)
+	}
+	if conflict.OK || conflict.Error != "revision_conflict" || conflict.Outcome.Code != "revision_conflict" {
+		t.Fatalf("conflict payload = %#v", conflict)
+	}
+}
+
 func (s *pingSpyService) SyncOpenCode(ctx context.Context, in appcore.SyncInput) (appcore.SyncResult, error) {
 	return s.Service.ApplyOpenCodeSync(ctx, in)
 }

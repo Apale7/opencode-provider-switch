@@ -75,6 +75,7 @@ prefer command-local --help over README summaries.`,
 		},
 	}
 	root.PersistentFlags().StringVar(&configPath, "config", "", fmt.Sprintf("path to %s config.json (default: $%s, else $XDG_CONFIG_HOME/%s/config.json, else ~/.config/%s/config.json)", config.AppName, config.ConfigEnvVar, config.ConfigDirName, config.ConfigDirName))
+	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "emit a single machine-readable JSON envelope on stdout for supported commands")
 
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newServerCmd(version))

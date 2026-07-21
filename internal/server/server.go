@@ -18,6 +18,7 @@ import (
 
 	"github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/configstore"
 	"github.com/Apale7/opencode-provider-switch/internal/webadmin"
 )
 
@@ -114,40 +115,131 @@ func Run(opts RunOptions) error {
 }
 
 func ensureAdminConfig(opts RunOptions) (*config.Config, bool, error) {
-	cfg, err := config.Load(opts.ConfigPath)
+	path := strings.TrimSpace(opts.ConfigPath)
+	if path == "" {
+		path = config.DefaultPath()
+	}
+	store, err := bootstrapConfigStore(path)
 	if err != nil {
 		return nil, false, err
 	}
-	if strings.TrimSpace(opts.Host) != "" {
-		cfg.Admin.Host = strings.TrimSpace(opts.Host)
+	ctx := context.Background()
+	snap, err := store.Snapshot(ctx)
+	if err != nil {
+		return nil, false, err
 	}
-	if opts.Port != 0 {
-		cfg.Admin.Port = opts.Port
+	cfg := snap.Value
+	if cfg == nil {
+		return nil, false, fmt.Errorf("bootstrap config is nil")
 	}
-	if strings.TrimSpace(cfg.Admin.Host) == "" {
-		cfg.Admin.Host = "127.0.0.1"
+
+	hostOverride := strings.TrimSpace(opts.Host)
+	portOverride := opts.Port
+	needHost := hostOverride != ""
+	needPort := portOverride != 0
+	needKey := strings.TrimSpace(cfg.Admin.APIKey) == ""
+	if !needHost && !needPort && !needKey {
+		// Still normalize defaults in-memory for listeners without rewriting disk.
+		if strings.TrimSpace(cfg.Admin.Host) == "" {
+			cfg.Admin.Host = "127.0.0.1"
+		}
+		if cfg.Admin.Port == 0 {
+			cfg.Admin.Port = 9983
+		}
+		if errs := cfg.Validate(); len(errs) > 0 {
+			return nil, false, errs[0]
+		}
+		return cfg, false, nil
 	}
-	if cfg.Admin.Port == 0 {
-		cfg.Admin.Port = 9983
-	}
+
 	generated := false
-	if strings.TrimSpace(cfg.Admin.APIKey) == "" {
+	var generatedKey string
+	if needKey {
 		key, err := generateAdminAPIKey()
 		if err != nil {
 			return nil, false, err
 		}
-		cfg.Admin.APIKey = key
+		generatedKey = key
 		generated = true
 	}
-	if errs := cfg.Validate(); len(errs) > 0 {
-		return nil, false, errs[0]
-	}
-	if generated || strings.TrimSpace(opts.Host) != "" || opts.Port != 0 {
-		if err := cfg.Save(); err != nil {
-			return nil, false, err
+
+	result, err := store.Mutate(ctx, snap.Revision, func(_ context.Context, current *config.Config) (configstore.Mutation[*config.Config], error) {
+		if current == nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("bootstrap config is nil")
 		}
+		next, err := current.CloneDeep()
+		if err != nil {
+			return configstore.Mutation[*config.Config]{}, err
+		}
+		changed := false
+		if needHost {
+			next.Admin.Host = hostOverride
+			changed = true
+		}
+		if needPort {
+			next.Admin.Port = portOverride
+			changed = true
+		}
+		if strings.TrimSpace(next.Admin.Host) == "" {
+			next.Admin.Host = "127.0.0.1"
+			changed = true
+		}
+		if next.Admin.Port == 0 {
+			next.Admin.Port = 9983
+			changed = true
+		}
+		if generated && strings.TrimSpace(next.Admin.APIKey) == "" {
+			next.Admin.APIKey = generatedKey
+			changed = true
+		}
+		if errs := next.ValidateForPersist(); len(errs) > 0 {
+			return configstore.Mutation[*config.Config]{}, errs[0]
+		}
+		// Bootstrap also enforces full Validate for serve readiness.
+		if errs := next.Validate(); len(errs) > 0 {
+			return configstore.Mutation[*config.Config]{}, errs[0]
+		}
+		return configstore.Mutation[*config.Config]{Value: next, Changed: changed}, nil
+	})
+	if err != nil {
+		return nil, false, err
 	}
-	return cfg, generated, nil
+	return result.Snapshot.Value, generated, nil
+}
+
+func bootstrapConfigStore(path string) (*configstore.Store[*config.Config], error) {
+	hooks := configstore.Hooks[*config.Config]{
+		Validate: func(_ context.Context, candidate configstore.Candidate[*config.Config]) error {
+			if candidate.Value == nil {
+				return fmt.Errorf("candidate config is nil")
+			}
+			if errs := candidate.Value.ValidateForPersist(); len(errs) > 0 {
+				return errs[0]
+			}
+			return nil
+		},
+	}
+	codec := configstore.Codec[*config.Config]{
+		Decode: func(p string, raw []byte, exists bool) (*config.Config, error) {
+			if !exists || len(raw) == 0 {
+				return config.LoadFromBytes(p, nil)
+			}
+			return config.LoadFromBytes(p, raw)
+		},
+		Clone: func(cfg *config.Config) (*config.Config, error) {
+			if cfg == nil {
+				return config.Default(), nil
+			}
+			return cfg.CloneDeep()
+		},
+		Encode: func(_ configstore.Snapshot[*config.Config], candidate *config.Config) ([]byte, error) {
+			if candidate == nil {
+				return nil, fmt.Errorf("encode config: nil candidate")
+			}
+			return candidate.MarshalPersistent()
+		},
+	}
+	return configstore.New(path, codec, hooks)
 }
 
 func generateAdminAPIKey() (string, error) {
@@ -380,4 +472,16 @@ func (s appService) PreviewOpenCodeSyncDiff(ctx context.Context, in app.SyncInpu
 
 func (s appService) SyncOpenCode(ctx context.Context, in app.SyncInput) (app.SyncResult, error) {
 	return s.service.ApplyOpenCodeSync(ctx, in)
+}
+
+func (s appService) GetConfigRevision(ctx context.Context) (app.ConfigRevision, error) {
+	return s.service.GetConfigRevision(ctx)
+}
+
+func (s appService) PreviewLifecycle(ctx context.Context, in app.LifecyclePreviewInput) (app.LifecyclePlanView, error) {
+	return s.service.PreviewLifecycle(ctx, in)
+}
+
+func (s appService) ExecuteLifecycle(ctx context.Context, in app.LifecycleExecuteInput) (app.LifecycleExecuteResult, error) {
+	return s.service.ExecuteLifecycle(ctx, in)
 }

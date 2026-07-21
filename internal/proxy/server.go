@@ -489,28 +489,32 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 	}
 	if alias == nil {
 		s.logger.Printf("req=%d alias lookup failed for model=%q alias=%q", reqID, rawModel, aliasName)
-		trace.Error = fmt.Sprintf("alias %q not found", aliasName)
-		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q not found", aliasName))
+		msg := fmt.Sprintf("alias %q not found", aliasName)
+		finishLocalRequestTrace(&trace, http.StatusNotFound, "alias_missing", msg)
+		writeProtocolError(w, http.StatusNotFound, "model_not_found", msg)
 		return
 	}
 	if !config.ProtocolsMatch(alias.Protocol, protocol) {
 		// Manual/auto alias found but protocol mismatch: do not fall through to other layers.
-		trace.Error = fmt.Sprintf("alias %q does not support protocol %q", aliasName, protocol)
-		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q does not support protocol %q", aliasName, protocol))
+		msg := fmt.Sprintf("alias %q does not support protocol %q", aliasName, protocol)
+		finishLocalRequestTrace(&trace, http.StatusNotFound, "protocol_mismatch", msg)
+		writeProtocolError(w, http.StatusNotFound, "model_not_found", msg)
 		return
 	}
 	if !alias.Enabled {
 		// Manual/auto alias found but disabled: do not fall through to other layers.
 		s.logger.Printf("req=%d alias=%q disabled source=%s", reqID, aliasName, aliasSource)
-		trace.Error = fmt.Sprintf("alias %q is disabled", aliasName)
-		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q is disabled", aliasName))
+		msg := fmt.Sprintf("alias %q is disabled", aliasName)
+		finishLocalRequestTrace(&trace, http.StatusNotFound, "alias_disabled", msg)
+		writeProtocolError(w, http.StatusNotFound, "model_not_found", msg)
 		return
 	}
 	targets := s.availableTargetsForAuth(state, auth, *alias)
 	if len(targets) == 0 {
 		s.logger.Printf("req=%d alias=%q has no available targets source=%s fallback=%v", reqID, aliasName, aliasSource, aliasSource != "manual")
-		trace.Error = fmt.Sprintf("alias %q not found", aliasName)
-		writeProtocolError(w, http.StatusNotFound, "model_not_found", fmt.Sprintf("alias %q not found", aliasName))
+		msg := fmt.Sprintf("alias %q has no available targets", aliasName)
+		finishLocalRequestTrace(&trace, http.StatusNotFound, "no_available_target", msg)
+		writeProtocolError(w, http.StatusNotFound, "model_not_found", msg)
 		return
 	}
 	if aliasSource != "manual" {
@@ -1723,6 +1727,18 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// finishLocalRequestTrace records a local (pre-upstream) failure on the request
+// trace so StatusCode/ErrorCode match the HTTP response written to the client.
+func finishLocalRequestTrace(trace *RequestTrace, status int, code, msg string) {
+	if trace == nil {
+		return
+	}
+	trace.StatusCode = status
+	trace.ErrorCode = code
+	trace.Error = msg
+	trace.Success = false
 }
 
 func classifyFailureReason(attempt TraceAttempt, retryable bool) routing.FailureReason {

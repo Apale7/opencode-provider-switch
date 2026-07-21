@@ -3,13 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
-	"github.com/Apale7/opencode-provider-switch/internal/opencode"
+	"github.com/Apale7/opencode-provider-switch/internal/lifecycle"
 )
 
 func newProviderCmd() *cobra.Command {
@@ -48,14 +48,16 @@ func newProviderAddCmd() *cobra.Command {
 	var clearHeaders bool
 	var disabled bool
 	var skipModels bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add or update an upstream provider",
 		Long: `provider add creates or updates one upstream provider entry in local ocswitch
 config.
 
-It writes only the ocswitch config file. --protocol defaults to openai-responses.
-By default the command also calls the upstream
+It writes only the ocswitch config file via the shared Service/ConfigStore path.
+--protocol defaults to openai-responses. By default the command also calls the
+upstream
 /v1/models endpoint with the supplied credentials and stores the discovered
 model list so later bind operations can catch typos early. Discovery failures
 only emit warnings and do not block saving connection settings. Use
@@ -86,10 +88,6 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 			if err := config.ValidateProviderBaseURL(protocol, baseURL); err != nil {
 				return fmt.Errorf("invalid --base-url: %w", err)
 			}
-			cfg, err := loadCfg()
-			if err != nil {
-				return err
-			}
 			apiKeyChanged := cmd.Flags().Changed("api-key")
 			headersChanged := cmd.Flags().Changed("header")
 			clearHeadersRequested := cmd.Flags().Changed("clear-headers") && clearHeaders
@@ -109,70 +107,66 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 				}
 				hdrs[key] = strings.TrimSpace(v)
 			}
-			p := config.Provider{
-				ID:       id,
-				Name:     name,
-				Protocol: protocol,
-				BaseURL:  config.NormalizeProviderBaseURL(baseURL),
-				APIKey:   apiKey,
-				Headers:  normalizeProviderHeaders(hdrs),
-				Disabled: disabled,
-			}
-			connectionChanged := false
-			if existing := cfg.FindProvider(id); existing != nil {
-				if p.Name == "" {
-					p.Name = existing.Name
-				}
-				if !apiKeyChanged {
-					p.APIKey = existing.APIKey
-				}
-				if !headersChanged && !clearHeadersRequested && len(existing.Headers) > 0 {
-					p.Headers = cloneHeaders(existing.Headers)
-				}
-				if !disabledChanged {
-					p.Disabled = existing.Disabled
-				}
-				p.Models = append([]string(nil), existing.Models...)
-				p.ModelsSource = existing.ModelsSource
-				connectionChanged = !providerConnectionEqual(*existing, p)
-			}
-			if !skipModels {
-				models, err := opencode.FetchProviderModels(p.Protocol, p.BaseURL, p.APIKey, p.Headers)
-				if err != nil {
-					if connectionChanged {
-						p.Models = append([]string(nil), p.Models...)
-						p.ModelsSource = ""
-						fmt.Fprintln(cmd.ErrOrStderr(), "warning: provider connection changed and model discovery failed; keeping existing model catalog as untrusted")
-					}
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not discover provider models: %v\n", err)
-				} else if normalized := config.NormalizeProviderModels(models); len(normalized) > 0 {
-					p.Models = normalized
-					p.ModelsSource = "discovered"
-				} else {
-					if connectionChanged {
-						p.Models = append([]string(nil), p.Models...)
-						p.ModelsSource = ""
-						fmt.Fprintln(cmd.ErrOrStderr(), "warning: provider connection changed and model discovery returned no models; keeping existing model catalog as untrusted")
-					} else {
-						fmt.Fprintln(cmd.ErrOrStderr(), "warning: provider model discovery returned no models; keeping existing model catalog")
-					}
-				}
-			} else if connectionChanged {
-				p.Models = append([]string(nil), p.Models...)
-				p.ModelsSource = ""
-				fmt.Fprintln(cmd.ErrOrStderr(), "warning: provider connection changed with --skip-models; keeping existing model catalog as untrusted")
-			}
-			cfg.UpsertProvider(p)
-			if err := cfg.Save(); err != nil {
+
+			// Load existing only to resolve omit-semantics for dry-run messaging and flag defaults.
+			existingProviders, err := appService().ListProviders(cmd.Context())
+			if err != nil {
 				return err
 			}
+			var existing *app.ProviderView
+			for i := range existingProviders {
+				if existingProviders[i].ID == id {
+					existing = &existingProviders[i]
+					break
+				}
+			}
+
+			in := app.ProviderUpsertInput{
+				ID:           id,
+				Name:         name,
+				Protocol:     protocol,
+				BaseURL:      config.NormalizeProviderBaseURL(baseURL),
+				SkipModels:   skipModels,
+				ClearHeaders: clearHeadersRequested,
+			}
+			if apiKeyChanged {
+				in.APIKey = apiKey
+				if strings.TrimSpace(apiKey) == "" {
+					in.ClearAPIKeys = true
+				}
+			}
+			if headersChanged || clearHeadersRequested {
+				in.Headers = normalizeProviderHeaders(hdrs)
+			}
+			if disabledChanged {
+				in.Disabled = disabled
+			} else if existing != nil {
+				in.Disabled = existing.Disabled
+			}
+
+			if dryRun {
+				action := "create"
+				if existing != nil {
+					action = "update"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would %s provider %q via Service/ConfigStore (skip-models=%v)\n", action, id, skipModels)
+				return nil
+			}
+
+			result, err := appService().UpsertProvider(cmd.Context(), in)
+			if err != nil {
+				return err
+			}
+			for _, warning := range result.Warnings {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", rewriteProviderWarning(warning))
+			}
 			state := "enabled"
-			if p.Disabled {
+			if result.Provider.Disabled {
 				state = "disabled"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q [%s] %s → %s\n", id, state, p.Protocol, baseURL)
-			if !skipModels && p.ModelsSource == "discovered" {
-				fmt.Fprintf(cmd.OutOrStdout(), "  discovered %d model(s)\n", len(p.Models))
+			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q [%s] %s → %s\n", result.Provider.ID, state, result.Provider.Protocol, result.Provider.BaseURL)
+			if !skipModels && result.Provider.ModelsSource == "discovered" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  discovered %d model(s)\n", len(result.Provider.Models))
 			}
 			return nil
 		},
@@ -186,20 +180,11 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 	cmd.Flags().BoolVar(&clearHeaders, "clear-headers", false, "remove all saved extra headers before applying updates")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "save provider in disabled state")
 	cmd.Flags().BoolVar(&skipModels, "skip-models", false, "skip provider /v1/models discovery")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
 	if err := cmd.Flags().SetAnnotation("skip-models", cobra.BashCompOneRequiredFlag, []string{"false"}); err != nil {
 		panic(err)
 	}
 	return cmd
-}
-func cloneHeaders(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 func newProviderListCmd() *cobra.Command {
@@ -253,7 +238,8 @@ func newProviderStateCmd(use string, disabled bool) *cobra.Command {
 	if disabled {
 		action = "disabled"
 	}
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   use + " <id>",
 		Args:  cobra.ExactArgs(1),
 		Short: strings.Title(action[:len(action)-1]) + " a provider without changing alias target state",
@@ -268,146 +254,159 @@ reachability. Typical next step: run ocswitch doctor to confirm routable aliases
 		Example: fmt.Sprintf(`  ocswitch provider %s <id>
   ocswitch doctor`, use),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
-			if err != nil {
+			id := strings.TrimSpace(args[0])
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would set provider %q disabled=%v via Service/ConfigStore\n", id, disabled)
+				return nil
+			}
+			if _, err := appService().SetProviderDisabled(cmd.Context(), app.ProviderStateInput{ID: id, Disabled: disabled}); err != nil {
 				return err
 			}
-			existing := cfg.FindProvider(args[0])
-			if existing == nil {
-				return fmt.Errorf("provider %q not found", args[0])
-			}
-			updated := *existing
-			updated.Disabled = disabled
-			cfg.UpsertProvider(updated)
-			if err := cfg.Save(); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s provider %q\n", action, args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "%s provider %q\n", action, id)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
+	return cmd
 }
 
 func newProviderRemoveCmd() *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	var yes bool
+	cmd := &cobra.Command{
 		Use:   "remove <id>",
 		Args:  cobra.ExactArgs(1),
-		Short: "Remove a provider (targets referencing it must be removed first or will fail doctor)",
-		Long: `provider remove deletes one provider from local ocswitch config.
+		Short: "Remove a provider through the lifecycle planner",
+		Long: `provider remove deletes one provider from local ocswitch config via Service.
 
-It does not automatically clean alias target references that still point at the
-removed provider. If aliases still reference it, doctor will report invalid
-config and those aliases will not be routable.
+Protected manual/locked alias targets block removal until resolved through the
+lifecycle preview/execute flow. Unlocked auto targets and priority entries are
+cleaned automatically.
 
-Typical follow-up: inspect aliases, unbind stale targets, then run ocswitch doctor.`,
-		Example: `  ocswitch provider remove su8
-  ocswitch alias list
+Use --dry-run to print the impact plan without persisting. Non-interactive
+shells require --yes to execute an executable plan. Use --json for a single
+envelope on stdout.`,
+		Example: `  ocswitch provider remove su8 --dry-run
+  ocswitch provider remove su8 --yes
+  ocswitch provider remove su8 --json --yes
   ocswitch doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadCfg()
+			id := strings.TrimSpace(args[0])
+			rev, plan, err := previewRemoveProvider(cmd, id)
 			if err != nil {
-				return err
+				return finishOutcome(cmd, err, nil)
 			}
-			if !cfg.RemoveProvider(args[0]) {
-				return fmt.Errorf("provider %q not found", args[0])
+			payload, _ := marshalPayload(lifecycle.ProviderRemovePayload{ProviderID: id})
+			op := lifecycle.Operation{Kind: lifecycle.OpProviderRemove, Payload: payload}
+
+			if jsonOutput && dryRun {
+				_, env := app.ClassifyOutcome(nil, plan)
+				return writeJSONEnvelope(cmd.OutOrStdout(), env)
 			}
-			if err := cfg.Save(); err != nil {
-				return err
+			if !jsonOutput {
+				if dryRun {
+					fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would remove provider %q\n", id)
+				}
+				printPlanHuman(cmd.OutOrStdout(), plan)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed provider %q\n", args[0])
+			if dryRun {
+				return nil
+			}
+			if !plan.Executable || strings.TrimSpace(plan.PlanToken) == "" {
+				return finishOutcome(cmd, &app.OutcomeError{
+					Code: "plan_not_executable",
+					Params: map[string]any{
+						"operationKind": lifecycle.OpProviderRemove,
+						"providerId":    id,
+						"blockerCount":  len(plan.Blockers),
+						"choiceCount":   len(plan.Choices),
+					},
+				}, plan)
+			}
+			ok, cerr := confirmExecute(cmd, yes)
+			if cerr != nil {
+				return finishOutcome(cmd, cerr, plan)
+			}
+			if !ok {
+				fmt.Fprintln(cmd.OutOrStdout(), "aborted")
+				return nil
+			}
+			result, err := executeLifecyclePlan(cmd, rev, plan, op, nil)
+			if err != nil {
+				return finishOutcome(cmd, err, result)
+			}
+			if jsonOutput {
+				_, env := app.ClassifyOutcome(nil, result)
+				return writeJSONEnvelope(cmd.OutOrStdout(), env)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed provider %q\n", id)
+			printExecuteHuman(cmd.OutOrStdout(), result)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview impact plan without persisting")
+	cmd.Flags().BoolVar(&yes, "yes", false, "execute without interactive confirmation")
+	return cmd
 }
 
 func newProviderImportCmd() *cobra.Command {
 	var srcPath string
 	var overwrite bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "import-opencode",
 		Short: "Import supported custom providers from OpenCode",
 		Long: `provider import-opencode reads an OpenCode config file and copies supported
-custom providers into local ocswitch config.
+custom providers into local ocswitch config through Service/ConfigStore.
 
-By default it reads the global user OpenCode config resolved in precedence order
-opencode.jsonc > opencode.json > config.json under ~/.config/opencode (XDG
-aware). It does not follow OPENCODE_CONFIG_DIR for this default source; use
---from when you want a different file.
-
-Only config-defined providers currently supported by local import rules are imported.
-Imported baseURL values must still satisfy the local /v1 requirement. Providers
-with an empty apiKey are allowed and kept as-is. Unsupported provider shapes are
-skipped by design. Existing ocswitch providers are skipped unless --overwrite is
-given.
-Typical next step: run ocswitch provider list, then create aliases and bindings.`,
+By default it reads the global user OpenCode config. Use --from when you want a
+different file. Existing ocswitch providers are skipped unless --overwrite is
+given.`,
 		Example: `  ocswitch provider import-opencode
   ocswitch provider import-opencode --from /path/to/opencode.jsonc
   ocswitch provider import-opencode --overwrite`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fromChanged := cmd.Flags().Changed("from")
-			if srcPath == "" {
-				p, existed := opencode.ResolveGlobalConfigPath()
-				if !existed {
-					return fmt.Errorf("no OpenCode config found at %s; use --from to specify", p)
-				}
-				srcPath = p
-			} else if fromChanged {
+			if srcPath != "" && fromChanged {
 				if _, err := os.Stat(srcPath); err != nil {
 					return fmt.Errorf("read %s: %w", srcPath, err)
 				}
 			}
-			raw, err := opencode.Load(srcPath)
-			if err != nil {
-				return err
-			}
-			imports := opencode.ImportCustomProviders(raw)
-			if len(imports) == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "no importable supported providers found in %s\n", srcPath)
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would import OpenCode providers from %q overwrite=%v via Service/ConfigStore\n", srcPath, overwrite)
 				return nil
 			}
-			cfg, err := loadCfg()
+			result, err := appService().ImportProviders(cmd.Context(), app.ProviderImportInput{
+				SourcePath: srcPath,
+				Overwrite:  overwrite,
+			})
 			if err != nil {
 				return err
 			}
-			imported := 0
-			skipped := 0
-			for _, ip := range imports {
-				if !overwrite && cfg.FindProvider(ip.ID) != nil {
-					skipped++
-					fmt.Fprintf(cmd.OutOrStdout(), "skip %q (already exists, use --overwrite)\n", ip.ID)
+			for _, warning := range result.Warnings {
+				// Keep legacy "skip ..." lines on stdout for existing CLI tests/scripts.
+				if strings.HasPrefix(warning, "skip ") {
+					// Service uses "enable overwrite"; CLI historically said "use --overwrite".
+					line := strings.ReplaceAll(warning, "enable overwrite to replace it", "use --overwrite")
+					fmt.Fprintln(cmd.OutOrStdout(), line)
 					continue
 				}
-				baseURL := config.NormalizeProviderBaseURL(ip.BaseURL)
-				if err := config.ValidateProviderBaseURL(ip.Protocol, baseURL); err != nil {
-					skipped++
-					fmt.Fprintf(cmd.OutOrStdout(), "skip %q (invalid baseURL %q: %v)\n", ip.ID, ip.BaseURL, err)
-					continue
-				}
-				existing := cfg.FindProvider(ip.ID)
-				merged := mergeImportedProvider(existing, opencode.ImportableProvider{
-					ID:       ip.ID,
-					Name:     ip.Name,
-					Protocol: ip.Protocol,
-					BaseURL:  baseURL,
-					APIKey:   ip.APIKey,
-					Headers:  ip.Headers,
-					Models:   ip.Models,
-				})
-				cfg.UpsertProvider(merged)
-				imported++
-				fmt.Fprintf(cmd.OutOrStdout(), "import %q [%s] → %s (models: %s)\n", ip.ID, merged.Protocol, baseURL, strings.Join(merged.Models, ","))
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 			}
-			if imported > 0 {
-				if err := cfg.Save(); err != nil {
-					return err
-				}
+			if result.Imported == 0 && result.Skipped == 0 && len(result.Warnings) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "no importable supported providers found in %s\n", result.SourcePath)
+				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "imported=%d skipped=%d\n", imported, skipped)
+			for _, p := range result.Providers {
+				fmt.Fprintf(cmd.OutOrStdout(), "import %q [%s] → %s (models: %s)\n", p.ID, p.Protocol, p.BaseURL, strings.Join(p.Models, ","))
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "imported=%d skipped=%d\n", result.Imported, result.Skipped)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&srcPath, "from", "", "OpenCode config to read (default: global user config)")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "overwrite existing provider entries")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
 	return cmd
 }
 
@@ -429,67 +428,11 @@ func normalizeProviderHeaders(in map[string]string) map[string]string {
 	return out
 }
 
-func providerConnectionEqual(a, b config.Provider) bool {
-	return config.NormalizeProviderBaseURL(a.BaseURL) == config.NormalizeProviderBaseURL(b.BaseURL) &&
-		a.APIKey == b.APIKey &&
-		reflect.DeepEqual(normalizeProviderHeaders(a.Headers), normalizeProviderHeaders(b.Headers))
-}
-
-func providerCatalogEndpointEqual(a, b config.Provider) bool {
-	return config.NormalizeProviderBaseURL(a.BaseURL) == config.NormalizeProviderBaseURL(b.BaseURL) &&
-		a.APIKey == b.APIKey &&
-		reflect.DeepEqual(normalizeProviderHeaders(a.Headers), normalizeProviderHeaders(b.Headers))
-}
-
-func mergeImportedProvider(existing *config.Provider, ip opencode.ImportableProvider) config.Provider {
-	importedModels := config.NormalizeProviderModels(ip.Models)
-	merged := config.Provider{
-		ID:           ip.ID,
-		Name:         ip.Name,
-		Protocol:     config.NormalizeProviderProtocol(ip.Protocol),
-		BaseURL:      config.NormalizeProviderBaseURL(ip.BaseURL),
-		APIKey:       ip.APIKey,
-		Headers:      cloneHeaders(ip.Headers),
-		Models:       importedModels,
-		ModelsSource: "imported",
-	}
-	if len(importedModels) == 0 {
-		merged.ModelsSource = ""
-	}
-	if existing == nil {
-		return merged
-	}
-	merged.Headers = cloneHeaders(existing.Headers)
-	merged.Disabled = existing.Disabled
-	if merged.Name == "" {
-		merged.Name = existing.Name
-	}
-	if existing.ModelsSource == "discovered" {
-		prospective := merged
-		prospective.Headers = cloneHeaders(existing.Headers)
-		prospective.Disabled = existing.Disabled
-		if providerCatalogEndpointEqual(*existing, prospective) {
-			merged.Models = append([]string(nil), existing.Models...)
-			merged.ModelsSource = existing.ModelsSource
-			return merged
-		}
-		if len(importedModels) == 0 {
-			merged.Models = append([]string(nil), existing.Models...)
-			merged.ModelsSource = ""
-			return merged
-		}
-	}
-	if len(importedModels) == 0 {
-		merged.Models = nil
-		merged.ModelsSource = ""
-	}
-	return merged
-}
-
-// maskKey redacts middle characters of an API key for display.
-func maskKey(k string) string {
-	if len(k) <= 8 {
-		return "***"
-	}
-	return k[:4] + "…" + k[len(k)-4:]
+func rewriteProviderWarning(warning string) string {
+	// Keep CLI phrasing stable for existing scripts/tests.
+	replacer := strings.NewReplacer(
+		"skip models enabled", "--skip-models",
+		"provider connection changed with skip models enabled", "provider connection changed with --skip-models",
+	)
+	return replacer.Replace(warning)
 }

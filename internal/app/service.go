@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/configstore"
+	"github.com/Apale7/opencode-provider-switch/internal/diagnostics"
 	"github.com/Apale7/opencode-provider-switch/internal/opencode"
 	"github.com/Apale7/opencode-provider-switch/internal/proxy"
 	"github.com/Apale7/opencode-provider-switch/internal/routing"
@@ -117,7 +119,19 @@ func (s *Service) RunDoctor(ctx context.Context) (DoctorReport, error) {
 	if err != nil {
 		return DoctorReport{}, err
 	}
-	issues := doctorIssues(cfg.Validate())
+	issues := structuralDoctorIssues(cfg.Validate())
+	if typed, scanErr := diagnostics.ScanConfig(cfg, diagnostics.ScanOptions{}); scanErr == nil {
+		issues = append(issues, doctorIssuesFromDiagnostics(typed)...)
+	} else {
+		issues = append(issues, DoctorIssue{
+			SchemaVersion: diagnostics.SchemaVersion,
+			Code:          string(diagnostics.CodeConfigInvalid),
+			Severity:      string(diagnostics.SeverityError),
+			Reason:        string(diagnostics.ReasonInvalid),
+			Message:       scanErr.Error(),
+			ActionHint:    actionHintForCode(string(diagnostics.CodeConfigInvalid)),
+		})
+	}
 	issues = append(issues, requestRewriteWarningIssues(cfg.RequestRewriteRulesSnapshot())...)
 	path, existed := opencode.ResolveGlobalConfigPath()
 	raw, loadErr := opencode.Load(path)
@@ -336,41 +350,38 @@ func (s *Service) GetProxySettings(ctx context.Context) (ProxySettingsView, erro
 }
 
 func (s *Service) SaveProxySettings(ctx context.Context, in ProxySettingsInput) (ProxySettingsSaveResult, error) {
-	_ = ctx
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return ProxySettingsSaveResult{}, err
-	}
-	cfg.Server.ConnectTimeoutMs = normalizePositiveInt(in.ConnectTimeoutMs, config.DefaultConnectTimeoutMs)
-	cfg.Server.ResponseHeaderTimeoutMs = normalizePositiveInt(in.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs)
-	cfg.Server.FirstByteTimeoutMs = normalizePositiveInt(in.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
-	cfg.Server.RequestReadTimeoutMs = normalizePositiveInt(in.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs)
-	cfg.Server.StreamIdleTimeoutMs = normalizePositiveInt(in.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
 	if in.StreamPrecommitBufferMs < 0 {
 		return ProxySettingsSaveResult{}, fmt.Errorf("server.stream_precommit_buffer_ms must be greater than or equal to 0")
-	}
-	cfg.Server.StreamPrecommitBufferMs = in.StreamPrecommitBufferMs
-	if in.ExcludeFirstTokenLatencyFromRate != nil {
-		cfg.Server.ExcludeFirstTokenLatencyFromRate = *in.ExcludeFirstTokenLatencyFromRate
 	}
 	if err := config.ValidateFailoverStatusCodes(in.FailoverStatusCodes); err != nil {
 		return ProxySettingsSaveResult{}, err
 	}
-	cfg.Server.FailoverStatusCodes = config.NormalizeFailoverStatusCodes(in.FailoverStatusCodes)
 	normalizedRouting := routing.NormalizeConfig(routing.Config{Strategy: in.Routing.Strategy, Params: in.Routing.Params})
 	if err := routing.ValidateConfig(normalizedRouting); err != nil {
 		return ProxySettingsSaveResult{}, err
 	}
-	cfg.Server.Routing = normalizedRouting
-	if err := cfg.Save(); err != nil {
-		return ProxySettingsSaveResult{}, err
-	}
-	warnings := []string{}
-	status := s.currentProxyStatus(proxyBindAddress(cfg))
-	if status.Running {
-		warnings = append(warnings, "saved proxy timeout settings; restart proxy to apply changes")
-	}
-	return ProxySettingsSaveResult{Settings: proxySettingsView(cfg.Server), Warnings: warnings}, nil
+	var out ProxySettingsSaveResult
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		cfg.Server.ConnectTimeoutMs = normalizePositiveInt(in.ConnectTimeoutMs, config.DefaultConnectTimeoutMs)
+		cfg.Server.ResponseHeaderTimeoutMs = normalizePositiveInt(in.ResponseHeaderTimeoutMs, config.DefaultResponseHeaderTimeoutMs)
+		cfg.Server.FirstByteTimeoutMs = normalizePositiveInt(in.FirstByteTimeoutMs, config.DefaultFirstByteTimeoutMs)
+		cfg.Server.RequestReadTimeoutMs = normalizePositiveInt(in.RequestReadTimeoutMs, config.DefaultRequestReadTimeoutMs)
+		cfg.Server.StreamIdleTimeoutMs = normalizePositiveInt(in.StreamIdleTimeoutMs, config.DefaultStreamIdleTimeoutMs)
+		cfg.Server.StreamPrecommitBufferMs = in.StreamPrecommitBufferMs
+		if in.ExcludeFirstTokenLatencyFromRate != nil {
+			cfg.Server.ExcludeFirstTokenLatencyFromRate = *in.ExcludeFirstTokenLatencyFromRate
+		}
+		cfg.Server.FailoverStatusCodes = config.NormalizeFailoverStatusCodes(in.FailoverStatusCodes)
+		cfg.Server.Routing = normalizedRouting
+		warnings := []string{}
+		status := s.currentProxyStatus(proxyBindAddress(cfg))
+		if status.Running {
+			warnings = append(warnings, "saved proxy timeout settings; restart proxy to apply changes")
+		}
+		out = ProxySettingsSaveResult{Settings: proxySettingsView(cfg.Server), Warnings: warnings}
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return out, err
 }
 
 func (s *Service) ListRequestTraces(ctx context.Context, limit int) ([]RequestTrace, error) {
@@ -430,23 +441,20 @@ func (s *Service) GetDesktopPrefs(ctx context.Context) (DesktopPrefsView, error)
 }
 
 func (s *Service) SaveDesktopPrefs(ctx context.Context, in DesktopPrefsInput) (DesktopPrefsView, error) {
-	_ = ctx
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return DesktopPrefsView{}, err
-	}
-	cfg.Desktop = config.Desktop{
-		LaunchAtLogin:  in.LaunchAtLogin,
-		AutoStartProxy: in.AutoStartProxy,
-		MinimizeToTray: in.MinimizeToTray,
-		Notifications:  in.Notifications,
-		Theme:          normalizeThemePreference(in.Theme),
-		Language:       normalizeLanguagePreference(in.Language),
-	}
-	if err := cfg.Save(); err != nil {
-		return DesktopPrefsView{}, err
-	}
-	return desktopPrefsView(cfg.Desktop), nil
+	var view DesktopPrefsView
+	_, err := s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		cfg.Desktop = config.Desktop{
+			LaunchAtLogin:  in.LaunchAtLogin,
+			AutoStartProxy: in.AutoStartProxy,
+			MinimizeToTray: in.MinimizeToTray,
+			Notifications:  in.Notifications,
+			Theme:          normalizeThemePreference(in.Theme),
+			Language:       normalizeLanguagePreference(in.Language),
+		}
+		view = desktopPrefsView(cfg.Desktop)
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	return view, err
 }
 
 type preparedSync struct {
@@ -715,12 +723,7 @@ func firstMaskedKey(keys []string) string {
 func aliasView(cfg *config.Config, alias config.Alias) AliasView {
 	targets := make([]AliasTargetView, 0, len(alias.Targets))
 	for _, target := range alias.Targets {
-		targets = append(targets, AliasTargetView{
-			Provider:      target.Provider,
-			Model:         target.Model,
-			Enabled:       target.Enabled,
-			AutoGenerated: target.AutoGenerated,
-		})
+		targets = append(targets, aliasTargetView(cfg, alias, target))
 	}
 	return AliasView{
 		Alias:                alias.Alias,
@@ -757,18 +760,24 @@ func requestRewriteRuleView(rule config.RequestRewriteRule) RequestRewriteRuleVi
 }
 
 func doctorIssues(errs []error) []DoctorIssue {
-	issues := make([]DoctorIssue, 0, len(errs))
-	for _, err := range errs {
-		issues = append(issues, DoctorIssue{Code: "config_invalid", Severity: "error", Message: err.Error(), ActionHint: "fix local ocswitch config and rerun doctor"})
-	}
-	return issues
+	return structuralDoctorIssues(errs)
 }
 
 func requestRewriteWarningIssues(rules []config.RequestRewriteRule) []DoctorIssue {
 	issues := []DoctorIssue{}
 	for _, rule := range rules {
 		for _, warning := range config.RequestRewriteRuleWarnings(rule) {
-			issues = append(issues, DoctorIssue{Code: "rewrite_rule_legacy", Severity: "warning", Message: warning, Alias: rule.Alias, ActionHint: "edit the rewrite rule and replace set/delete with ops"})
+			issues = append(issues, DoctorIssue{
+				SchemaVersion:  diagnostics.SchemaVersion,
+				Code:           string(diagnostics.CodeRewriteRuleLegacy),
+				Severity:       string(diagnostics.SeverityWarning),
+				Reason:         string(diagnostics.ReasonLegacy),
+				Message:        warning,
+				Alias:          rule.Alias,
+				ActionHint:     actionHintForCode(string(diagnostics.CodeRewriteRuleLegacy)),
+				AllowedActions: []string{string(diagnostics.ActionMigrateRewriteRule), string(diagnostics.ActionKeep)},
+				Params:         map[string]any{"ruleName": rule.Name, "alias": rule.Alias},
+			})
 		}
 	}
 	return issues
@@ -1143,7 +1152,15 @@ func maskKey(k string) string {
 func reconcileFileSnapshot(cfg *config.Config, snapshot opencode.FileConfigSnapshot) []DoctorIssue {
 	issues := []DoctorIssue{}
 	if snapshot.ParseError != "" {
-		issues = append(issues, DoctorIssue{Code: "file_parse_error", Severity: "error", Message: snapshot.ParseError, Path: snapshot.TargetPath, ActionHint: "fix OpenCode config JSON/JSONC syntax"})
+		issues = append(issues, DoctorIssue{
+			SchemaVersion: diagnostics.SchemaVersion,
+			Code:          string(diagnostics.CodeFileParseError),
+			Severity:      string(diagnostics.SeverityError),
+			Reason:        string(diagnostics.ReasonInvalid),
+			Message:       snapshot.ParseError,
+			Path:          snapshot.TargetPath,
+			ActionHint:    actionHintForCode(string(diagnostics.CodeFileParseError)),
+		})
 		return issues
 	}
 	availableByProtocol := map[string][]string{}
@@ -1156,17 +1173,67 @@ func reconcileFileSnapshot(cfg *config.Config, snapshot opencode.FileConfigSnaps
 		wantAliases := availableByProtocol[provider.Protocol]
 		wantBaseURL := proxyBaseURLForProtocol(cfg, provider.Protocol)
 		if !provider.ContractConfigured && len(wantAliases) > 0 {
-			issues = append(issues, DoctorIssue{Code: "sync_contract_mismatch", Severity: "warning", Protocol: provider.Protocol, ProviderKey: provider.Key, Path: snapshot.TargetPath, Message: fmt.Sprintf("provider.%s missing from target file", provider.Key), Expected: strings.Join(wantAliases, ", "), ActionHint: "run ocswitch opencode sync"})
+			issues = append(issues, DoctorIssue{
+				SchemaVersion:  diagnostics.SchemaVersion,
+				Code:           string(diagnostics.CodeOpenCodeContractMissing),
+				Severity:       string(diagnostics.SeverityWarning),
+				Reason:         string(diagnostics.ReasonMissing),
+				Protocol:       provider.Protocol,
+				ProviderKey:    provider.Key,
+				Path:           snapshot.TargetPath,
+				Message:        fmt.Sprintf("provider.%s missing from target file", provider.Key),
+				Expected:       strings.Join(wantAliases, ", "),
+				ActionHint:     actionHintForCode(string(diagnostics.CodeOpenCodeContractMissing)),
+				AllowedActions: []string{string(diagnostics.ActionResyncOpenCode)},
+			})
 			continue
 		}
 		if len(provider.MissingFields) > 0 {
-			issues = append(issues, DoctorIssue{Code: "sync_contract_mismatch", Severity: "error", Protocol: provider.Protocol, ProviderKey: provider.Key, Path: snapshot.TargetPath, Message: fmt.Sprintf("provider.%s contract incomplete in target file", provider.Key), Details: append([]string(nil), provider.MissingFields...), ActionHint: "run ocswitch opencode sync"})
+			issues = append(issues, DoctorIssue{
+				SchemaVersion:  diagnostics.SchemaVersion,
+				Code:           string(diagnostics.CodeOpenCodeContractInvalid),
+				Severity:       string(diagnostics.SeverityError),
+				Reason:         string(diagnostics.ReasonInvalid),
+				Protocol:       provider.Protocol,
+				ProviderKey:    provider.Key,
+				Path:           snapshot.TargetPath,
+				Message:        fmt.Sprintf("provider.%s contract incomplete in target file", provider.Key),
+				Details:        append([]string(nil), provider.MissingFields...),
+				ActionHint:     actionHintForCode(string(diagnostics.CodeOpenCodeContractInvalid)),
+				AllowedActions: []string{string(diagnostics.ActionResyncOpenCode)},
+			})
 		}
 		if provider.BaseURL != "" && provider.BaseURL != wantBaseURL {
-			issues = append(issues, DoctorIssue{Code: "sync_contract_mismatch", Severity: "error", Protocol: provider.Protocol, ProviderKey: provider.Key, Path: snapshot.TargetPath, Message: fmt.Sprintf("provider.%s baseURL drift", provider.Key), Expected: wantBaseURL, Actual: provider.BaseURL, ActionHint: "run ocswitch opencode sync"})
+			issues = append(issues, DoctorIssue{
+				SchemaVersion:  diagnostics.SchemaVersion,
+				Code:           string(diagnostics.CodeOpenCodeContractDrift),
+				Severity:       string(diagnostics.SeverityError),
+				Reason:         string(diagnostics.ReasonDrift),
+				Protocol:       provider.Protocol,
+				ProviderKey:    provider.Key,
+				Path:           snapshot.TargetPath,
+				Message:        fmt.Sprintf("provider.%s baseURL drift", provider.Key),
+				Expected:       wantBaseURL,
+				Actual:         provider.BaseURL,
+				ActionHint:     actionHintForCode(string(diagnostics.CodeOpenCodeContractDrift)),
+				AllowedActions: []string{string(diagnostics.ActionResyncOpenCode)},
+			})
 		}
 		if !sameStringSet(provider.ModelAliases, wantAliases) {
-			issues = append(issues, DoctorIssue{Code: "catalog_drift", Severity: "warning", Protocol: provider.Protocol, ProviderKey: provider.Key, Path: snapshot.TargetPath, Message: fmt.Sprintf("provider.%s alias catalog drift", provider.Key), Expected: strings.Join(wantAliases, ", "), Actual: strings.Join(provider.ModelAliases, ", "), ActionHint: "run ocswitch opencode sync"})
+			issues = append(issues, DoctorIssue{
+				SchemaVersion:  diagnostics.SchemaVersion,
+				Code:           string(diagnostics.CodeOpenCodeCatalogDrift),
+				Severity:       string(diagnostics.SeverityWarning),
+				Reason:         string(diagnostics.ReasonDrift),
+				Protocol:       provider.Protocol,
+				ProviderKey:    provider.Key,
+				Path:           snapshot.TargetPath,
+				Message:        fmt.Sprintf("provider.%s alias catalog drift", provider.Key),
+				Expected:       strings.Join(wantAliases, ", "),
+				Actual:         strings.Join(provider.ModelAliases, ", "),
+				ActionHint:     actionHintForCode(string(diagnostics.CodeOpenCodeCatalogDrift)),
+				AllowedActions: []string{string(diagnostics.ActionResyncOpenCode)},
+			})
 		}
 	}
 	issues = append(issues, validateDefaultModelSelections(snapshot.DefaultModel, snapshot.SmallModel, availableByProtocol, snapshot.TargetPath)...)
@@ -1176,11 +1243,26 @@ func reconcileFileSnapshot(cfg *config.Config, snapshot opencode.FileConfigSnaps
 func reconcileRuntimeSnapshot(cfg *config.Config, fileSnapshot opencode.FileConfigSnapshot, runtime opencode.RuntimeConfigSnapshot) []DoctorIssue {
 	issues := []DoctorIssue{}
 	if runtime.ErrorCode != "" {
-		severity := "warning"
+		severity := string(diagnostics.SeverityWarning)
+		reason := string(diagnostics.ReasonRuntimeUnavailable)
 		if runtime.ErrorCode == "runtime_auth_failed" || runtime.ErrorCode == "runtime_bad_status" {
-			severity = "error"
+			severity = string(diagnostics.SeverityError)
 		}
-		issues = append(issues, DoctorIssue{Code: runtime.ErrorCode, Severity: severity, Message: runtime.ErrorMessage, Directory: runtime.Directory, Expected: runtime.BaseURL, ActionHint: "ensure OpenCode runtime is reachable and authenticated"})
+		if runtime.ErrorCode == "runtime_parse_error" {
+			severity = string(diagnostics.SeverityError)
+			reason = string(diagnostics.ReasonInvalid)
+		}
+		issues = append(issues, DoctorIssue{
+			SchemaVersion:  diagnostics.SchemaVersion,
+			Code:           runtime.ErrorCode,
+			Severity:       severity,
+			Reason:         reason,
+			Message:        runtime.ErrorMessage,
+			Directory:      runtime.Directory,
+			Expected:       runtime.BaseURL,
+			ActionHint:     actionHintForCode(runtime.ErrorCode),
+			AllowedActions: []string{string(diagnostics.ActionRetryRuntime), string(diagnostics.ActionReloadRuntime)},
+		})
 		return issues
 	}
 	runtimeProviders := map[string]opencode.RuntimeProviderSnapshot{}
@@ -1193,14 +1275,51 @@ func reconcileRuntimeSnapshot(cfg *config.Config, fileSnapshot opencode.FileConf
 		}
 		runtimeProvider, ok := runtimeProviders[fileProvider.Key]
 		if !ok {
-			issues = append(issues, DoctorIssue{Code: "runtime_provider_missing", Severity: "warning", Protocol: fileProvider.Protocol, ProviderKey: fileProvider.Key, Directory: runtime.Directory, Message: fmt.Sprintf("runtime provider %s not exposed by OpenCode", fileProvider.Key), ActionHint: "restart or reload OpenCode after sync"})
+			issues = append(issues, DoctorIssue{
+				SchemaVersion:  diagnostics.SchemaVersion,
+				Code:           string(diagnostics.CodeRuntimeProviderMissing),
+				Severity:       string(diagnostics.SeverityWarning),
+				Reason:         string(diagnostics.ReasonMissing),
+				Protocol:       fileProvider.Protocol,
+				ProviderKey:    fileProvider.Key,
+				Directory:      runtime.Directory,
+				Message:        fmt.Sprintf("runtime provider %s not exposed by OpenCode", fileProvider.Key),
+				ActionHint:     actionHintForCode(string(diagnostics.CodeRuntimeProviderMissing)),
+				AllowedActions: []string{string(diagnostics.ActionReloadRuntime), string(diagnostics.ActionRestartRuntime)},
+			})
 			continue
 		}
 		if fileProvider.NPM != "" && runtimeProvider.NPM != "" && fileProvider.NPM != runtimeProvider.NPM {
-			issues = append(issues, DoctorIssue{Code: "runtime_provider_protocol_mismatch", Severity: "error", Protocol: fileProvider.Protocol, ProviderKey: fileProvider.Key, Directory: runtime.Directory, Message: fmt.Sprintf("runtime provider %s npm drift", fileProvider.Key), Expected: fileProvider.NPM, Actual: runtimeProvider.NPM, ActionHint: "reload OpenCode config or inspect provider overrides"})
+			issues = append(issues, DoctorIssue{
+				SchemaVersion:  diagnostics.SchemaVersion,
+				Code:           string(diagnostics.CodeRuntimeProviderProtocolMismatch),
+				Severity:       string(diagnostics.SeverityError),
+				Reason:         string(diagnostics.ReasonProtocolMismatch),
+				Protocol:       fileProvider.Protocol,
+				ProviderKey:    fileProvider.Key,
+				Directory:      runtime.Directory,
+				Message:        fmt.Sprintf("runtime provider %s npm drift", fileProvider.Key),
+				Expected:       fileProvider.NPM,
+				Actual:         runtimeProvider.NPM,
+				ActionHint:     actionHintForCode(string(diagnostics.CodeRuntimeProviderProtocolMismatch)),
+				AllowedActions: []string{string(diagnostics.ActionReloadRuntime), string(diagnostics.ActionRestartRuntime)},
+			})
 		}
 		if !sameStringSet(fileProvider.ModelAliases, runtimeProvider.ModelIDs) {
-			issues = append(issues, DoctorIssue{Code: "catalog_drift", Severity: "warning", Protocol: fileProvider.Protocol, ProviderKey: fileProvider.Key, Directory: runtime.Directory, Message: fmt.Sprintf("runtime provider %s model catalog drift", fileProvider.Key), Expected: strings.Join(fileProvider.ModelAliases, ", "), Actual: strings.Join(runtimeProvider.ModelIDs, ", "), ActionHint: "compare target file with runtime-loaded provider catalog"})
+			issues = append(issues, DoctorIssue{
+				SchemaVersion:  diagnostics.SchemaVersion,
+				Code:           string(diagnostics.CodeOpenCodeCatalogDrift),
+				Severity:       string(diagnostics.SeverityWarning),
+				Reason:         string(diagnostics.ReasonDrift),
+				Protocol:       fileProvider.Protocol,
+				ProviderKey:    fileProvider.Key,
+				Directory:      runtime.Directory,
+				Message:        fmt.Sprintf("runtime provider %s model catalog drift", fileProvider.Key),
+				Expected:       strings.Join(fileProvider.ModelAliases, ", "),
+				Actual:         strings.Join(runtimeProvider.ModelIDs, ", "),
+				ActionHint:     "compare target file with runtime-loaded provider catalog",
+				AllowedActions: []string{string(diagnostics.ActionResyncOpenCode), string(diagnostics.ActionReloadRuntime)},
+			})
 		}
 	}
 	availableByProtocol := map[string][]string{}
@@ -1211,20 +1330,42 @@ func reconcileRuntimeSnapshot(cfg *config.Config, fileSnapshot opencode.FileConf
 	}
 	issues = append(issues, validateRuntimeDefaultModelSelections(runtime.DefaultModel, runtime.SmallModel, availableByProtocol, runtime.Directory)...)
 	if fileSnapshot.DefaultModel != "" && runtime.DefaultModel != "" && fileSnapshot.DefaultModel != runtime.DefaultModel {
-		issues = append(issues, DoctorIssue{Code: "catalog_drift", Severity: "warning", Message: "runtime default model differs from target file", Expected: fileSnapshot.DefaultModel, Actual: runtime.DefaultModel, Directory: runtime.Directory, ActionHint: "reload OpenCode runtime to pick up file changes"})
+		issues = append(issues, DoctorIssue{
+			SchemaVersion:  diagnostics.SchemaVersion,
+			Code:           string(diagnostics.CodeOpenCodeCatalogDrift),
+			Severity:       string(diagnostics.SeverityWarning),
+			Reason:         string(diagnostics.ReasonDrift),
+			Message:        "runtime default model differs from target file",
+			Expected:       fileSnapshot.DefaultModel,
+			Actual:         runtime.DefaultModel,
+			Directory:      runtime.Directory,
+			ActionHint:     "reload OpenCode runtime to pick up file changes",
+			AllowedActions: []string{string(diagnostics.ActionReloadRuntime)},
+		})
 	}
 	if fileSnapshot.SmallModel != "" && runtime.SmallModel != "" && fileSnapshot.SmallModel != runtime.SmallModel {
-		issues = append(issues, DoctorIssue{Code: "catalog_drift", Severity: "warning", Message: "runtime small_model differs from target file", Expected: fileSnapshot.SmallModel, Actual: runtime.SmallModel, Directory: runtime.Directory, ActionHint: "reload OpenCode runtime to pick up file changes"})
+		issues = append(issues, DoctorIssue{
+			SchemaVersion:  diagnostics.SchemaVersion,
+			Code:           string(diagnostics.CodeOpenCodeCatalogDrift),
+			Severity:       string(diagnostics.SeverityWarning),
+			Reason:         string(diagnostics.ReasonDrift),
+			Message:        "runtime small_model differs from target file",
+			Expected:       fileSnapshot.SmallModel,
+			Actual:         runtime.SmallModel,
+			Directory:      runtime.Directory,
+			ActionHint:     "reload OpenCode runtime to pick up file changes",
+			AllowedActions: []string{string(diagnostics.ActionReloadRuntime)},
+		})
 	}
 	return issues
 }
 
 func validateDefaultModelSelections(model string, smallModel string, aliasesByProtocol map[string][]string, path string) []DoctorIssue {
 	issues := []DoctorIssue{}
-	if issue := validateDefaultModelSelectionIssue("default_model_invalid", model, aliasesByProtocol, path, "model"); issue != nil {
+	if issue := validateDefaultModelSelectionIssue(string(diagnostics.CodeOpenCodeDefaultUnroutable), model, aliasesByProtocol, path, "model"); issue != nil {
 		issues = append(issues, *issue)
 	}
-	if issue := validateDefaultModelSelectionIssue("small_model_invalid", smallModel, aliasesByProtocol, path, "small_model"); issue != nil {
+	if issue := validateDefaultModelSelectionIssue(string(diagnostics.CodeOpenCodeSmallUnroutable), smallModel, aliasesByProtocol, path, "small_model"); issue != nil {
 		issues = append(issues, *issue)
 	}
 	return issues
@@ -1232,12 +1373,12 @@ func validateDefaultModelSelections(model string, smallModel string, aliasesByPr
 
 func validateRuntimeDefaultModelSelections(model string, smallModel string, aliasesByProtocol map[string][]string, directory string) []DoctorIssue {
 	issues := []DoctorIssue{}
-	if issue := validateDefaultModelSelectionIssue("default_model_invalid", model, aliasesByProtocol, directory, "runtime model"); issue != nil {
+	if issue := validateDefaultModelSelectionIssue(string(diagnostics.CodeOpenCodeDefaultUnroutable), model, aliasesByProtocol, directory, "runtime model"); issue != nil {
 		issue.Directory = directory
 		issue.Path = ""
 		issues = append(issues, *issue)
 	}
-	if issue := validateDefaultModelSelectionIssue("small_model_invalid", smallModel, aliasesByProtocol, directory, "runtime small_model"); issue != nil {
+	if issue := validateDefaultModelSelectionIssue(string(diagnostics.CodeOpenCodeSmallUnroutable), smallModel, aliasesByProtocol, directory, "runtime small_model"); issue != nil {
 		issue.Directory = directory
 		issue.Path = ""
 		issues = append(issues, *issue)
@@ -1251,7 +1392,16 @@ func validateDefaultModelSelectionIssue(code string, value string, aliasesByProt
 	}
 	const prefix = "ocswitch/"
 	if !strings.HasPrefix(value, prefix) {
-		return &DoctorIssue{Code: code, Severity: "warning", Message: fmt.Sprintf("%s %q does not point to ocswitch/<alias>", fieldLabel, value), Path: location, ActionHint: "set model to an ocswitch/<alias> value or clear it"}
+		return &DoctorIssue{
+			SchemaVersion:  diagnostics.SchemaVersion,
+			Code:           code,
+			Severity:       string(diagnostics.SeverityWarning),
+			Reason:         string(diagnostics.ReasonMissing),
+			Message:        fmt.Sprintf("%s %q does not point to ocswitch/<alias>", fieldLabel, value),
+			Path:           location,
+			ActionHint:     actionHintForCode(code),
+			AllowedActions: []string{string(diagnostics.ActionSelectRoutableAlias), string(diagnostics.ActionClearExternalValue)},
+		}
 	}
 	alias := strings.TrimPrefix(value, prefix)
 	for _, aliases := range aliasesByProtocol {
@@ -1268,7 +1418,18 @@ func validateDefaultModelSelectionIssue(code string, value string, aliasesByProt
 		}
 	}
 	sort.Strings(available)
-	return &DoctorIssue{Code: code, Severity: "warning", Alias: alias, Message: fmt.Sprintf("%s %q is not routable", fieldLabel, value), Path: location, Expected: strings.Join(available, ", "), ActionHint: "choose one of available routable aliases"}
+	return &DoctorIssue{
+		SchemaVersion:  diagnostics.SchemaVersion,
+		Code:           code,
+		Severity:       string(diagnostics.SeverityWarning),
+		Reason:         string(diagnostics.ReasonMissing),
+		Alias:          alias,
+		Message:        fmt.Sprintf("%s %q is not routable", fieldLabel, value),
+		Path:           location,
+		Expected:       strings.Join(available, ", "),
+		ActionHint:     actionHintForCode(code),
+		AllowedActions: []string{string(diagnostics.ActionSelectRoutableAlias), string(diagnostics.ActionClearExternalValue)},
+	}
 }
 
 func sortDoctorIssues(in []DoctorIssue) []DoctorIssue {
@@ -1308,13 +1469,13 @@ func summarizeReconciliation(cfg *config.Config, fileSnapshot opencode.FileConfi
 	}
 	for _, issue := range issues {
 		switch issue.Code {
-		case "runtime_provider_missing":
+		case string(diagnostics.CodeRuntimeProviderMissing):
 			if issue.ProviderKey != "" {
 				summary.MissingProviders = append(summary.MissingProviders, issue.ProviderKey)
 			}
-		case "default_model_invalid", "small_model_invalid":
+		case string(diagnostics.CodeOpenCodeDefaultUnroutable), string(diagnostics.CodeOpenCodeSmallUnroutable):
 			summary.InvalidDefaultModels = append(summary.InvalidDefaultModels, issue.Message)
-		case "catalog_drift":
+		case string(diagnostics.CodeOpenCodeCatalogDrift):
 			summary.CatalogMismatches = append(summary.CatalogMismatches, issue.Message)
 		}
 	}

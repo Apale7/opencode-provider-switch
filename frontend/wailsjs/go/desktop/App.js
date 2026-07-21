@@ -42,12 +42,20 @@ export function DoctorRun() {
   return window['go']['desktop']['App']['DoctorRun']();
 }
 
+export function ExecuteLifecycle(arg1) {
+  return window['go']['desktop']['App']['ExecuteLifecycle'](arg1);
+}
+
 export function ExportConfig() {
   return window['go']['desktop']['App']['ExportConfig']();
 }
 
 export function GetAutoAliasSettings() {
   return window['go']['desktop']['App']['GetAutoAliasSettings']();
+}
+
+export function GetConfigRevision() {
+  return window['go']['desktop']['App']['GetConfigRevision']();
 }
 
 export function GetProviderPriority() {
@@ -80,6 +88,10 @@ export function Overview() {
 
 export function PingProviderBaseURL(arg1) {
   return window['go']['desktop']['App']['PingProviderBaseURL'](arg1);
+}
+
+export function PreviewLifecycle(arg1) {
+  return window['go']['desktop']['App']['PreviewLifecycle'](arg1);
 }
 
 export function PreviewSync(arg1) {

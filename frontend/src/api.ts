@@ -8,10 +8,15 @@ import type {
   ConfigExportView,
   ConfigImportInput,
   ConfigImportResult,
+  ConfigRevisionView,
   DesktopPrefsSaveResult,
   AliasView,
   DesktopPrefsView,
   DoctorRunResult,
+  LifecycleExecuteInput,
+  LifecycleExecuteResult,
+  LifecyclePlanView,
+  LifecyclePreviewInput,
   MetaView,
   Overview,
   ProviderImportInput,
@@ -43,12 +48,10 @@ import type {
   SyncInput,
   SyncPreview,
   SyncResult,
+  ApiEnvelope,
+  TransportOutcome,
 } from './types'
-
-type ApiEnvelope<T> = {
-  data: T
-  error?: string
-}
+import { TransportError } from './types'
 
 const adminTokenKey = 'ocswitch.adminToken'
 
@@ -69,22 +72,87 @@ function isWails(): boolean {
   return typeof window.go?.desktop?.App !== 'undefined'
 }
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-	const headers = new Headers(init?.headers)
-	headers.set('Content-Type', 'application/json')
-	const token = getAdminToken()
-	if (token) {
-		headers.set('Authorization', `Bearer ${token}`)
-	}
+function emptyOutcome(code = 'internal_error'): TransportOutcome {
+  return { code, params: {}, retryable: false }
+}
+
+function normalizeEnvelope<T>(raw: unknown, fallbackCode = 'internal_error'): ApiEnvelope<T> {
+  if (!raw || typeof raw !== 'object') {
+    return { ok: false, error: fallbackCode, outcome: emptyOutcome(fallbackCode) }
+  }
+  const obj = raw as Record<string, unknown>
+  const outcomeRaw = (obj.outcome && typeof obj.outcome === 'object' ? obj.outcome : {}) as Record<string, unknown>
+  const code =
+    (typeof outcomeRaw.code === 'string' && outcomeRaw.code) ||
+    (typeof obj.error === 'string' && obj.error) ||
+    (obj.ok === true ? 'ok' : fallbackCode)
+  const params =
+    outcomeRaw.params && typeof outcomeRaw.params === 'object' && !Array.isArray(outcomeRaw.params)
+      ? (outcomeRaw.params as Record<string, unknown>)
+      : {}
+  const retryable = typeof outcomeRaw.retryable === 'boolean' ? outcomeRaw.retryable : false
+  const ok = typeof obj.ok === 'boolean' ? obj.ok : code === 'ok' || code === 'restart_pending'
+  return {
+    ok,
+    data: obj.data as T | undefined,
+    error: typeof obj.error === 'string' ? obj.error : ok ? undefined : code,
+    outcome: { code, params, retryable },
+  }
+}
+
+/**
+ * Unwrap a transport envelope. On classified failure throws TransportError
+ * while preserving data (e.g. runtime_apply_failed execute result).
+ */
+export function unwrapEnvelope<T>(envelope: ApiEnvelope<T>, httpStatus?: number): T {
+  if (envelope.ok) {
+    return envelope.data as T
+  }
+  throw new TransportError(envelope, httpStatus)
+}
+
+async function httpEnvelope<T>(path: string, init?: RequestInit): Promise<ApiEnvelope<T>> {
+  const headers = new Headers(init?.headers)
+  headers.set('Content-Type', 'application/json')
+  const token = getAdminToken()
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
   const response = await fetch(path, {
     ...init,
     headers,
   })
-  const payload = (await response.json()) as ApiEnvelope<T>
-  if (!response.ok) {
-    throw new Error(payload.error || 'request failed')
+  let raw: unknown
+  try {
+    raw = await response.json()
+  } catch {
+    throw new TransportError(
+      {
+        ok: false,
+        error: 'internal_error',
+        outcome: emptyOutcome('internal_error'),
+      },
+      response.status,
+    )
   }
-  return payload.data
+  const envelope = normalizeEnvelope<T>(raw)
+  // Legacy responses may omit ok/outcome; treat HTTP ok + data as success.
+  if (envelope.ok === false && response.ok && envelope.data !== undefined && !envelope.error) {
+    return {
+      ok: true,
+      data: envelope.data,
+      outcome: emptyOutcome('ok'),
+    }
+  }
+  if (!envelope.ok) {
+    throw new TransportError(envelope, response.status)
+  }
+  return envelope
+}
+
+async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  const envelope = await httpEnvelope<T>(path, init)
+  return unwrapEnvelope(envelope)
 }
 
 function bridge() {
@@ -95,13 +163,25 @@ function bridge() {
   return app
 }
 
+/** Map Wails lifecycle envelope (resolved, never rejected for business codes). */
+function fromWailsEnvelope<T>(raw: unknown): T {
+  const envelope = normalizeEnvelope<T>(raw)
+  return unwrapEnvelope(envelope)
+}
+
 export async function getMeta(): Promise<MetaView> {
   if (isWails()) {
     const data = await bridge().Meta()
     return {
       version: data.version || '',
       shell: data.shell || 'wails',
-      capabilities: { desktopPrefs: true, openCodeDirectSync: true, proxyControl: true },
+      capabilities: {
+        desktopPrefs: true,
+        openCodeDirectSync: true,
+        proxyControl: true,
+        transportEnvelopeVersion: 1,
+        lifecycleContractVersion: 1,
+      },
     }
   }
   return http<MetaView>('/api/meta')
@@ -346,4 +426,98 @@ export function applySync(input: SyncInput): Promise<SyncResult> {
   return isWails()
     ? bridge().ApplySync(input)
     : http<SyncResult>('/api/opencode-sync/apply', { method: 'POST', body: JSON.stringify(input) })
+}
+
+/** Current config revision (HTTP GET /api/config/revision or Wails envelope). */
+export async function getConfigRevision(): Promise<ConfigRevisionView> {
+  if (isWails()) {
+    return fromWailsEnvelope<ConfigRevisionView>(await bridge().GetConfigRevision())
+  }
+  return http<ConfigRevisionView>('/api/config/revision')
+}
+
+/** Preview a lifecycle mutation without side effects. */
+export async function previewLifecycle(input: LifecyclePreviewInput): Promise<LifecyclePlanView> {
+  if (isWails()) {
+    return fromWailsEnvelope<LifecyclePlanView>(await bridge().PreviewLifecycle(input))
+  }
+  return http<LifecyclePlanView>('/api/lifecycle/preview', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+/**
+ * Execute a previously previewed lifecycle plan.
+ * On runtime_apply_failed, throws TransportError with execute result in data.
+ */
+export async function executeLifecycle(input: LifecycleExecuteInput): Promise<LifecycleExecuteResult> {
+  if (isWails()) {
+    return fromWailsEnvelope<LifecycleExecuteResult>(await bridge().ExecuteLifecycle(input))
+  }
+  return http<LifecycleExecuteResult>('/api/lifecycle/execute', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+/** Envelope-preserving variants for callers that need full outcome (e.g. conflict UI). */
+export async function getConfigRevisionEnvelope(): Promise<ApiEnvelope<ConfigRevisionView>> {
+  if (isWails()) {
+    return normalizeEnvelope<ConfigRevisionView>(await bridge().GetConfigRevision())
+  }
+  try {
+    const data = await http<ConfigRevisionView>('/api/config/revision')
+    return { ok: true, data, outcome: emptyOutcome('ok') }
+  } catch (err) {
+    if (err instanceof TransportError) {
+      return { ok: false, error: err.code, data: err.data as ConfigRevisionView | undefined, outcome: err.outcome }
+    }
+    throw err
+  }
+}
+
+export async function previewLifecycleEnvelope(
+  input: LifecyclePreviewInput,
+): Promise<ApiEnvelope<LifecyclePlanView>> {
+  if (isWails()) {
+    return normalizeEnvelope<LifecyclePlanView>(await bridge().PreviewLifecycle(input))
+  }
+  try {
+    const data = await http<LifecyclePlanView>('/api/lifecycle/preview', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+    return { ok: true, data, outcome: emptyOutcome('ok') }
+  } catch (err) {
+    if (err instanceof TransportError) {
+      return { ok: false, error: err.code, data: err.data as LifecyclePlanView | undefined, outcome: err.outcome }
+    }
+    throw err
+  }
+}
+
+export async function executeLifecycleEnvelope(
+  input: LifecycleExecuteInput,
+): Promise<ApiEnvelope<LifecycleExecuteResult>> {
+  if (isWails()) {
+    return normalizeEnvelope<LifecycleExecuteResult>(await bridge().ExecuteLifecycle(input))
+  }
+  try {
+    const data = await http<LifecycleExecuteResult>('/api/lifecycle/execute', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+    return { ok: true, data, outcome: emptyOutcome(data.pendingRestart ? 'restart_pending' : 'ok') }
+  } catch (err) {
+    if (err instanceof TransportError) {
+      return {
+        ok: false,
+        error: err.code,
+        data: err.data as LifecycleExecuteResult | undefined,
+        outcome: err.outcome,
+      }
+    }
+    throw err
+  }
 }

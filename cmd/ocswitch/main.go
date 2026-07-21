@@ -14,8 +14,15 @@ var version = "dev"
 
 func main() {
 	if err := cli.NewRootCmd(appversion.Resolve(version)).Execute(); err != nil {
-		// cobra already prints the error; ensure non-zero exit
-		fmt.Fprintln(os.Stderr)
-		os.Exit(1)
+		// Classified CLI outcomes carry stable exit codes; others remain 1.
+		code := cli.ExitCode(err)
+		if code <= 0 {
+			code = 1
+		}
+		// Avoid blank line noise for already-printed classified errors.
+		if code == 1 {
+			fmt.Fprintln(os.Stderr)
+		}
+		os.Exit(code)
 	}
 }

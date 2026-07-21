@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Apale7/opencode-provider-switch/internal/app"
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/lifecycle"
 )
 
 type screen int
@@ -92,6 +94,19 @@ type model struct {
 	err              string
 	width            int
 	height           int
+
+	// Lifecycle impact preview (provider/alias remove).
+	impactActive     bool
+	impactLoading    bool
+	impactRevision   app.ConfigRevision
+	impactOp         lifecycle.Operation
+	impactSubject    string
+	impactPlan       LifecyclePlanPresentation
+	impactRawPlan    app.LifecyclePlanView
+	impactSelections map[string]string // choiceID -> optionID
+	impactChoiceIdx  int
+	impactScroll     int
+	impactOutcome    TransportMessage
 }
 
 type loadedMsg struct {
@@ -128,6 +143,17 @@ type syncApplyMsg struct {
 type saveLanguageMsg struct {
 	lang string
 	err  error
+}
+
+type lifecyclePreviewMsg struct {
+	revision app.ConfigRevision
+	plan     app.LifecyclePlanView
+	err      error
+}
+
+type lifecycleExecuteMsg struct {
+	result app.LifecycleExecuteResult
+	err    error
 }
 
 const defaultViewWidth = 92
@@ -254,6 +280,63 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = m.t("status.languageSaved")
 		m.err = ""
 		return m, nil
+	case lifecyclePreviewMsg:
+		m.impactLoading = false
+		if msg.err != nil {
+			tm := TransportMessageFromError(msg.err, nil)
+			m.impactOutcome = tm
+			m.err = m.transportMessageText(tm)
+			if tm.Kind == "conflict" {
+				m.clearImpact()
+				m.screen = m.previous
+				return m, m.refresh(m.t("impact.revisionConflict"))
+			}
+			return m, nil
+		}
+		m.impactRevision = msg.revision
+		m.impactRawPlan = msg.plan
+		m.impactPlan = PresentLifecyclePlan(msg.plan)
+		m.impactOutcome = TransportMessage{}
+		m.err = ""
+		if !msg.plan.Executable {
+			m.status = m.t("impact.notExecutable")
+		} else {
+			m.status = m.t("impact.ready")
+		}
+		m.clampImpactIndexes()
+		return m, nil
+	case lifecycleExecuteMsg:
+		m.impactLoading = false
+		if msg.err != nil {
+			tm := TransportMessageFromError(msg.err, msg.result)
+			m.impactOutcome = tm
+			m.err = m.transportMessageText(tm)
+			if tm.Kind == "conflict" {
+				m.clearImpact()
+				m.screen = m.previous
+				return m, m.refresh(m.t("impact.revisionConflict"))
+			}
+			if tm.Kind == "apply_failed" {
+				summary := PresentLifecycleExecute(msg.result)
+				m.status = m.t("impact.applyFailed", summary.RuntimeState)
+				m.clearImpact()
+				m.screen = m.previous
+				return m, m.refresh(m.status)
+			}
+			if tm.Kind == "blocked" {
+				return m, nil
+			}
+			return m, nil
+		}
+		summary := PresentLifecycleExecute(msg.result)
+		status := m.t("impact.executed", summary.RuntimeState)
+		if summary.PendingRestart {
+			status = m.t("impact.restartPending")
+		}
+		m.clearImpact()
+		m.screen = m.previous
+		m.err = ""
+		return m, m.refresh(status)
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -331,7 +414,11 @@ func (m *model) updateMouseHover(x int, relY int) {
 		m.hoverForm(relY)
 	case screenConfirm:
 		if relY == confirmButtonY() {
-			m.hoverButton = buttonKeyAt(x, m.confirmButtons())
+			if m.impactActive {
+				m.hoverButton = buttonKeyAt(x, m.impactButtons())
+			} else {
+				m.hoverButton = buttonKeyAt(x, m.confirmButtons())
+			}
 		}
 	}
 }
@@ -474,7 +561,7 @@ func (m model) providerButtonClick(key string) (tea.Model, tea.Cmd) {
 			m.err = m.t("error.noProvider")
 			return m, nil
 		}
-		m.openConfirm(actionRemoveProvider, m.t("confirm.removeProvider", p.ID))
+		return m.openImpactProviderRemove(p.ID)
 	case "refresh":
 		return m, m.refresh("")
 	}
@@ -542,7 +629,7 @@ func (m model) aliasButtonClick(key string) (tea.Model, tea.Cmd) {
 			m.err = m.t("error.noAlias")
 			return m, nil
 		}
-		m.openConfirm(actionRemoveAlias, m.t("confirm.removeAlias", a.Alias))
+		return m.openImpactAliasRemove(a.Alias)
 	case "refresh":
 		return m, m.refresh("")
 	}
@@ -628,6 +715,17 @@ func (m model) clickForm(relY int) (tea.Model, tea.Cmd) {
 func (m model) clickConfirm(x int, relY int) (tea.Model, tea.Cmd) {
 	m.hoverButton = ""
 	if relY != confirmButtonY() {
+		return m, nil
+	}
+	if m.impactActive {
+		switch buttonKeyAt(x, m.impactButtons()) {
+		case "yes":
+			return m.updateImpact("y")
+		case "no":
+			return m.updateImpact("n")
+		case "refresh":
+			return m.updateImpact("r")
+		}
 		return m, nil
 	}
 	switch buttonKeyAt(x, m.confirmButtons()) {
@@ -736,7 +834,7 @@ func (m model) updateProviders(key string) (tea.Model, tea.Cmd) {
 			m.err = m.t("error.noProvider")
 			return m, nil
 		}
-		m.openConfirm(actionRemoveProvider, m.t("confirm.removeProvider", p.ID))
+		return m.openImpactProviderRemove(p.ID)
 	}
 	return m, nil
 }
@@ -795,7 +893,7 @@ func (m model) updateAliases(key string) (tea.Model, tea.Cmd) {
 			m.err = m.t("error.noAlias")
 			return m, nil
 		}
-		m.openConfirm(actionRemoveAlias, m.t("confirm.removeAlias", a.Alias))
+		return m.openImpactAliasRemove(a.Alias)
 	}
 	return m, nil
 }
@@ -922,6 +1020,9 @@ func (m *model) moveSelectOption(delta int) {
 }
 
 func (m model) updateConfirm(key string) (tea.Model, tea.Cmd) {
+	if m.impactActive {
+		return m.updateImpact(key)
+	}
 	switch key {
 	case "y", "Y":
 		return m.confirm()
@@ -929,6 +1030,62 @@ func (m model) updateConfirm(key string) (tea.Model, tea.Cmd) {
 		m.hoverButton = ""
 		m.screen = m.previous
 		return m, nil
+	}
+	return m, nil
+}
+
+func (m model) updateImpact(key string) (tea.Model, tea.Cmd) {
+	if m.impactLoading && key != "n" && key != "N" && key != "esc" {
+		return m, nil
+	}
+	switch key {
+	case "n", "N", "esc":
+		m.clearImpact()
+		m.hoverButton = ""
+		m.screen = m.previous
+		return m, nil
+	case "r":
+		m.impactLoading = true
+		m.status = m.t("impact.loading")
+		return m, m.loadImpactPreview()
+	case "up", "k":
+		if m.impactScroll > 0 {
+			m.impactScroll--
+		} else if m.impactChoiceIdx > 0 {
+			m.impactChoiceIdx--
+		}
+		return m, nil
+	case "down", "j":
+		if m.impactChoiceIdx+1 < len(m.impactPlan.Choices) {
+			m.impactChoiceIdx++
+		} else {
+			m.impactScroll++
+		}
+		return m, nil
+	case "left", "h":
+		if len(m.impactPlan.Choices) == 0 {
+			return m, nil
+		}
+		m.cycleImpactOption(-1)
+		m.impactLoading = true
+		m.status = m.t("impact.loading")
+		return m, m.loadImpactPreview()
+	case "right", "l", "tab":
+		if len(m.impactPlan.Choices) == 0 {
+			return m, nil
+		}
+		m.cycleImpactOption(1)
+		m.impactLoading = true
+		m.status = m.t("impact.loading")
+		return m, m.loadImpactPreview()
+	case "y", "Y", "enter":
+		if !m.impactRawPlan.Executable || strings.TrimSpace(m.impactRawPlan.PlanToken) == "" {
+			m.status = m.t("impact.notExecutable")
+			return m, nil
+		}
+		m.impactLoading = true
+		m.status = m.t("impact.executing")
+		return m, m.executeImpact()
 	}
 	return m, nil
 }
@@ -980,23 +1137,10 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) confirm() (tea.Model, tea.Cmd) {
+	if m.impactActive {
+		return m.updateImpact("y")
+	}
 	switch m.confirmAction {
-	case actionRemoveProvider:
-		p := m.selectedProvider()
-		if p == nil {
-			m.err = m.t("error.noProvider")
-			m.screen = m.previous
-			return m, nil
-		}
-		return m, m.removeProvider(p.ID)
-	case actionRemoveAlias:
-		a := m.selectedAlias()
-		if a == nil {
-			m.err = m.t("error.noAlias")
-			m.screen = m.previous
-			return m, nil
-		}
-		return m, m.removeAlias(a.Alias)
 	case actionUnbindTarget:
 		a, t := m.selectedTarget()
 		if a == nil || t == nil {
@@ -1269,10 +1413,290 @@ func (m model) viewForm() string {
 }
 
 func (m model) viewConfirm() string {
+	if m.impactActive {
+		return m.viewImpact()
+	}
 	if len(m.formFields) == 0 {
 		return m.t("confirm.help")
 	}
 	return m.formFields[0].value + "\n\n" + m.renderButtons(m.confirmButtons()) + "\n" + mutedStyle.Render(m.t("confirm.help"))
+}
+
+func (m model) viewImpact() string {
+	var lines []string
+	title := m.t("impact.title", m.impactSubject)
+	if m.impactLoading {
+		lines = append(lines, title, mutedStyle.Render(m.t("impact.loading")))
+	} else {
+		lines = append(lines, title)
+		lines = append(lines, mutedStyle.Render(m.t("impact.meta",
+			m.impactPlan.OperationKind,
+			fmt.Sprintf("%v", m.impactPlan.Executable),
+			m.impactPlan.BaseRevision,
+		)))
+		if m.impactOutcome.Code != "" && !m.impactOutcome.OK {
+			lines = append(lines, errorStyle.Render(m.transportMessageText(m.impactOutcome)))
+		}
+		lines = append(lines, m.renderImpactSection(m.t("impact.automatic"), formatImpactChanges(m.impactPlan.Automatic))...)
+		lines = append(lines, m.renderImpactSection(m.t("impact.blockers"), formatImpactIssues(m.impactPlan.Blockers))...)
+		if len(m.impactPlan.Choices) > 0 {
+			lines = append(lines, sectionStyle.Render(m.t("impact.choices")))
+			for i, ch := range m.impactPlan.Choices {
+				selected := m.impactSelections[ch.ID]
+				if selected == "" && len(ch.Options) > 0 {
+					selected = ch.Options[0].ID
+				}
+				marker := "  "
+				if i == m.impactChoiceIdx {
+					marker = "› "
+				}
+				opts := make([]string, 0, len(ch.Options))
+				for _, opt := range ch.Options {
+					label := opt.ID
+					if opt.ID == selected {
+						label = "[" + opt.ID + "]"
+					}
+					opts = append(opts, label)
+				}
+				line := marker + ch.Code + " " + strings.Join(opts, " | ")
+				if i == m.impactChoiceIdx {
+					line = selectedStyle.Render(line)
+				}
+				lines = append(lines, line)
+			}
+		}
+		lines = append(lines, m.renderImpactSection(m.t("impact.preserved"), formatImpactIssues(m.impactPlan.Preserved))...)
+		if m.impactPlan.RuntimeImpact.ProviderRemoved || m.impactPlan.RuntimeImpact.AliasRemoved || m.impactPlan.RuntimeImpact.RoutingChanged {
+			lines = append(lines, mutedStyle.Render(m.t("impact.runtime",
+				fmt.Sprintf("%v", m.impactPlan.RuntimeImpact.ProviderRemoved),
+				fmt.Sprintf("%v", m.impactPlan.RuntimeImpact.AliasRemoved),
+				fmt.Sprintf("%v", m.impactPlan.RuntimeImpact.RoutingChanged),
+			)))
+		}
+	}
+	body := m.scrollLines(lines, m.impactScroll)
+	help := mutedStyle.Render(m.t("impact.help"))
+	buttons := m.renderButtons(m.impactButtons())
+	return body + "\n\n" + buttons + "\n" + help
+}
+
+func (m model) renderImpactSection(title string, rows []string) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := []string{sectionStyle.Render(title)}
+	out = append(out, rows...)
+	return out
+}
+
+func formatImpactChanges(items []LifecycleChangeLine) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, c := range items {
+		out = append(out, fmt.Sprintf("  - %s %s (%s)", c.Kind, c.Entity, c.ReasonCode))
+	}
+	return out
+}
+
+func formatImpactIssues(items []LifecycleIssueLine) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, issue := range items {
+		path := issue.Path
+		if path == "" {
+			path = "-"
+		}
+		out = append(out, fmt.Sprintf("  - %s @ %s", issue.Code, path))
+	}
+	return out
+}
+
+func (m model) scrollLines(lines []string, offset int) string {
+	maxBody := m.height - 8
+	if maxBody < 8 {
+		maxBody = 8
+	}
+	if len(lines) <= maxBody {
+		return strings.Join(lines, "\n")
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(lines)-maxBody {
+		offset = len(lines) - maxBody
+	}
+	slice := lines[offset : offset+maxBody]
+	more := ""
+	if offset+maxBody < len(lines) {
+		more = "\n" + mutedStyle.Render(m.t("impact.more"))
+	}
+	return strings.Join(slice, "\n") + more
+}
+
+func (m model) impactButtons() []tuiButton {
+	buttons := []tuiButton{{key: "no", label: m.t("confirm.no")}}
+	if m.impactRawPlan.Executable && strings.TrimSpace(m.impactRawPlan.PlanToken) != "" && !m.impactLoading {
+		buttons = append([]tuiButton{{key: "yes", label: m.t("impact.execute")}}, buttons...)
+	} else {
+		buttons = append([]tuiButton{{key: "refresh", label: m.t("impact.refresh")}}, buttons...)
+	}
+	return buttons
+}
+
+func (m model) transportMessageText(tm TransportMessage) string {
+	if tm.Code == "" {
+		return m.t("transport.outcome.internal_error")
+	}
+	key := OutcomeI18nKey(tm.Code)
+	text := m.t(key)
+	if text == key {
+		return tm.Code
+	}
+	return text
+}
+
+func (m *model) clearImpact() {
+	m.impactActive = false
+	m.impactLoading = false
+	m.impactRevision = ""
+	m.impactOp = lifecycle.Operation{}
+	m.impactSubject = ""
+	m.impactPlan = LifecyclePlanPresentation{}
+	m.impactRawPlan = app.LifecyclePlanView{}
+	m.impactSelections = nil
+	m.impactChoiceIdx = 0
+	m.impactScroll = 0
+	m.impactOutcome = TransportMessage{}
+}
+
+func (m *model) clampImpactIndexes() {
+	if m.impactChoiceIdx >= len(m.impactPlan.Choices) {
+		m.impactChoiceIdx = max(0, len(m.impactPlan.Choices)-1)
+	}
+	if m.impactSelections == nil {
+		m.impactSelections = map[string]string{}
+	}
+	for _, ch := range m.impactPlan.Choices {
+		if _, ok := m.impactSelections[ch.ID]; !ok && len(ch.Options) > 0 {
+			m.impactSelections[ch.ID] = ch.Options[0].ID
+		}
+	}
+}
+
+func (m *model) cycleImpactOption(delta int) {
+	if len(m.impactPlan.Choices) == 0 {
+		return
+	}
+	m.clampImpactIndexes()
+	ch := m.impactPlan.Choices[m.impactChoiceIdx]
+	if len(ch.Options) == 0 {
+		return
+	}
+	cur := m.impactSelections[ch.ID]
+	idx := 0
+	for i, opt := range ch.Options {
+		if opt.ID == cur {
+			idx = i
+			break
+		}
+	}
+	idx = (idx + delta) % len(ch.Options)
+	if idx < 0 {
+		idx += len(ch.Options)
+	}
+	if m.impactSelections == nil {
+		m.impactSelections = map[string]string{}
+	}
+	m.impactSelections[ch.ID] = ch.Options[idx].ID
+}
+
+func (m model) impactSelectionSlice() []lifecycle.Selection {
+	if len(m.impactSelections) == 0 {
+		return nil
+	}
+	out := make([]lifecycle.Selection, 0, len(m.impactSelections))
+	for id, opt := range m.impactSelections {
+		if strings.TrimSpace(id) == "" || strings.TrimSpace(opt) == "" {
+			continue
+		}
+		out = append(out, lifecycle.Selection{ChoiceID: id, OptionID: opt})
+	}
+	return out
+}
+
+func (m model) beginImpact(a action, subject string, op lifecycle.Operation) (model, tea.Cmd) {
+	m.previous = m.screen
+	m.screen = screenConfirm
+	m.confirmAction = a
+	m.impactActive = true
+	m.impactLoading = true
+	m.impactSubject = subject
+	m.impactOp = op
+	m.impactSelections = map[string]string{}
+	m.impactChoiceIdx = 0
+	m.impactScroll = 0
+	m.impactOutcome = TransportMessage{}
+	m.impactPlan = LifecyclePlanPresentation{}
+	m.impactRawPlan = app.LifecyclePlanView{}
+	m.impactRevision = ""
+	m.formFields = []field{{value: subject}}
+	m.err = ""
+	m.status = m.t("impact.loading")
+	m.hoverButton = ""
+	return m, m.loadImpactPreview()
+}
+
+func (m model) openImpactProviderRemove(id string) (model, tea.Cmd) {
+	payload, _ := json.Marshal(lifecycle.ProviderRemovePayload{ProviderID: id})
+	op := lifecycle.Operation{Kind: lifecycle.OpProviderRemove, Payload: payload}
+	return m.beginImpact(actionRemoveProvider, id, op)
+}
+
+func (m model) openImpactAliasRemove(name string) (model, tea.Cmd) {
+	payload, _ := json.Marshal(lifecycle.AliasRemovePayload{Alias: name})
+	op := lifecycle.Operation{Kind: lifecycle.OpAliasRemove, Payload: payload}
+	return m.beginImpact(actionRemoveAlias, name, op)
+}
+
+func (m model) previewLifecycleWith(op lifecycle.Operation, selections []lifecycle.Selection) tea.Msg {
+	rev, err := m.svc.GetConfigRevision(m.ctx)
+	if err != nil {
+		return lifecyclePreviewMsg{err: err}
+	}
+	plan, err := m.svc.PreviewLifecycle(m.ctx, app.LifecyclePreviewInput{
+		Revision:   rev,
+		Operation:  op,
+		Selections: selections,
+	})
+	return lifecyclePreviewMsg{revision: rev, plan: plan, err: err}
+}
+
+func (m model) loadImpactPreview() tea.Cmd {
+	op := m.impactOp
+	selections := m.impactSelectionSlice()
+	return func() tea.Msg {
+		return m.previewLifecycleWith(op, selections)
+	}
+}
+
+func (m model) executeImpact() tea.Cmd {
+	rev := m.impactRevision
+	token := m.impactRawPlan.PlanToken
+	op := m.impactOp
+	selections := m.impactSelectionSlice()
+	return func() tea.Msg {
+		result, err := m.svc.ExecuteLifecycle(m.ctx, app.LifecycleExecuteInput{
+			Revision:   rev,
+			PlanToken:  token,
+			Operation:  op,
+			Selections: selections,
+		})
+		return lifecycleExecuteMsg{result: result, err: err}
+	}
 }
 
 func (m model) screenTitle() string {

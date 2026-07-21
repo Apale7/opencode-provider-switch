@@ -1,0 +1,6 @@
+{"tip": "Config layer: verify all Remove* cascade methods handle empty config and edge cases"}
+{"tip": "App layer: test CRUD cascade with mixed auto/manual targets"}
+{"tip": "Proxy layer: verify graceful degradation logs `dangling_ref=true` with structured fields"}
+{"tip": "Frontend: verify warning banner appears consistently for all entity types"}
+{"tip": "Backward compat: load old configs with stale refs → warns but doesn't crash"}
+{"tip": "Import: import config with cross-entity stale refs → validates and surfaces all issues"}

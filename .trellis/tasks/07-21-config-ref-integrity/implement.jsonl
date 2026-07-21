@@ -1,0 +1,13 @@
+{"file": "docs/design-plans/config-reference-integrity.md", "reason": "Detailed design plan with step-by-step tasks"}
+{"file": ".trellis/tasks/07-21-config-ref-integrity/prd.md", "reason": "Product requirements document"}
+{"file": "internal/config/config.go", "reason": "Reference validation and cleanup methods"}
+{"file": "internal/config/config_test.go", "reason": "Config unit tests"}
+{"file": "internal/app/manage.go", "reason": "Service layer CRUD cascade integration"}
+{"file": "internal/app/types.go", "reason": "API types for warnings/validation results"}
+{"file": "internal/app/service_test.go", "reason": "Service tests"}
+{"file": "internal/proxy/server.go", "reason": "Runtime graceful degradation for dangling refs"}
+{"file": "internal/proxy/server_test.go", "reason": "Proxy runtime tests"}
+{"file": "frontend/src/App.tsx", "reason": "UI warnings and fix actions"}
+{"file": "frontend/src/types.ts", "reason": "Frontend type definitions"}
+{"file": "frontend/src/i18n/locales/en.json", "reason": "English i18n strings"}
+{"file": "frontend/src/i18n/locales/zh-CN.json", "reason": "Chinese i18n strings"}

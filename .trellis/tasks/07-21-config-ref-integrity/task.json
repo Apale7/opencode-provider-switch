@@ -1,0 +1,74 @@
+{
+  "id": "07-21-config-ref-integrity",
+  "name": "07-21-config-ref-integrity",
+  "title": "配置引用完整性与用户体验瑕疵梳理",
+  "description": "全面审计配置模型中所有实体间的交叉引用关系，消除删除/更新实体后产生的悬空引用（dangling references），统一各边界的校验规则与 UX 反馈。已知问题：删除 provider 后 alias 中指向该 provider 的 target 不会自动清除导致后续报错；request rewrite 等引用型配置可能有同类问题。",
+  "status": "planning",
+  "dev_type": "fullstack",
+  "scope": "config-reference-integrity",
+  "package": null,
+  "priority": "P1",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-07-21",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/app/manage.go",
+    "internal/app/types.go",
+    "internal/proxy/server.go",
+    "internal/proxy/server_test.go",
+    "internal/routing/",
+    "frontend/src/App.tsx",
+    "frontend/src/types.ts",
+    "frontend/src/i18n/locales/en.json",
+    "frontend/src/i18n/locales/zh-CN.json"
+  ],
+  "notes": "本任务聚焦于「配置引用图」的完整性校验与用户体验修复，不新增功能。依赖 auto-alias-simplify 任务引入的 RemoveProviderAutoTargets 机制和 API Key 任务引入的 scope 引用模型。建议在 auto-alias-simplify 和 provider-multi-ak 完成后执行，但 research 阶段可提前并行。",
+  "meta": {
+    "design_plan": "docs/design-plans/config-reference-integrity.md",
+    "verification": [
+      "go build ./...",
+      "go test ./internal/config/...",
+      "go test ./internal/app/...",
+      "go test ./internal/proxy/...",
+      "npm run build"
+    ]
+  }
+}

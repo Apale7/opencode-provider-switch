@@ -346,6 +346,30 @@ func (a *App) ApplySync(in app.SyncInput) (app.SyncResult, error) {
 	return result, nil
 }
 
+// GetConfigRevision exposes the current config revision to Wails bindings.
+// New lifecycle/revision methods return the same envelope as HTTP (artifact 06).
+func (a *App) GetConfigRevision() app.APIEnvelope {
+	rev, err := a.bindings.GetConfigRevision(a.callContext())
+	_, env := app.ClassifyOutcome(err, map[string]app.ConfigRevision{"revision": rev})
+	return env
+}
+
+// PreviewLifecycle plans a config mutation without side effects.
+// Classified business failures resolve with ok=false envelope (no bridge rejection).
+func (a *App) PreviewLifecycle(in app.LifecyclePreviewInput) app.APIEnvelope {
+	plan, err := a.bindings.PreviewLifecycle(a.callContext(), in)
+	_, env := app.ClassifyOutcome(err, plan)
+	return env
+}
+
+// ExecuteLifecycle commits an executable lifecycle plan under ConfigStore CAS.
+// runtime_apply_failed keeps execute result in data while ok=false.
+func (a *App) ExecuteLifecycle(in app.LifecycleExecuteInput) app.APIEnvelope {
+	result, err := a.bindings.ExecuteLifecycle(a.callContext(), in)
+	_, env := app.ClassifyOutcome(err, result)
+	return env
+}
+
 func (a *App) callContext() context.Context {
 	if a.ctx != nil {
 		return a.ctx

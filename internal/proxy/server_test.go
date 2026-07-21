@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -40,6 +41,121 @@ func TestHandleResponsesWritesOpenAIErrorForMissingAlias(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
 	assertOpenAIError(t, rr.Body.Bytes(), "model_not_found", "invalid_request_error", `alias "missing" not found`)
+	assertLocalTrace(t, srv, "missing", http.StatusNotFound, "alias_missing", `alias "missing" not found`)
+}
+
+func TestHandleResponsesLocalFailuresSetTraceStatusAndReasonCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		cfg       *config.Config
+		model     string
+		wantCode  string
+		wantError string
+	}{
+		{
+			name: "alias_missing",
+			cfg: &config.Config{
+				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+			},
+			model:     "gone",
+			wantCode:  "alias_missing",
+			wantError: `alias "gone" not found`,
+		},
+		{
+			name: "protocol_mismatch",
+			cfg: &config.Config{
+				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+				Providers: []config.Provider{{
+					ID: "p1", Protocol: config.ProtocolAnthropicMessages, BaseURL: "https://example.com", APIKey: "sk",
+				}},
+				Aliases: []config.Alias{{
+					Alias: "chat", Protocol: config.ProtocolAnthropicMessages, Enabled: true,
+					Targets: []config.Target{{Provider: "p1", Model: "m1", Enabled: true}},
+				}},
+			},
+			model:     "chat",
+			wantCode:  "protocol_mismatch",
+			wantError: `alias "chat" does not support protocol "openai-responses"`,
+		},
+		{
+			name: "alias_disabled",
+			cfg: &config.Config{
+				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+				Providers: []config.Provider{{
+					ID: "p1", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://example.com/v1", APIKey: "sk",
+				}},
+				Aliases: []config.Alias{{
+					Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: false,
+					Targets: []config.Target{{Provider: "p1", Model: "m1", Enabled: true}},
+				}},
+			},
+			model:     "chat",
+			wantCode:  "alias_disabled",
+			wantError: `alias "chat" is disabled`,
+		},
+		{
+			name: "no_available_target",
+			cfg: &config.Config{
+				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+				Providers: []config.Provider{{
+					ID: "p1", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://example.com/v1", APIKey: "sk", Disabled: true,
+				}},
+				Aliases: []config.Alias{{
+					Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true,
+					Targets: []config.Target{{Provider: "p1", Model: "m1", Enabled: true}},
+				}},
+			},
+			model:     "chat",
+			wantCode:  "no_available_target",
+			wantError: `alias "chat" has no available targets`,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := New(tc.cfg)
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"model":%q,"stream":false}`, tc.model)))
+			req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			srv.handleResponses(rr, req)
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusNotFound, rr.Body.String())
+			}
+			assertLocalTrace(t, srv, tc.model, http.StatusNotFound, tc.wantCode, tc.wantError)
+		})
+	}
+}
+
+func assertLocalTrace(t *testing.T, srv *Server, alias string, wantStatus int, wantCode, wantError string) {
+	t.Helper()
+	traces, err := srv.traces.List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("list traces: %v", err)
+	}
+	if len(traces) == 0 {
+		t.Fatal("expected at least one trace")
+	}
+	trace := traces[0]
+	if trace.Alias != alias {
+		t.Fatalf("trace.Alias = %q, want %q", trace.Alias, alias)
+	}
+	if trace.StatusCode != wantStatus {
+		t.Fatalf("trace.StatusCode = %d, want %d", trace.StatusCode, wantStatus)
+	}
+	if trace.ErrorCode != wantCode {
+		t.Fatalf("trace.ErrorCode = %q, want %q", trace.ErrorCode, wantCode)
+	}
+	if trace.Error != wantError {
+		t.Fatalf("trace.Error = %q, want %q", trace.Error, wantError)
+	}
+	if trace.Success {
+		t.Fatal("trace.Success = true, want false")
+	}
 }
 
 func TestProxyAPIKeyAuthRejectsConflictingHeaders(t *testing.T) {

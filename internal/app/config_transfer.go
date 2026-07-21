@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
+	"github.com/Apale7/opencode-provider-switch/internal/configstore"
 	"github.com/Apale7/opencode-provider-switch/internal/diagnostics"
 )
 
@@ -27,7 +28,6 @@ func (s *Service) ExportConfig(ctx context.Context) (ConfigExportView, error) {
 }
 
 func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (ConfigImportResult, error) {
-	_ = ctx
 	content := strings.TrimSpace(in.Content)
 	if content == "" {
 		return ConfigImportResult{}, fmt.Errorf("config content is required")
@@ -65,55 +65,54 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 		imported.Admin.Port = 9983
 	}
 
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return ConfigImportResult{}, err
-	}
-	if _, ok := topLevel["admin"]; !ok {
-		imported.Admin = cfg.Admin
-	}
-	if imported.Admin.APIKey == "" {
-		imported.Admin.APIKey = cfg.Admin.APIKey
-	}
-	if _, ok := topLevel["desktop"]; !ok {
-		imported.Desktop = cfg.Desktop
-	}
-	if _, ok := topLevel["request_rewrite_rules"]; !ok {
-		imported.RequestRewriteRules = cfg.RequestRewriteRulesSnapshot()
-	}
-	if _, ok := topLevel["provider_priority"]; !ok {
-		imported.ProviderPriority = append([]string(nil), cfg.ProviderPriority...)
-	}
-	if _, ok := topLevel["auto_alias_enabled"]; !ok {
-		imported.AutoAliasEnabled = cfg.AutoAliasEnabled
-	}
-	cfg.Server = imported.Server
-	cfg.Admin = imported.Admin
-	cfg.Desktop = imported.Desktop
-	cfg.Providers = append([]config.Provider(nil), imported.Providers...)
-	cfg.Aliases = append([]config.Alias(nil), imported.Aliases...)
-	cfg.RequestRewriteRules = append([]config.RequestRewriteRule(nil), imported.RequestRewriteRules...)
-	cfg.ProviderPriority = append([]string(nil), imported.ProviderPriority...)
-	cfg.AutoAliasEnabled = imported.AutoAliasEnabled
-	issues, err := diagnostics.ScanConfig(cfg, diagnostics.ScanOptions{})
-	if err != nil {
-		return ConfigImportResult{}, fmt.Errorf("scan imported config: %w", err)
-	}
-	for _, issue := range issues {
-		if isIdentityAmbiguity(issue.Code) {
-			return ConfigImportResult{}, fmt.Errorf("import candidate has ambiguous identity at %s (%s)", issue.Path, issue.Code)
+	var result ConfigImportResult
+	_, err = s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		if _, ok := topLevel["admin"]; !ok {
+			imported.Admin = cfg.Admin
 		}
-	}
-	if errs := cfg.Validate(); len(errs) > 0 {
-		return ConfigImportResult{}, errs[0]
-	}
-	if err := cfg.Save(); err != nil {
+		if imported.Admin.APIKey == "" {
+			imported.Admin.APIKey = cfg.Admin.APIKey
+		}
+		if _, ok := topLevel["desktop"]; !ok {
+			imported.Desktop = cfg.Desktop
+		}
+		if _, ok := topLevel["request_rewrite_rules"]; !ok {
+			imported.RequestRewriteRules = cfg.RequestRewriteRulesSnapshot()
+		}
+		if _, ok := topLevel["provider_priority"]; !ok {
+			imported.ProviderPriority = append([]string(nil), cfg.ProviderPriority...)
+		}
+		if _, ok := topLevel["auto_alias_enabled"]; !ok {
+			imported.AutoAliasEnabled = cfg.AutoAliasEnabled
+		}
+		cfg.Server = imported.Server
+		cfg.Admin = imported.Admin
+		cfg.Desktop = imported.Desktop
+		cfg.Providers = append([]config.Provider(nil), imported.Providers...)
+		cfg.Aliases = append([]config.Alias(nil), imported.Aliases...)
+		cfg.RequestRewriteRules = append([]config.RequestRewriteRule(nil), imported.RequestRewriteRules...)
+		cfg.ProviderPriority = append([]string(nil), imported.ProviderPriority...)
+		cfg.AutoAliasEnabled = imported.AutoAliasEnabled
+		issues, err := diagnostics.ScanConfig(cfg, diagnostics.ScanOptions{})
+		if err != nil {
+			return configstore.Mutation[*config.Config]{}, fmt.Errorf("scan imported config: %w", err)
+		}
+		for _, issue := range issues {
+			if isIdentityAmbiguity(issue.Code) {
+				return configstore.Mutation[*config.Config]{}, fmt.Errorf("import candidate has ambiguous identity at %s (%s)", issue.Path, issue.Code)
+			}
+		}
+		if errs := cfg.ValidateForPersist(); len(errs) > 0 {
+			return configstore.Mutation[*config.Config]{}, errs[0]
+		}
+		result = ConfigImportResult{ConfigPath: cfg.Path()}
+		if s.currentProxyStatus(proxyBindAddress(cfg)).Running {
+			result.Warnings = append(result.Warnings, "proxy is still running with the previous in-memory config; restart it to apply imported settings")
+		}
+		return configstore.Mutation[*config.Config]{Value: cfg, Changed: true}, nil
+	})
+	if err != nil {
 		return ConfigImportResult{}, err
-	}
-
-	result := ConfigImportResult{ConfigPath: cfg.Path()}
-	if s.currentProxyStatus(proxyBindAddress(cfg)).Running {
-		result.Warnings = append(result.Warnings, "proxy is still running with the previous in-memory config; restart it to apply imported settings")
 	}
 	return result, nil
 }

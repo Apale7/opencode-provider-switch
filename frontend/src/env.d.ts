@@ -58,6 +58,14 @@ declare global {
           SavePrefs: (input: import('./types').DesktopPrefsView) => Promise<import('./types').DesktopPrefsSaveResult>
           PreviewSync: (input: import('./types').SyncInput) => Promise<import('./types').SyncPreview>
           ApplySync: (input: import('./types').SyncInput) => Promise<import('./types').SyncResult>
+          /** Lifecycle/revision methods return the same envelope as HTTP (artifact 06). */
+          GetConfigRevision: () => Promise<import('./types').ApiEnvelope<import('./types').ConfigRevisionView>>
+          PreviewLifecycle: (
+            input: import('./types').LifecyclePreviewInput,
+          ) => Promise<import('./types').ApiEnvelope<import('./types').LifecyclePlanView>>
+          ExecuteLifecycle: (
+            input: import('./types').LifecycleExecuteInput,
+          ) => Promise<import('./types').ApiEnvelope<import('./types').LifecycleExecuteResult>>
         }
       }
     }

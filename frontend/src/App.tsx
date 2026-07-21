@@ -4,11 +4,11 @@ import { useTranslation } from 'react-i18next'
 import {
   applySync,
   bindAliasTarget,
-  deleteAlias,
-  deleteProvider,
   deleteRewriteRule,
+  executeLifecycleEnvelope,
   exportConfig,
   getAutoAliasSettings,
+  getConfigRevision,
   getRequestTrace,
   getAdminToken,
   getMeta,
@@ -20,6 +20,7 @@ import {
   listAliases,
   listProviders,
   listRewriteRules,
+  previewLifecycleEnvelope,
   queryProviderHealth,
   queryRequestTraces,
   refreshProviderModels,
@@ -52,11 +53,18 @@ import type {
   AliasTargetView,
   AliasView,
   AliasUpsertInput,
+  ConfigRevision,
   DesktopPrefsSaveResult,
   DesktopPrefsView,
   DoctorIssue,
   DoctorRunResult,
   LanguagePreference,
+  LifecycleChoice,
+  LifecycleExecuteResult,
+  LifecycleIssue,
+  LifecycleOperation,
+  LifecyclePlanView,
+  LifecycleSelection,
   OpenCodeReconciliationSummary,
   Overview,
   ProviderImportInput,
@@ -87,7 +95,9 @@ import type {
 	SyncPreview,
 	SyncResult,
 	ThemePreference,
+  TransportOutcome,
 } from './types'
+import { TransportError } from './types'
 
 type MetaState = {
   version: string
@@ -166,10 +176,23 @@ type TraceTimeFilterState = {
 	end: string
 }
 type ConfirmIntent =
-  | { kind: 'delete-provider'; id: string }
-  | { kind: 'delete-alias'; alias: string }
   | { kind: 'unbind-target'; alias: string; provider: string; model: string }
   | { kind: 'delete-rewrite-rule'; name: string }
+
+type LifecycleImpactKind = 'provider-remove' | 'alias-remove'
+
+type LifecycleImpactState = {
+  kind: LifecycleImpactKind
+  subject: string
+  operation: LifecycleOperation
+  revision: ConfigRevision
+  plan: LifecyclePlanView | null
+  selections: Record<string, string>
+  loading: boolean
+  executing: boolean
+  outcome: TransportOutcome | null
+  executeResult: LifecycleExecuteResult | null
+}
 
 const tabs: TabKey[] = ['overview', 'providers', 'aliases', 'log', 'network', 'health', 'sync', 'settings']
 const GITHUB_REPOSITORY_URL = 'https://github.com/Apale7/opencode-provider-switch'
@@ -969,7 +992,56 @@ function overviewDebugSnapshot(overview: Overview | null) {
 }
 
 function formatError(error: unknown): string {
+  if (error && typeof error === 'object' && 'outcome' in error) {
+    const te = error as TransportError
+    const code = te.outcome?.code || te.message
+    const key = `transport.outcome.${code}`
+    const localized = i18n.t(key)
+    if (localized && localized !== key) {
+      return localized
+    }
+    return code || String(error)
+  }
   return error instanceof Error ? error.message : String(error)
+}
+
+function outcomeMessage(code: string | undefined): string {
+  const safe = (code || 'internal_error').trim() || 'internal_error'
+  const key = `transport.outcome.${safe}`
+  const localized = i18n.t(key)
+  return localized && localized !== key ? localized : safe
+}
+
+function lifecycleSelectionsFromMap(map: Record<string, string>): LifecycleSelection[] {
+  return Object.entries(map)
+    .filter(([choiceId, optionId]) => choiceId.trim() && optionId.trim())
+    .map(([choiceId, optionId]) => ({ choiceId, optionId }))
+}
+
+function defaultLifecycleSelections(choices: LifecycleChoice[] | undefined, current: Record<string, string> = {}): Record<string, string> {
+  const next = { ...current }
+  for (const choice of choices || []) {
+    if (!choice?.id) {
+      continue
+    }
+    if (!next[choice.id] && choice.options?.length) {
+      next[choice.id] = choice.options[0].id
+    }
+  }
+  return next
+}
+
+function formatLifecycleChangeLine(change: { kind?: string; entity?: string; reasonCode?: string; path?: string }): string {
+  const parts = [change.kind, change.entity, change.reasonCode].filter(Boolean)
+  if (change.path) {
+    parts.push(change.path)
+  }
+  return parts.join(' · ')
+}
+
+function formatLifecycleIssueLine(issue: LifecycleIssue): string {
+  const parts = [issue.code, issue.disposition, issue.path].filter(Boolean)
+  return parts.join(' · ')
 }
 
 function headersTextFromMap(headers?: Record<string, string>): string {
@@ -2369,6 +2441,7 @@ export default function App() {
   const [configImportText, setConfigImportText] = useState('')
   const [configImportFileName, setConfigImportFileName] = useState('')
   const [confirmIntent, setConfirmIntent] = useState<ConfirmIntent | null>(null)
+  const [lifecycleImpact, setLifecycleImpact] = useState<LifecycleImpactState | null>(null)
   const activeRouting = activeRoutingDescriptor(proxySettings)
   const providerDetailRef = useRef<HTMLDivElement | null>(null)
   const aliasDetailRef = useRef<HTMLDivElement | null>(null)
@@ -2682,7 +2755,7 @@ export default function App() {
   }, [resolvedLanguage])
 
   useEffect(() => {
-    if (!activeModal && !confirmIntent) {
+    if (!activeModal && !confirmIntent && !lifecycleImpact) {
       return
     }
     const modal = document.querySelector<HTMLElement>('.modal-card')
@@ -2691,7 +2764,7 @@ export default function App() {
     }
     const [firstFocusable] = focusableElements(modal)
     ;(firstFocusable || modal).focus()
-  }, [activeModal, confirmIntent])
+  }, [activeModal, confirmIntent, lifecycleImpact])
 
   useEffect(() => {
     if (activeTab !== 'log' && activeTab !== 'network') {
@@ -3139,6 +3212,291 @@ export default function App() {
 
   function closeConfirmDialog() {
     setConfirmIntent(null)
+  }
+
+  function closeLifecycleImpact() {
+    setLifecycleImpact(null)
+  }
+
+  function providerRemoveOperation(id: string): LifecycleOperation {
+    return { kind: 'provider.remove', payload: { providerId: id } }
+  }
+
+  function aliasRemoveOperation(alias: string): LifecycleOperation {
+    return { kind: 'alias.remove', payload: { alias } }
+  }
+
+  async function openLifecycleImpact(kind: LifecycleImpactKind, subject: string, operation: LifecycleOperation) {
+    setLifecycleImpact({
+      kind,
+      subject,
+      operation,
+      revision: '',
+      plan: null,
+      selections: {},
+      loading: true,
+      executing: false,
+      outcome: null,
+      executeResult: null,
+    })
+    await loadLifecycleImpactPreview(kind, subject, operation, {})
+  }
+
+  async function loadLifecycleImpactPreview(
+    kind: LifecycleImpactKind,
+    subject: string,
+    operation: LifecycleOperation,
+    selectionsMap: Record<string, string>,
+  ) {
+    setLifecycleImpact((current) =>
+      current
+        ? {
+            ...current,
+            kind,
+            subject,
+            operation,
+            loading: true,
+            executing: false,
+            outcome: null,
+          }
+        : {
+            kind,
+            subject,
+            operation,
+            revision: '',
+            plan: null,
+            selections: selectionsMap,
+            loading: true,
+            executing: false,
+            outcome: null,
+            executeResult: null,
+          },
+    )
+    try {
+      const revView = await getConfigRevision()
+      const revision = revView.revision
+      const envelope = await previewLifecycleEnvelope({
+        revision,
+        operation,
+        selections: lifecycleSelectionsFromMap(selectionsMap),
+      })
+      if (!envelope.ok || !envelope.data) {
+        setLifecycleImpact((current) =>
+          current
+            ? {
+                ...current,
+                revision,
+                loading: false,
+                plan: envelope.data || null,
+                outcome: envelope.outcome,
+              }
+            : current,
+        )
+        if (envelope.outcome?.code === 'revision_conflict' || envelope.outcome?.code === 'preparation_stale') {
+          setProviderStatus(outcomeMessage(envelope.outcome.code))
+          setAliasStatus(outcomeMessage(envelope.outcome.code))
+          closeLifecycleImpact()
+          await refreshAll()
+        }
+        return
+      }
+      const plan = envelope.data
+      setLifecycleImpact({
+        kind,
+        subject,
+        operation,
+        revision,
+        plan,
+        selections: defaultLifecycleSelections(plan.choices, selectionsMap),
+        loading: false,
+        executing: false,
+        outcome: envelope.outcome,
+        executeResult: null,
+      })
+    } catch (error) {
+      const message = formatError(error)
+      setLifecycleImpact((current) =>
+        current
+          ? {
+              ...current,
+              loading: false,
+              outcome:
+                error instanceof TransportError
+                  ? error.outcome
+                  : { code: 'internal_error', params: {}, retryable: false },
+            }
+          : current,
+      )
+      if (error instanceof TransportError && (error.outcome.code === 'revision_conflict' || error.outcome.code === 'preparation_stale')) {
+        setProviderStatus(message)
+        setAliasStatus(message)
+        closeLifecycleImpact()
+        await refreshAll()
+      }
+    }
+  }
+
+  async function onLifecycleChoiceChange(choiceId: string, optionId: string) {
+    const current = lifecycleImpact
+    if (!current || current.loading || current.executing) {
+      return
+    }
+    const selections = { ...current.selections, [choiceId]: optionId }
+    await loadLifecycleImpactPreview(current.kind, current.subject, current.operation, selections)
+  }
+
+  async function onExecuteLifecycleImpact() {
+    const current = lifecycleImpact
+    if (!current?.plan?.executable || !current.plan.planToken || current.loading || current.executing) {
+      return
+    }
+    setLifecycleImpact({ ...current, executing: true, outcome: null })
+    const statusSetter = current.kind === 'provider-remove' ? setProviderStatus : setAliasStatus
+    statusSetter(
+      current.kind === 'provider-remove'
+        ? i18n.t('providers.statusDeleting', { id: current.subject })
+        : i18n.t('aliases.statusDeleting', { alias: current.subject }),
+    )
+    try {
+      const envelope = await executeLifecycleEnvelope({
+        revision: current.revision,
+        planToken: current.plan.planToken,
+        operation: current.operation,
+        selections: lifecycleSelectionsFromMap(current.selections),
+      })
+      if (!envelope.ok) {
+        const code = envelope.outcome?.code || 'internal_error'
+        setLifecycleImpact((state) =>
+          state
+            ? {
+                ...state,
+                executing: false,
+                outcome: envelope.outcome,
+                executeResult: envelope.data || null,
+                plan: envelope.data?.plan || state.plan,
+              }
+            : state,
+        )
+        if (code === 'revision_conflict' || code === 'preparation_stale') {
+          statusSetter(outcomeMessage(code))
+          closeLifecycleImpact()
+          await refreshAll()
+          return
+        }
+        if (code === 'runtime_apply_failed') {
+          statusSetter(i18n.t('lifecycle.applyFailed', { state: envelope.data?.runtimeState || code }))
+          closeLifecycleImpact()
+          if (current.kind === 'provider-remove' && selectedProviderId === current.subject) {
+            setSelectedProviderId(null)
+            resetProviderForm()
+            setProviderDetailMode('empty')
+          }
+          if (current.kind === 'alias-remove' && selectedAliasId === current.subject) {
+            setSelectedAliasId(null)
+            resetAliasForm()
+            setAliasDetailMode('empty')
+          }
+          await refreshAll()
+          return
+        }
+        statusSetter(outcomeMessage(code))
+        return
+      }
+      const result = envelope.data
+      const summary =
+        result?.pendingRestart
+          ? i18n.t('lifecycle.restartPending')
+          : i18n.t('lifecycle.executed', { state: result?.runtimeState || 'ok' })
+      closeLifecycleImpact()
+      if (current.kind === 'provider-remove') {
+        if (selectedProviderId === current.subject) {
+          setSelectedProviderId(null)
+          resetProviderForm()
+          setProviderDetailMode('empty')
+        }
+        setProviderStatus(summary)
+      } else {
+        if (selectedAliasId === current.subject) {
+          setSelectedAliasId(null)
+          resetAliasForm()
+          setAliasDetailMode('empty')
+        }
+        setAliasStatus(summary)
+      }
+      await refreshAll()
+    } catch (error) {
+      statusSetter(formatError(error))
+      setLifecycleImpact((state) =>
+        state
+          ? {
+              ...state,
+              executing: false,
+              outcome:
+                error instanceof TransportError
+                  ? error.outcome
+                  : { code: 'internal_error', params: {}, retryable: false },
+              executeResult: error instanceof TransportError ? (error.data as LifecycleExecuteResult | undefined) || null : null,
+            }
+          : state,
+      )
+      if (error instanceof TransportError && (error.outcome.code === 'revision_conflict' || error.outcome.code === 'preparation_stale')) {
+        closeLifecycleImpact()
+        await refreshAll()
+      }
+    }
+  }
+
+  async function onTargetRepairAction(alias: AliasView, target: AliasTargetView, action: string) {
+    setAliasStatus(i18n.t('aliases.statusRepairing', { action, provider: target.provider, model: target.model }))
+    try {
+      switch (action) {
+        case 'upgrade_alias':
+          await upgradeAutoAlias({ name: alias.alias })
+          break
+        case 'enable_target':
+          await setAliasTargetState({
+            alias: alias.alias,
+            provider: target.provider,
+            model: target.model,
+            disabled: false,
+          })
+          break
+        case 'remove_target':
+          await unbindAliasTarget({
+            alias: alias.alias,
+            provider: target.provider,
+            model: target.model,
+            disabled: !target.enabled,
+          })
+          break
+        case 'enable_provider':
+          await setProviderState({ id: target.provider, disabled: false })
+          break
+        case 'refresh_catalog':
+          await refreshProviderModels({ id: target.provider })
+          break
+        case 'delete_alias':
+          await openLifecycleImpact('alias-remove', alias.alias, aliasRemoveOperation(alias.alias))
+          return
+        case 'rebind_target':
+          setTargetForm({
+            alias: alias.alias,
+            provider: target.provider,
+            model: target.model,
+            disabled: !target.enabled,
+          })
+          setActiveModal('alias-target')
+          setAliasStatus(i18n.t('aliases.statusRebindHint', { provider: target.provider, model: target.model }))
+          return
+        default:
+          setAliasStatus(i18n.t('aliases.repairUnsupported', { action }))
+          return
+      }
+      setAliasStatus(i18n.t('aliases.statusRepaired', { action, provider: target.provider, model: target.model }))
+      await refreshAll()
+    } catch (error) {
+      setAliasStatus(formatError(error))
+    }
   }
 
   function closeProviderDetail() {
@@ -3666,19 +4024,7 @@ export default function App() {
   }
 
   async function onDeleteProvider(id: string) {
-    setProviderStatus(i18n.t('providers.statusDeleting', { id }))
-    try {
-      await deleteProvider(id)
-      if (selectedProviderId === id) {
-        setSelectedProviderId(null)
-        resetProviderForm()
-        setProviderDetailMode('empty')
-      }
-      setProviderStatus(i18n.t('providers.statusDeleted', { id }))
-      await refreshAll()
-    } catch (error) {
-      setProviderStatus(formatError(error))
-    }
+    await openLifecycleImpact('provider-remove', id, providerRemoveOperation(id))
   }
 
   async function onSaveAlias(event: FormEvent) {
@@ -3710,19 +4056,7 @@ export default function App() {
   }
 
   async function onDeleteAlias(alias: string) {
-    setAliasStatus(i18n.t('aliases.statusDeleting', { alias }))
-    try {
-      await deleteAlias(alias)
-      if (selectedAliasId === alias) {
-        setSelectedAliasId(null)
-        resetAliasForm()
-        setAliasDetailMode('empty')
-      }
-      setAliasStatus(i18n.t('aliases.statusDeleted', { alias }))
-      await refreshAll()
-    } catch (error) {
-      setAliasStatus(formatError(error))
-    }
+    await openLifecycleImpact('alias-remove', alias, aliasRemoveOperation(alias))
   }
 
   async function onBindTarget(event: FormEvent) {
@@ -4053,14 +4387,6 @@ export default function App() {
       return
     }
     closeConfirmDialog()
-    if (intent.kind === 'delete-provider') {
-      await onDeleteProvider(intent.id)
-      return
-    }
-    if (intent.kind === 'delete-alias') {
-      await onDeleteAlias(intent.alias)
-      return
-    }
 	if (intent.kind === 'delete-rewrite-rule') {
 		await onDeleteRewriteRule(intent.name)
 		return
@@ -4069,11 +4395,7 @@ export default function App() {
   }
 
   const confirmTitle = confirmIntent
-    ? confirmIntent.kind === 'delete-provider'
-      ? t('confirm.deleteProviderTitle')
-      : confirmIntent.kind === 'delete-alias'
-        ? t('confirm.deleteAliasTitle')
-			: confirmIntent.kind === 'delete-rewrite-rule'
+    ? confirmIntent.kind === 'delete-rewrite-rule'
 			? t('confirm.deleteRewriteRuleTitle')
           : t('confirm.unbindTargetTitle')
     : ''
@@ -4086,17 +4408,20 @@ export default function App() {
   }
 
   const confirmMessage = confirmIntent
-    ? confirmIntent.kind === 'delete-provider'
-      ? t('messages.confirmDeleteProvider', { id: confirmIntent.id })
-      : confirmIntent.kind === 'delete-alias'
-        ? t('messages.confirmDeleteAlias', { alias: confirmIntent.alias })
-			: confirmIntent.kind === 'delete-rewrite-rule'
+    ? confirmIntent.kind === 'delete-rewrite-rule'
 			? t('messages.confirmDeleteRewriteRule', { name: confirmIntent.name })
           : t('messages.confirmUnbindTarget', {
               alias: confirmIntent.alias,
               provider: confirmIntent.provider,
               model: confirmIntent.model,
             })
+    : ''
+
+  const lifecycleTitleId = useId()
+  const lifecycleImpactTitle = lifecycleImpact
+    ? lifecycleImpact.kind === 'provider-remove'
+      ? t('lifecycle.deleteProviderTitle', { id: lifecycleImpact.subject })
+      : t('lifecycle.deleteAliasTitle', { alias: lifecycleImpact.subject })
     : ''
 
   const importModeLabelId = useId()
@@ -5809,7 +6134,7 @@ export default function App() {
                     <button
                       type="button"
                       className="danger ghost-danger"
-                      onClick={() => setConfirmIntent({ kind: 'delete-provider', id: selectedProvider.id })}
+                      onClick={() => void onDeleteProvider(selectedProvider.id)}
                     >
                       {t('actions.delete')}
                     </button>
@@ -6416,7 +6741,7 @@ export default function App() {
                     <button
                       type="button"
                       className="danger ghost-danger"
-                      onClick={() => setConfirmIntent({ kind: 'delete-alias', alias: selectedAlias.alias })}
+                      onClick={() => void onDeleteAlias(selectedAlias.alias)}
                     >
                       {t('actions.delete')}
                     </button>
@@ -6578,9 +6903,28 @@ export default function App() {
                                 ? t('aliases.targetAutoAdded', { provider: target.provider })
                                 : selectedAlias.alias}
                             </span>
+                            {target.reason || target.code ? (
+                              <p className="subtle target-reason">
+                                {target.code
+                                  ? t(`diagnostics.code.${target.code}`, {
+                                      defaultValue: target.code,
+                                    })
+                                  : null}
+                                {target.code && target.reason ? ' · ' : null}
+                                {target.reason
+                                  ? t(`diagnostics.reason.${target.reason}`, {
+                                      defaultValue: target.reason,
+                                    })
+                                  : null}
+                              </p>
+                            ) : null}
                           </div>
-                          <span className={`badge status-badge ${target.enabled ? 'live' : 'idle'}`}>
-                            {target.enabled ? t('status.enabled') : t('status.disabled')}
+                          <span className={`badge status-badge ${target.enabled ? 'live' : target.available === false ? 'warn' : 'idle'}`}>
+                            {target.enabled
+                              ? t('status.enabled')
+                              : target.available === false
+                                ? t('status.unavailable')
+                                : t('status.disabled')}
                           </span>
                         </div>
                         <div className="toolbar toolbar-end">
@@ -6603,6 +6947,18 @@ export default function App() {
                           >
                             {target.enabled ? t('actions.disable') : t('actions.enable')}
                           </button>
+                          {(target.allowedActions || [])
+                            .filter((action) => action && action !== 'keep' && action !== 'remove_target')
+                            .map((action) => (
+                            <button
+                              key={`${target.provider}-${target.model}-${action}`}
+                              type="button"
+                              className={action === 'delete_alias' ? 'danger ghost-danger' : undefined}
+                              onClick={() => void onTargetRepairAction(selectedAlias, target, action)}
+                            >
+                              {t(`diagnostics.action.${action}`, { defaultValue: action })}
+                            </button>
+                          ))}
                           <button
                             type="button"
                             className="danger ghost-danger"
@@ -7060,6 +7416,172 @@ export default function App() {
                   </button>
                   <button type="button" className="danger" onClick={() => void onConfirmAction()}>
                     {t('actions.confirm')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {lifecycleImpact ? (
+          <div className="modal-backdrop" onClick={closeLifecycleImpact}>
+            <div
+              className="modal-card modal-card-impact"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={lifecycleTitleId}
+              tabIndex={-1}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                trapModalFocus(event)
+                if (event.key === 'Escape') {
+                  closeLifecycleImpact()
+                }
+              }}
+            >
+              <div className="stack">
+                <div>
+                  <h4 id={lifecycleTitleId}>{lifecycleImpactTitle}</h4>
+                  <p className="subtle">
+                    {lifecycleImpact.loading
+                      ? t('lifecycle.loading')
+                      : lifecycleImpact.executing
+                        ? t('lifecycle.executing')
+                        : lifecycleImpact.plan?.executable
+                          ? t('lifecycle.ready')
+                          : t('lifecycle.notExecutable')}
+                  </p>
+                  {lifecycleImpact.plan ? (
+                    <p className="subtle mono-line">
+                      {t('lifecycle.meta', {
+                        op: lifecycleImpact.plan.operationKind,
+                        executable: lifecycleImpact.plan.executable ? t('status.yes') : t('status.no'),
+                        revision: lifecycleImpact.revision,
+                      })}
+                    </p>
+                  ) : null}
+                  {lifecycleImpact.outcome && lifecycleImpact.outcome.code && lifecycleImpact.outcome.code !== 'ok' ? (
+                    <p className="error-text">{outcomeMessage(lifecycleImpact.outcome.code)}</p>
+                  ) : null}
+                </div>
+
+                {lifecycleImpact.plan ? (
+                  <div className="impact-sections">
+                    {(lifecycleImpact.plan.automaticChanges || []).length > 0 ? (
+                      <section className="impact-section">
+                        <h5>{t('lifecycle.automatic')}</h5>
+                        <ul>
+                          {lifecycleImpact.plan.automaticChanges.map((change) => (
+                            <li key={change.id || formatLifecycleChangeLine(change)}>
+                              <code>{formatLifecycleChangeLine(change)}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
+
+                    {(lifecycleImpact.plan.blockers || []).length > 0 ? (
+                      <section className="impact-section">
+                        <h5>{t('lifecycle.blockers')}</h5>
+                        <ul>
+                          {lifecycleImpact.plan.blockers.map((issue) => (
+                            <li key={issue.id || formatLifecycleIssueLine(issue)}>
+                              <code>{formatLifecycleIssueLine(issue)}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
+
+                    {(lifecycleImpact.plan.choices || []).length > 0 ? (
+                      <section className="impact-section">
+                        <h5>{t('lifecycle.choices')}</h5>
+                        <div className="stack">
+                          {lifecycleImpact.plan.choices.map((choice) => (
+                            <label key={choice.id} className="impact-choice">
+                              <span>
+                                <code>{choice.code}</code>
+                                {choice.path ? <span className="subtle"> · {choice.path}</span> : null}
+                              </span>
+                              <select
+                                value={lifecycleImpact.selections[choice.id] || choice.options?.[0]?.id || ''}
+                                disabled={lifecycleImpact.loading || lifecycleImpact.executing}
+                                onChange={(event) => void onLifecycleChoiceChange(choice.id, event.target.value)}
+                              >
+                                {(choice.options || []).map((option) => (
+                                  <option key={option.id} value={option.id}>
+                                    {t(`lifecycle.option.${option.id}`, { defaultValue: option.id })}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          ))}
+                        </div>
+                      </section>
+                    ) : null}
+
+                    {(lifecycleImpact.plan.preservedIssues || []).length > 0 ? (
+                      <section className="impact-section">
+                        <h5>{t('lifecycle.preserved')}</h5>
+                        <ul>
+                          {lifecycleImpact.plan.preservedIssues.map((issue) => (
+                            <li key={issue.id || formatLifecycleIssueLine(issue)}>
+                              <code>{formatLifecycleIssueLine(issue)}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
+
+                    {lifecycleImpact.plan.runtimeImpact &&
+                    (lifecycleImpact.plan.runtimeImpact.providerRemoved ||
+                      lifecycleImpact.plan.runtimeImpact.aliasRemoved ||
+                      lifecycleImpact.plan.runtimeImpact.routingChanged) ? (
+                      <p className="subtle">
+                        {t('lifecycle.runtime', {
+                          providerRemoved: lifecycleImpact.plan.runtimeImpact.providerRemoved
+                            ? t('status.yes')
+                            : t('status.no'),
+                          aliasRemoved: lifecycleImpact.plan.runtimeImpact.aliasRemoved ? t('status.yes') : t('status.no'),
+                          routingChanged: lifecycleImpact.plan.runtimeImpact.routingChanged
+                            ? t('status.yes')
+                            : t('status.no'),
+                        })}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="toolbar toolbar-end">
+                  <button type="button" onClick={closeLifecycleImpact} disabled={lifecycleImpact.executing}>
+                    {t('actions.cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void loadLifecycleImpactPreview(
+                        lifecycleImpact.kind,
+                        lifecycleImpact.subject,
+                        lifecycleImpact.operation,
+                        lifecycleImpact.selections,
+                      )
+                    }
+                    disabled={lifecycleImpact.loading || lifecycleImpact.executing}
+                  >
+                    {t('lifecycle.refresh')}
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => void onExecuteLifecycleImpact()}
+                    disabled={
+                      lifecycleImpact.loading ||
+                      lifecycleImpact.executing ||
+                      !lifecycleImpact.plan?.executable ||
+                      !lifecycleImpact.plan?.planToken
+                    }
+                  >
+                    {t('lifecycle.execute')}
                   </button>
                 </div>
               </div>

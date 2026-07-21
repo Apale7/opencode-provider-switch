@@ -72,8 +72,95 @@
     "proxyIdle": "代理未运行",
     "enabled": "已启用",
     "disabled": "已禁用",
+    "unavailable": "不可用",
     "yes": "是",
     "no": "否"
+  },
+  "lifecycle": {
+    "deleteProviderTitle": "删除提供商 {{id}}",
+    "deleteAliasTitle": "删除别名 {{alias}}",
+    "loading": "正在加载影响预览...",
+    "executing": "正在执行生命周期计划...",
+    "ready": "计划已就绪。请确认影响后再执行。",
+    "notExecutable": "计划不可执行。请先处理阻塞项或必选选择。",
+    "meta": "操作={{op}} · 可执行={{executable}} · revision={{revision}}",
+    "automatic": "自动变更",
+    "blockers": "阻塞项",
+    "choices": "必选选择",
+    "preserved": "保留问题",
+    "runtime": "运行时影响：providerRemoved={{providerRemoved}}，aliasRemoved={{aliasRemoved}}，routingChanged={{routingChanged}}",
+    "refresh": "刷新预览",
+    "execute": "执行删除",
+    "executed": "生命周期已应用（{{state}}）",
+    "restartPending": "配置已保存；需重启后完整生效",
+    "applyFailed": "已保存，但运行时应用失败（{{state}}）",
+    "option": {
+      "rebind_target": "重绑目标",
+      "remove_target": "移除目标",
+      "delete_alias": "删除别名",
+      "keep_dormant": "保持休眠",
+      "disable_rule": "禁用规则",
+      "delete_rule": "删除规则",
+      "keep_rule": "保留规则",
+      "replace_providers": "替换 providers"
+    }
+  },
+  "transport": {
+    "outcome": {
+      "ok": "成功",
+      "restart_pending": "配置已保存；需重启",
+      "revision_conflict": "配置已被其他操作更改；请重新预览",
+      "revision_required": "需要 revision",
+      "plan_not_executable": "计划存在阻塞项或未完成选择",
+      "plan_mismatch": "plan token 与当前预览不匹配",
+      "plan_expired": "plan 已过期；请重新预览",
+      "runtime_apply_failed": "配置已保存，但运行时未应用",
+      "not_found": "资源不存在",
+      "invalid_request": "无效请求",
+      "validation_failed": "校验失败",
+      "candidate_invalid": "候选配置无效",
+      "runtime_candidate_build_failed": "构建运行时候选失败",
+      "config_io_failed": "配置读写失败",
+      "persist_failed": "持久化配置失败",
+      "config_store_busy": "配置存储繁忙；请重试",
+      "preparation_stale": "准备态已过期；请重新预览",
+      "internal_error": "内部错误"
+    }
+  },
+  "diagnostics": {
+    "reason": {
+      "missing": "缺失",
+      "disabled": "已禁用",
+      "invalid": "无效",
+      "drift": "漂移",
+      "protocol_mismatch": "协议不匹配",
+      "legacy": "遗留",
+      "runtime_unavailable": "运行时不可用"
+    },
+    "action": {
+      "upgrade_alias": "升级别名",
+      "enable_alias": "启用别名",
+      "enable_provider": "启用提供商",
+      "enable_target": "启用目标",
+      "rebind_target": "重绑目标",
+      "align_protocol": "对齐协议",
+      "refresh_catalog": "刷新目录",
+      "retry_runtime": "重试运行时",
+      "reload_runtime": "重载运行时",
+      "restart_runtime": "重启运行时",
+      "select_routable_alias": "选择可路由别名",
+      "resync_opencode": "重新同步 OpenCode",
+      "migrate_rewrite_rule": "迁移改写规则",
+      "replace_selector": "替换选择器",
+      "remove_selector": "移除选择器",
+      "disable_rule": "禁用规则",
+      "remove_target": "移除目标",
+      "clear_external_value": "清除外部值",
+      "remove_priority_entry": "移除优先级项",
+      "delete_rule": "删除规则",
+      "delete_alias": "删除别名",
+      "keep": "保留"
+    }
   },
   "auth": {
     "title": "服务器管理 Token",
@@ -310,7 +397,11 @@
     "targetAutoAdded": "从 {{provider}} 自动添加",
     "autoCreated": "已从供应商自动创建 {{count}} 个别名",
     "autoUpdated": "已从供应商自动更新 {{count}} 个别名",
-    "autoCleaned": "供应商删除后已清理 {{count}} 个自动别名"
+    "autoCleaned": "供应商删除后已清理 {{count}} 个自动别名",
+    "statusRepairing": "正在对 {{provider}}/{{model}} 执行修复 {{action}}...",
+    "statusRepaired": "已对 {{provider}}/{{model}} 执行修复 {{action}}",
+    "statusRebindHint": "请在绑定表单中重绑 {{provider}}/{{model}}",
+    "repairUnsupported": "此处不支持该修复动作：{{action}}"
   },
   "sync": {
     "title": "同步与体检",

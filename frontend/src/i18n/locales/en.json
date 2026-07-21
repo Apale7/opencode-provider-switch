@@ -72,8 +72,95 @@
     "proxyIdle": "Proxy idle",
     "enabled": "Enabled",
     "disabled": "Disabled",
+    "unavailable": "Unavailable",
     "yes": "Yes",
     "no": "No"
+  },
+  "lifecycle": {
+    "deleteProviderTitle": "Delete provider {{id}}",
+    "deleteAliasTitle": "Delete alias {{alias}}",
+    "loading": "Loading impact preview...",
+    "executing": "Executing lifecycle plan...",
+    "ready": "Plan ready. Review impact, then execute.",
+    "notExecutable": "Plan is not executable. Resolve blockers or choices first.",
+    "meta": "op={{op}} · executable={{executable}} · revision={{revision}}",
+    "automatic": "Automatic changes",
+    "blockers": "Blockers",
+    "choices": "Required choices",
+    "preserved": "Preserved issues",
+    "runtime": "Runtime impact: providerRemoved={{providerRemoved}}, aliasRemoved={{aliasRemoved}}, routingChanged={{routingChanged}}",
+    "refresh": "Refresh preview",
+    "execute": "Execute delete",
+    "executed": "Lifecycle applied ({{state}})",
+    "restartPending": "Config saved; restart required for full runtime apply",
+    "applyFailed": "Saved, but runtime apply failed ({{state}})",
+    "option": {
+      "rebind_target": "Rebind target",
+      "remove_target": "Remove target",
+      "delete_alias": "Delete alias",
+      "keep_dormant": "Keep dormant",
+      "disable_rule": "Disable rule",
+      "delete_rule": "Delete rule",
+      "keep_rule": "Keep rule",
+      "replace_providers": "Replace providers"
+    }
+  },
+  "transport": {
+    "outcome": {
+      "ok": "OK",
+      "restart_pending": "Config saved; restart required",
+      "revision_conflict": "Config changed elsewhere; re-preview",
+      "revision_required": "Revision is required",
+      "plan_not_executable": "Plan has blockers or unresolved choices",
+      "plan_mismatch": "Plan token does not match current preview",
+      "plan_expired": "Plan expired; preview again",
+      "runtime_apply_failed": "Config saved, but runtime was not applied",
+      "not_found": "Resource not found",
+      "invalid_request": "Invalid request",
+      "validation_failed": "Validation failed",
+      "candidate_invalid": "Candidate config invalid",
+      "runtime_candidate_build_failed": "Failed to build runtime candidate",
+      "config_io_failed": "Config I/O failed",
+      "persist_failed": "Failed to persist config",
+      "config_store_busy": "Config store busy; retry",
+      "preparation_stale": "Preparation stale; re-preview",
+      "internal_error": "Internal error"
+    }
+  },
+  "diagnostics": {
+    "reason": {
+      "missing": "missing",
+      "disabled": "disabled",
+      "invalid": "invalid",
+      "drift": "drift",
+      "protocol_mismatch": "protocol mismatch",
+      "legacy": "legacy",
+      "runtime_unavailable": "runtime unavailable"
+    },
+    "action": {
+      "upgrade_alias": "Upgrade alias",
+      "enable_alias": "Enable alias",
+      "enable_provider": "Enable provider",
+      "enable_target": "Enable target",
+      "rebind_target": "Rebind target",
+      "align_protocol": "Align protocol",
+      "refresh_catalog": "Refresh catalog",
+      "retry_runtime": "Retry runtime",
+      "reload_runtime": "Reload runtime",
+      "restart_runtime": "Restart runtime",
+      "select_routable_alias": "Select routable alias",
+      "resync_opencode": "Resync OpenCode",
+      "migrate_rewrite_rule": "Migrate rewrite rule",
+      "replace_selector": "Replace selector",
+      "remove_selector": "Remove selector",
+      "disable_rule": "Disable rule",
+      "remove_target": "Remove target",
+      "clear_external_value": "Clear external value",
+      "remove_priority_entry": "Remove priority entry",
+      "delete_rule": "Delete rule",
+      "delete_alias": "Delete alias",
+      "keep": "Keep"
+    }
   },
   "auth": {
     "title": "Server admin token",
@@ -310,7 +397,11 @@
     "targetAutoAdded": "Auto-added from {{provider}}",
     "autoCreated": "{{count}} alias(es) auto-created from provider",
     "autoUpdated": "{{count}} alias(es) auto-updated from provider",
-    "autoCleaned": "{{count}} auto-generated alias(es) removed after provider deletion"
+    "autoCleaned": "{{count}} auto-generated alias(es) removed after provider deletion",
+    "statusRepairing": "Applying repair {{action}} on {{provider}}/{{model}}...",
+    "statusRepaired": "Applied repair {{action}} on {{provider}}/{{model}}",
+    "statusRebindHint": "Rebind {{provider}}/{{model}} using the bind form",
+    "repairUnsupported": "Repair action not supported here: {{action}}"
   },
   "sync": {
     "title": "Sync",

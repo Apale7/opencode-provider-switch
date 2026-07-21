@@ -1,0 +1,72 @@
+{
+  "id": "provider-groups",
+  "name": "provider-groups",
+  "title": "Provider groups with per-group protocols and API keys",
+  "description": "支持单个 Provider 下配置多个分组；协议、模型和多个上游 API Key 下放到分组级，并兼容旧配置自动迁移为 default 分组。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "将 Provider 升级为共享连接配置与多个 Group 的两级模型；协议、上游 API Key、模型目录下放到 Group，Alias Target 精确引用 Group，并将旧配置无副作用地迁移为 default Group。覆盖配置、代理路由、模型发现、自动 Alias、诊断、健康统计及桌面/Web/TUI 管理入口。",
+  "package": null,
+  "priority": "P1",
+  "creator": "OpenCode",
+  "assignee": "OpenCode",
+  "createdAt": "2026-07-22",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "docs/design-plans/provider-groups.md",
+    "internal/config/config.go",
+    "internal/proxy/server.go",
+    "internal/proxy/traces.go",
+    "internal/proxy/sqlite_traces.go",
+    "internal/routing/routing.go",
+    "internal/routing/circuit_breaker.go",
+    "internal/app/manage.go",
+    "internal/app/service.go",
+    "internal/app/provider_health.go",
+    "internal/opencode/provider_models.go",
+    "internal/lifecycle/auto_alias.go",
+    "internal/diagnostics/scanner.go",
+    "internal/webadmin/",
+    "internal/desktop/",
+    "internal/tui/",
+    "internal/cli/",
+    "frontend/src/App.tsx"
+  ],
+  "notes": "本任务中的 API Key 指调用上游 Provider 的凭据，不是访问 ocswitch 代理的客户端鉴权密钥。不得与 05-16-provider-multi-ak PRD 的客户端密钥权限模型混用。",
+  "meta": {}
+}

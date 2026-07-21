@@ -83,6 +83,7 @@ type RequestTrace struct {
 	Stream                bool              `json:"stream"`
 	Success               bool              `json:"success"`
 	StatusCode            int               `json:"statusCode,omitempty"`
+	ErrorCode             string            `json:"errorCode,omitempty"`
 	Error                 string            `json:"error,omitempty"`
 	FinalProvider         string            `json:"finalProvider,omitempty"`
 	FinalModel            string            `json:"finalModel,omitempty"`
