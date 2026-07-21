@@ -1,22 +1,19 @@
 {
   "name": "07-21-config-reference-integrity-ux",
-  "displayName": "配置引用完整性与删除体验",
+  "displayName": "配置提交一致性、引用完整性与删除体验",
   "status": "planning",
-  "priority": "P1",
+  "priority": "P0",
   "owner": "OpenCode",
   "created": "2026-07-21",
   "type": "design",
   "designDocument": "docs/design-plans/config-reference-integrity-ux.md",
-  "scope": "梳理现有 Provider、Alias、Request Rewrite、Provider Priority 的悬空引用与用户体验问题，形成后续实现任务；本任务不修改产品代码。",
-  "dependencies": [
-    "07-21-auto-alias-simplify",
-    "05-16-05-16-provider-multi-ak",
-    "04-22-provider-multi-baseurl-routing"
-  ],
+  "scope": "重新冻结当前 Provider、Alias、Request Rewrite、Provider Priority 的引用语义，优先治理配置并发丢写和磁盘/运行时分裂，再设计安全生命周期、统一诊断与多端删除体验；本任务不修改产品代码。",
+  "dependencies": [],
   "deliverables": [
-    "引用关系矩阵与生命周期契约",
-    "删除影响预览与统一反馈设计",
-    "加载/保存/导入/运行时校验分层设计",
-    "实现任务拆分、测试矩阵与验收标准"
+    "引用语义、所有权与边界行为矩阵",
+    "配置 revision、事务提交与冲突契约",
+    "生命周期 preview/plan/execute 与统一诊断设计",
+    "全部配置写入口与多端契约覆盖矩阵",
+    "后续 implementation task DAG 与测试发布门禁"
   ]
 }
