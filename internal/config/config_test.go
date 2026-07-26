@@ -86,18 +86,18 @@ func TestAvailableTargetsSkipsDisabledAndMissingProviders(t *testing.T) {
 
 	cfg := &Config{
 		Providers: []Provider{
-			{ID: "p1", BaseURL: "https://p1.example.com/v1"},
-			{ID: "p2", BaseURL: "https://p2.example.com/v1", Disabled: true},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: "https://p2.example.com/v1", Disabled: true, Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}},
 		},
 	}
 	alias := Alias{
 		Alias:   "gpt-5.4",
 		Enabled: true,
 		Targets: []Target{
-			{Provider: "p1", Model: "up-1", Enabled: true},
-			{Provider: "p2", Model: "up-2", Enabled: true},
-			{Provider: "missing", Model: "up-3", Enabled: true},
-			{Provider: "p1", Model: "up-4", Enabled: false},
+			{Provider: "p1", Group: DefaultGroupID, Model: "up-1", Enabled: true},
+			{Provider: "p2", Group: DefaultGroupID, Model: "up-2", Enabled: true},
+			{Provider: "missing", Group: DefaultGroupID, Model: "up-3", Enabled: true},
+			{Provider: "p1", Group: DefaultGroupID, Model: "up-4", Enabled: false},
 		},
 	}
 
@@ -117,16 +117,16 @@ func TestReorderTargetsPreservesTargetState(t *testing.T) {
 		Alias:   "chat",
 		Enabled: true,
 		Targets: []Target{
-			{Provider: "p1", Model: "up-1", Enabled: true},
-			{Provider: "p2", Model: "up-2", Enabled: false},
-			{Provider: "p3", Model: "up-3", Enabled: true},
+			{Provider: "p1", Group: DefaultGroupID, Model: "up-1", Enabled: true},
+			{Provider: "p2", Group: DefaultGroupID, Model: "up-2", Enabled: false},
+			{Provider: "p3", Group: DefaultGroupID, Model: "up-3", Enabled: true},
 		},
 	}}}
 
 	if err := cfg.ReorderTargets("chat", []TargetRef{
-		{Provider: "p3", Model: "up-3"},
-		{Provider: "p1", Model: "up-1"},
-		{Provider: "p2", Model: "up-2"},
+		{Provider: "p3", Group: DefaultGroupID, Model: "up-3"},
+		{Provider: "p1", Group: DefaultGroupID, Model: "up-1"},
+		{Provider: "p2", Group: DefaultGroupID, Model: "up-2"},
 	}); err != nil {
 		t.Fatalf("ReorderTargets() error = %v", err)
 	}
@@ -136,9 +136,9 @@ func TestReorderTargetsPreservesTargetState(t *testing.T) {
 		t.Fatal("alias chat not found")
 	}
 	want := []Target{
-		{Provider: "p3", Model: "up-3", Enabled: true},
-		{Provider: "p1", Model: "up-1", Enabled: true},
-		{Provider: "p2", Model: "up-2", Enabled: false},
+		{Provider: "p3", Group: DefaultGroupID, Model: "up-3", Enabled: true},
+		{Provider: "p1", Group: DefaultGroupID, Model: "up-1", Enabled: true},
+		{Provider: "p2", Group: DefaultGroupID, Model: "up-2", Enabled: false},
 	}
 	if !slices.Equal(alias.Targets, want) {
 		t.Fatalf("targets = %#v, want %#v", alias.Targets, want)
@@ -155,17 +155,17 @@ func TestReorderTargetsRejectsInvalidRequests(t *testing.T) {
 	}{
 		{
 			name:    "missing target",
-			refs:    []TargetRef{{Provider: "p1", Model: "up-1"}},
+			refs:    []TargetRef{{Provider: "p1", Group: DefaultGroupID, Model: "up-1"}},
 			wantErr: "target count mismatch",
 		},
 		{
 			name:    "duplicate target",
-			refs:    []TargetRef{{Provider: "p1", Model: "up-1"}, {Provider: "p1", Model: "up-1"}},
-			wantErr: "duplicate target p1/up-1",
+			refs:    []TargetRef{{Provider: "p1", Group: DefaultGroupID, Model: "up-1"}, {Provider: "p1", Group: DefaultGroupID, Model: "up-1"}},
+			wantErr: "duplicate target p1/default/up-1",
 		},
 		{
 			name:    "unknown target",
-			refs:    []TargetRef{{Provider: "p1", Model: "up-1"}, {Provider: "missing", Model: "up-x"}},
+			refs:    []TargetRef{{Provider: "p1", Group: DefaultGroupID, Model: "up-1"}, {Provider: "missing", Group: DefaultGroupID, Model: "up-x"}},
 			wantErr: "not found",
 		},
 	}
@@ -177,8 +177,8 @@ func TestReorderTargetsRejectsInvalidRequests(t *testing.T) {
 			cfg := &Config{Aliases: []Alias{{
 				Alias: "chat",
 				Targets: []Target{
-					{Provider: "p1", Model: "up-1", Enabled: true},
-					{Provider: "p2", Model: "up-2", Enabled: true},
+					{Provider: "p1", Group: DefaultGroupID, Model: "up-1", Enabled: true},
+					{Provider: "p2", Group: DefaultGroupID, Model: "up-2", Enabled: true},
 				},
 			}}}
 			err := cfg.ReorderTargets("chat", tt.refs)
@@ -197,13 +197,13 @@ func TestAvailableAliasNamesOnlyReturnsRoutableAliases(t *testing.T) {
 
 	cfg := &Config{
 		Providers: []Provider{
-			{ID: "p1", BaseURL: "https://p1.example.com/v1"},
-			{ID: "p2", BaseURL: "https://p2.example.com/v1", Disabled: true},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: "https://p2.example.com/v1", Disabled: true, Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}},
 		},
 		Aliases: []Alias{
-			{Alias: "ok", Enabled: true, Targets: []Target{{Provider: "p1", Model: "up-1", Enabled: true}}},
-			{Alias: "provider-disabled", Enabled: true, Targets: []Target{{Provider: "p2", Model: "up-2", Enabled: true}}},
-			{Alias: "alias-disabled", Enabled: false, Targets: []Target{{Provider: "p1", Model: "up-3", Enabled: true}}},
+			{Alias: "ok", Enabled: true, Targets: []Target{{Provider: "p1", Group: DefaultGroupID, Model: "up-1", Enabled: true}}},
+			{Alias: "provider-disabled", Enabled: true, Targets: []Target{{Provider: "p2", Group: DefaultGroupID, Model: "up-2", Enabled: true}}},
+			{Alias: "alias-disabled", Enabled: false, Targets: []Target{{Provider: "p1", Group: DefaultGroupID, Model: "up-3", Enabled: true}}},
 		},
 	}
 
@@ -225,8 +225,12 @@ func TestValidateRejectsDefaultKeyOnNonLoopbackHost(t *testing.T) {
 	if len(errs) != 1 {
 		t.Fatalf("Validate() errors = %v, want 1 error", errs)
 	}
-	if !strings.Contains(errs[0].Error(), "must not use the default value") {
+	if !strings.Contains(errs[0].Error(), "non-empty and non-default") {
 		t.Fatalf("Validate() error = %q", errs[0].Error())
+	}
+	cfg.Server.APIKey = ""
+	if errs := cfg.Validate(); len(errs) != 1 || !strings.Contains(errs[0].Error(), "non-empty and non-default") {
+		t.Fatalf("Validate(empty key) errors = %v", errs)
 	}
 }
 
@@ -235,11 +239,11 @@ func TestValidateReportsAliasWithoutAvailableTargets(t *testing.T) {
 
 	cfg := &Config{
 		Server:    Default().Server,
-		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", Disabled: true}},
+		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", Disabled: true, Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}}},
 		Aliases: []Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
-			Targets: []Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+			Targets: []Target{{Provider: "p1", Group: DefaultGroupID, Model: "up-1", Enabled: true}},
 		}},
 	}
 
@@ -382,11 +386,13 @@ func TestRequestRewriteRulesSaveLoadAndApply(t *testing.T) {
 			},
 		},
 		{
-			Name:      "provider-override",
-			Alias:     "gpt-5.5-fast",
-			Providers: []string{"p1"},
-			Enabled:   true,
-			Override:  true,
+			Name:  "provider-override",
+			Alias: "gpt-5.5-fast",
+			ProviderGroups: []ProviderGroupSelector{
+				{Provider: "p1", Group: DefaultGroupID},
+			},
+			Enabled:  true,
+			Override: true,
 			Ops: []RequestRewriteOperation{
 				{Op: RequestRewriteOpSet, Path: "$.reasoning.effort", Value: "high", ValueSet: true},
 				{Op: RequestRewriteOpDelete, Path: "$.parallel_tool_calls"},
@@ -518,7 +524,7 @@ func TestValidateRequestRewriteRules(t *testing.T) {
 		},
 		{
 			name: "valid",
-			rule: RequestRewriteRule{Name: "valid", Alias: "chat", Providers: []string{"p1"}, Enabled: true, Override: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpDelete, Path: "$.store"}}},
+			rule: RequestRewriteRule{Name: "valid", Alias: "chat", ProviderGroups: []ProviderGroupSelector{{Provider: "p1", Group: DefaultGroupID}}, Enabled: true, Override: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpDelete, Path: "$.store"}}},
 		},
 		{
 			name: "legacy does not block validation",
@@ -555,7 +561,7 @@ func TestValidateRejectsDuplicateRequestRewriteRuleNames(t *testing.T) {
 	cfg := Default()
 	cfg.RequestRewriteRules = []RequestRewriteRule{
 		{Name: "same", Alias: "a", Enabled: true, Set: map[string]any{"store": false}},
-		{Name: "same", Alias: "b", Providers: []string{"p1"}, Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.store", Value: true, ValueSet: true}}},
+		{Name: "same", Alias: "b", ProviderGroups: []ProviderGroupSelector{{Provider: "p1", Group: DefaultGroupID}}, Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.store", Value: true, ValueSet: true}}},
 	}
 	errs := cfg.Validate()
 	if len(errs) == 0 || !strings.Contains(errs[0].Error(), `duplicate request rewrite rule "same"`) {
@@ -569,7 +575,7 @@ func TestReorderRequestRewriteRulesPreservesStateAndRejectsBadOrders(t *testing.
 	cfg := Default()
 	cfg.RequestRewriteRules = []RequestRewriteRule{
 		{Name: "first", Alias: "chat", Enabled: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true}}},
-		{Name: "second", Alias: "chat", Providers: []string{"p1"}, Enabled: false, Override: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpDelete, Path: "$.store"}}},
+		{Name: "second", Alias: "chat", ProviderGroups: []ProviderGroupSelector{{Provider: "p1", Group: DefaultGroupID}}, Enabled: false, Override: true, Ops: []RequestRewriteOperation{{Op: RequestRewriteOpDelete, Path: "$.store"}}},
 	}
 
 	if err := cfg.ReorderRequestRewriteRules([]string{"second", "first"}); err != nil {
@@ -587,20 +593,154 @@ func TestReorderRequestRewriteRulesPreservesStateAndRejectsBadOrders(t *testing.
 	}
 }
 
-func TestValidateRejectsInvalidModelsSource(t *testing.T) {
+func TestRequestRewriteProviderGroupsExactMatchAndPersist(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.path = filepath.Join(t.TempDir(), "config.json")
+
+	// Explicit default-group selectors: dedupe/order preserved.
+	cfg.UpsertRequestRewriteRule(RequestRewriteRule{
+		Name:  "strip-store",
+		Alias: "chat-fast",
+		ProviderGroups: []ProviderGroupSelector{
+			{Provider: "p1", Group: DefaultGroupID},
+			{Provider: "p1", Group: DefaultGroupID},
+			{Provider: " p2 ", Group: DefaultGroupID},
+		},
+		Enabled:  true,
+		Override: true,
+		Ops:      []RequestRewriteOperation{{Op: RequestRewriteOpDelete, Path: "$.store"}},
+	})
+	got := cfg.FindRequestRewriteRule("strip-store")
+	if got == nil {
+		t.Fatal("FindRequestRewriteRule returned nil")
+	}
+	wantGroups := []ProviderGroupSelector{
+		{Provider: "p1", Group: DefaultGroupID},
+		{Provider: "p2", Group: DefaultGroupID},
+	}
+	if !reflect.DeepEqual(got.ProviderGroups, wantGroups) {
+		t.Fatalf("ProviderGroups = %#v, want %#v", got.ProviderGroups, wantGroups)
+	}
+
+	// Nil/empty ProviderGroups is wildcard.
+	cfg.UpsertRequestRewriteRule(RequestRewriteRule{
+		Name:    "wildcard",
+		Alias:   "chat-fast",
+		Enabled: true,
+		Ops:     []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.tier_mark", Value: "on", ValueSet: true}},
+	})
+	wild := cfg.FindRequestRewriteRule("wildcard")
+	if wild == nil {
+		t.Fatal("wildcard rule missing")
+	}
+	if wild.ProviderGroups != nil && len(wild.ProviderGroups) != 0 {
+		t.Fatalf("wildcard ProviderGroups = %#v, want nil/empty", wild.ProviderGroups)
+	}
+
+	// Exact match: default-only selectors never expand to sibling groups.
+	scopedPayload := map[string]any{"store": true}
+	ApplyRequestRewriteRules(scopedPayload, "chat-fast", "p1", DefaultGroupID, "m", []RequestRewriteRule{*got, *wild})
+	if _, ok := scopedPayload["store"]; ok {
+		t.Fatalf("default group should match provider-scoped rule: %#v", scopedPayload)
+	}
+	if scopedPayload["tier_mark"] != "on" {
+		t.Fatalf("wildcard should match default group: %#v", scopedPayload)
+	}
+
+	premiumPayload := map[string]any{"store": true}
+	ApplyRequestRewriteRules(premiumPayload, "chat-fast", "p1", "premium", "m", []RequestRewriteRule{*got, *wild})
+	if premiumPayload["store"] != true {
+		t.Fatalf("premium group must not match default-only selector: %#v", premiumPayload)
+	}
+	if premiumPayload["tier_mark"] != "on" {
+		t.Fatalf("wildcard should still match premium group: %#v", premiumPayload)
+	}
+
+	multi := normalizeRequestRewriteRule(RequestRewriteRule{
+		Name:  "multi",
+		Alias: "chat-fast",
+		ProviderGroups: []ProviderGroupSelector{
+			{Provider: "p1", Group: DefaultGroupID},
+			{Provider: "p1", Group: "premium"},
+		},
+		Enabled: true,
+		Ops:     []RequestRewriteOperation{{Op: RequestRewriteOpSet, Path: "$.x", Value: 1, ValueSet: true}},
+	})
+	if len(multi.ProviderGroups) != 2 {
+		t.Fatalf("multi-group ProviderGroups = %#v", multi.ProviderGroups)
+	}
+
+	// Canonical v2 persist never writes providers; only provider_groups.
+	raw, err := cfg.MarshalPersistent()
+	if err != nil {
+		t.Fatalf("MarshalPersistent() error = %v", err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("unmarshal persist: %v", err)
+	}
+	rules, _ := root["request_rewrite_rules"].([]any)
+	if len(rules) != 2 {
+		t.Fatalf("persisted rules = %#v", rules)
+	}
+	for i, item := range rules {
+		rule, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("rule[%d] type %T", i, item)
+		}
+		if _, has := rule["providers"]; has {
+			t.Fatalf("canonical v2 must not write providers field: %#v", rule)
+		}
+		name, _ := rule["name"].(string)
+		groups, _ := rule["provider_groups"].([]any)
+		switch name {
+		case "strip-store":
+			if len(groups) != 2 {
+				t.Fatalf("strip-store provider_groups = %#v", groups)
+			}
+			first, _ := groups[0].(map[string]any)
+			if first["provider"] != "p1" || first["group"] != DefaultGroupID {
+				t.Fatalf("first selector = %#v", first)
+			}
+		case "wildcard":
+			// Omitted or empty provider_groups both mean wildcard; omitempty may drop empty.
+			if groups != nil && len(groups) != 0 {
+				t.Fatalf("wildcard provider_groups = %#v", groups)
+			}
+		default:
+			t.Fatalf("unexpected rule name %q", name)
+		}
+	}
+
+	// v2 wire still rejects disk providers field.
+	v2WithProviders := []byte(`{
+		"schema_version": 2,
+		"server": {"host":"127.0.0.1","port":9982,"api_key":"ocswitch-local"},
+		"providers": [{"id":"p1","base_url":"https://p1.example.com/v1","groups":[{"id":"default","protocol":"openai-responses","api_key":"sk"}]}],
+		"aliases": [],
+		"request_rewrite_rules": [{"name":"bad","alias":"chat","providers":["p1"],"enabled":true,"ops":[{"op":"set","path":"$.store","value":false}]}]
+	}`)
+	if _, err := LoadFromBytes(filepath.Join(t.TempDir(), "bad.json"), v2WithProviders); err == nil || !strings.Contains(err.Error(), "must not include legacy providers") {
+		t.Fatalf("v2 disk providers error = %v, want legacy providers rejection", err)
+	}
+}
+
+func TestValidateAcceptsLegacyManualModelsSource(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
-		Server:    Default().Server,
-		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", ModelsSource: "manual"}},
+		Server: Default().Server,
+		Providers: []Provider{{
+			ID: "p1", BaseURL: "https://p1.example.com/v1",
+			Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"gpt-4o"}, ModelsSource: "manual"}},
+		}},
 	}
 
 	err := cfg.Validate()
-	if len(err) != 1 {
-		t.Fatalf("Validate() errors = %v, want 1 error", err)
-	}
-	if got := err[0].Error(); got != `provider "p1" has invalid models_source "manual"` {
-		t.Fatalf("Validate() error = %q", got)
+	if len(err) != 0 {
+		t.Fatalf("Validate() errors = %v, want manual source accepted", err)
 	}
 }
 
@@ -608,15 +748,18 @@ func TestValidateRejectsModelsSourceWithoutModels(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
-		Server:    Default().Server,
-		Providers: []Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", ModelsSource: "discovered"}},
+		Server: Default().Server,
+		Providers: []Provider{{
+			ID: "p1", BaseURL: "https://p1.example.com/v1",
+			Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, ModelsSource: "discovered"}},
+		}},
 	}
 
 	err := cfg.Validate()
 	if len(err) != 1 {
 		t.Fatalf("Validate() errors = %v, want 1 error", err)
 	}
-	if got := err[0].Error(); got != `provider "p1" has models_source "discovered" but no models` {
+	if got := err[0].Error(); got != `provider "p1" group "default" has models_source "discovered" but no models` {
 		t.Fatalf("Validate() error = %q", got)
 	}
 }
@@ -675,7 +818,7 @@ func TestSaveLinearizesConcurrentWriters(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		cfg.UpsertProvider(Provider{ID: "first", BaseURL: "https://first.example.com/v1"})
+		cfg.UpsertProvider(Provider{ID: "first", BaseURL: "https://first.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}})
 		close(startedFirst)
 		if err := cfg.Save(); err != nil {
 			t.Errorf("first Save() error = %v", err)
@@ -687,7 +830,7 @@ func TestSaveLinearizesConcurrentWriters(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		cfg.UpsertProvider(Provider{ID: "second", BaseURL: "https://second.example.com/v1"})
+		cfg.UpsertProvider(Provider{ID: "second", BaseURL: "https://second.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}})
 		if err := cfg.Save(); err != nil {
 			t.Errorf("second Save() error = %v", err)
 		}
@@ -726,7 +869,7 @@ func TestAutoGenerateAliases_CreatesNewAlias(t *testing.T) {
 	cfg := &Config{
 		AutoAliasEnabled: true,
 		Providers: []Provider{
-			{ID: "p1", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p1.example.com/v1", Models: []string{"gpt-test"}},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"gpt-test"}}}},
 		},
 	}
 	provider := cfg.Providers[0]
@@ -754,6 +897,7 @@ func TestAutoGenerateAliases_CreatesNewAlias(t *testing.T) {
 	}
 	wantTargets := []Target{{
 		Provider:      "p1",
+		Group:         DefaultGroupID,
 		Model:         "gpt-test",
 		Enabled:       true,
 		AutoGenerated: true,
@@ -773,8 +917,8 @@ func TestAutoGenerateAliases_AppendsTarget(t *testing.T) {
 		AutoAliasEnabled: true,
 		ProviderPriority: []string{"p1", "p2"},
 		Providers: []Provider{
-			{ID: "p1", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p1.example.com/v1", Models: []string{"shared"}},
-			{ID: "p2", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p2.example.com/v1", Models: []string{"shared"}},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"shared"}}}},
+			{ID: "p2", BaseURL: "https://p2.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"shared"}}}},
 		},
 		Aliases: []Alias{{
 			Alias:         "shared",
@@ -803,8 +947,8 @@ func TestAutoGenerateAliases_AppendsTarget(t *testing.T) {
 		t.Fatal("expected auto alias shared")
 	}
 	wantTargets := []Target{
-		{Provider: "p1", Model: "shared", Enabled: true, AutoGenerated: true},
-		{Provider: "p2", Model: "shared", Enabled: true, AutoGenerated: true},
+		{Provider: "p1", Group: "", Model: "shared", Enabled: true, AutoGenerated: true},
+		{Provider: "p2", Group: DefaultGroupID, Model: "shared", Enabled: true, AutoGenerated: true},
 	}
 	if !slices.Equal(alias.Targets, wantTargets) {
 		t.Fatalf("targets = %#v, want %#v", alias.Targets, wantTargets)
@@ -839,7 +983,7 @@ func TestAutoGenerateAliases_SkipsLockedAlias(t *testing.T) {
 	cfg := &Config{
 		AutoAliasEnabled: true,
 		Providers: []Provider{
-			{ID: "p2", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p2.example.com/v1", Models: []string{"locked-model"}},
+			{ID: "p2", BaseURL: "https://p2.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"locked-model"}}}},
 		},
 		Aliases: []Alias{original},
 	}
@@ -877,7 +1021,7 @@ func TestAutoGenerateAliases_SkipsManualAlias(t *testing.T) {
 	cfg := &Config{
 		AutoAliasEnabled: true,
 		Providers: []Provider{
-			{ID: "p1", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p1.example.com/v1", Models: []string{"manual-model"}},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"manual-model"}}}},
 		},
 		Aliases: []Alias{original},
 	}
@@ -908,8 +1052,8 @@ func TestAutoGenerateAliases_RespectsPriority(t *testing.T) {
 		AutoAliasEnabled: true,
 		ProviderPriority: []string{"p-high", "p-low"},
 		Providers: []Provider{
-			{ID: "p-low", Protocol: ProtocolOpenAIResponses, BaseURL: "https://low.example.com/v1", Models: []string{"prio-model"}},
-			{ID: "p-high", Protocol: ProtocolOpenAIResponses, BaseURL: "https://high.example.com/v1", Models: []string{"prio-model"}},
+			{ID: "p-low", BaseURL: "https://low.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"prio-model"}}}},
+			{ID: "p-high", BaseURL: "https://high.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"prio-model"}}}},
 		},
 	}
 
@@ -941,7 +1085,7 @@ func TestAutoGenerateAliases_DisabledWhenFlagOff(t *testing.T) {
 	cfg := &Config{
 		AutoAliasEnabled: false,
 		Providers: []Provider{
-			{ID: "p1", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p1.example.com/v1", Models: []string{"off-model"}},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"off-model"}}}},
 		},
 	}
 
@@ -957,16 +1101,208 @@ func TestAutoGenerateAliases_DisabledWhenFlagOff(t *testing.T) {
 	}
 }
 
+func TestAutoGenerateAliases_MultiGroupIndependentTargets(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		AutoAliasEnabled: true,
+		ProviderPriority: []string{"vendor"},
+		Providers: []Provider{{
+			ID:      "vendor",
+			BaseURL: "https://vendor.example/v1",
+			Groups: []ProviderGroup{
+				{ID: "default", Protocol: ProtocolOpenAIResponses, Models: []string{"shared", "only-default"}},
+				{ID: "premium", Protocol: ProtocolOpenAIResponses, Models: []string{"shared", "only-premium"}},
+			},
+		}},
+	}
+	created, updated := cfg.AutoGenerateAliases(cfg.Providers[0])
+	if len(updated) != 0 {
+		t.Fatalf("updated=%#v, want empty", updated)
+	}
+	wantCreated := []string{"shared", "only-default", "only-premium"}
+	if !slices.Equal(created, wantCreated) {
+		t.Fatalf("created=%#v, want %#v", created, wantCreated)
+	}
+	shared := cfg.FindAutoAlias("shared")
+	if shared == nil || len(shared.Targets) != 2 {
+		t.Fatalf("shared alias=%#v", shared)
+	}
+	// Stable order by group id within same provider: default then premium.
+	if shared.Targets[0].Group != "default" || shared.Targets[1].Group != "premium" {
+		t.Fatalf("target order=%#v", shared.Targets)
+	}
+	for _, tget := range shared.Targets {
+		if tget.Provider != "vendor" || tget.Model != "shared" || !tget.AutoGenerated || !tget.Enabled {
+			t.Fatalf("unexpected target %#v", tget)
+		}
+	}
+	// Independent groups never merge into a single target.
+	if targetExists(shared.Targets, "vendor", "default", "shared") != true ||
+		targetExists(shared.Targets, "vendor", "premium", "shared") != true {
+		t.Fatal("missing independent group targets")
+	}
+
+	// Idempotent: no duplicates.
+	created, updated = cfg.AutoGenerateAliases(cfg.Providers[0])
+	if len(created) != 0 || len(updated) != 0 {
+		t.Fatalf("second call created=%#v updated=%#v", created, updated)
+	}
+	if len(cfg.FindAutoAlias("shared").Targets) != 2 {
+		t.Fatalf("targets duplicated: %#v", cfg.FindAutoAlias("shared").Targets)
+	}
+}
+
+func TestReconcileProviderGroupAutoTargetsRemovesOnlyStaleSystemTargets(t *testing.T) {
+	t.Parallel()
+	cfg := Default()
+	cfg.Aliases = []Alias{
+		{Alias: "stale", AutoGenerated: true, Enabled: true, Targets: []Target{{Provider: "p1", Group: "premium", Model: "stale", Enabled: true, AutoGenerated: true}}},
+		{Alias: "mixed", AutoGenerated: true, Enabled: true, Targets: []Target{
+			{Provider: "p1", Group: "premium", Model: "stale", Enabled: true, AutoGenerated: true},
+			{Provider: "p1", Group: "premium", Model: "manual", Enabled: true},
+			{Provider: "p1", Group: "default", Model: "sibling", Enabled: true, AutoGenerated: true},
+		}},
+		{Alias: "locked", AutoGenerated: true, Locked: true, Enabled: true, Targets: []Target{{Provider: "p1", Group: "premium", Model: "stale", Enabled: true, AutoGenerated: true}}},
+	}
+	removed := cfg.ReconcileProviderGroupAutoTargets("p1", "premium", []string{"current"})
+	if !reflect.DeepEqual(removed, []string{"stale", "mixed"}) {
+		t.Fatalf("removed = %#v", removed)
+	}
+	if cfg.FindAutoAlias("stale") != nil {
+		t.Fatal("empty pure auto alias should be removed")
+	}
+	mixed := cfg.FindAutoAlias("mixed")
+	if mixed == nil || len(mixed.Targets) != 2 || mixed.Targets[0].Model != "manual" || mixed.Targets[1].Group != "default" {
+		t.Fatalf("mixed = %#v", mixed)
+	}
+	if locked := cfg.FindAutoAlias("locked"); locked == nil || len(locked.Targets) != 1 {
+		t.Fatalf("locked = %#v", locked)
+	}
+}
+
+func TestAutoGenerateAliases_SkipsDisabledGroupAndProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		AutoAliasEnabled: true,
+		Providers: []Provider{{
+			ID:      "vendor",
+			BaseURL: "https://vendor.example/v1",
+			Groups: []ProviderGroup{
+				{ID: "default", Protocol: ProtocolOpenAIResponses, Models: []string{"from-default"}},
+				{ID: "off", Protocol: ProtocolOpenAIResponses, Models: []string{"from-off"}, Disabled: true},
+			},
+		}},
+	}
+	created, updated := cfg.AutoGenerateAliases(cfg.Providers[0])
+	if !slices.Equal(created, []string{"from-default"}) || len(updated) != 0 {
+		t.Fatalf("created=%#v updated=%#v", created, updated)
+	}
+	if cfg.FindAutoAlias("from-off") != nil {
+		t.Fatal("disabled group should not generate aliases")
+	}
+
+	cfg2 := &Config{
+		AutoAliasEnabled: true,
+		Providers: []Provider{{
+			ID: "disabled-p", BaseURL: "https://x.example/v1", Disabled: true,
+			Groups: []ProviderGroup{{ID: "default", Protocol: ProtocolOpenAIResponses, Models: []string{"m"}}},
+		}},
+	}
+	created, updated = cfg2.AutoGenerateAliases(cfg2.Providers[0])
+	if len(created) != 0 || len(updated) != 0 || len(cfg2.Aliases) != 0 {
+		t.Fatalf("disabled provider generated aliases: created=%#v updated=%#v aliases=%#v", created, updated, cfg2.Aliases)
+	}
+}
+
+func TestAutoGenerateAliases_DoesNotTreatEmptyGroupAsDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		AutoAliasEnabled: true,
+		Providers: []Provider{{
+			ID: "p1", BaseURL: "https://p1.example/v1",
+			Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"legacy"}}},
+		}},
+		Aliases: []Alias{{
+			Alias: "legacy", Protocol: ProtocolOpenAIResponses, Enabled: true, AutoGenerated: true,
+			Targets: []Target{{Provider: "p1", Group: "", Model: "legacy", Enabled: true, AutoGenerated: true}},
+		}},
+	}
+	created, updated := cfg.AutoGenerateAliases(cfg.Providers[0])
+	if len(created) != 0 || !slices.Equal(updated, []string{"legacy"}) {
+		t.Fatalf("created=%#v updated=%#v", created, updated)
+	}
+	got := cfg.FindAutoAlias("legacy")
+	if got == nil || len(got.Targets) != 2 || got.Targets[0].Group != "" || got.Targets[1].Group != DefaultGroupID {
+		t.Fatalf("empty group was treated as default: %#v", got)
+	}
+}
+
+func TestRemoveGroupAutoTargets_PreciseCleanup(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Aliases: []Alias{
+			{
+				Alias: "shared", AutoGenerated: true, Enabled: true,
+				Targets: []Target{
+					{Provider: "vendor", Group: "default", Model: "shared", Enabled: true, AutoGenerated: true},
+					{Provider: "vendor", Group: "premium", Model: "shared", Enabled: true, AutoGenerated: true},
+					{Provider: "other", Group: "default", Model: "shared", Enabled: true, AutoGenerated: true},
+				},
+			},
+			{
+				Alias: "manual", Enabled: true,
+				Targets: []Target{{Provider: "vendor", Group: "premium", Model: "shared", Enabled: true}},
+			},
+			{
+				Alias: "only-premium", AutoGenerated: true, Enabled: true,
+				Targets: []Target{{Provider: "vendor", Group: "premium", Model: "only-premium", Enabled: true, AutoGenerated: true}},
+			},
+			{
+				Alias: "locked", AutoGenerated: true, Locked: true, Enabled: true,
+				Targets: []Target{{Provider: "vendor", Group: "premium", Model: "L", Enabled: true, AutoGenerated: true}},
+			},
+		},
+	}
+	emptied := cfg.RemoveGroupAutoTargets("vendor", "premium")
+	if !slices.Equal(emptied, []string{"only-premium"}) {
+		t.Fatalf("emptied=%#v, want [only-premium]", emptied)
+	}
+	shared := cfg.FindAutoAlias("shared")
+	if shared == nil || len(shared.Targets) != 2 {
+		t.Fatalf("shared=%#v", shared)
+	}
+	for _, tget := range shared.Targets {
+		if tget.Provider == "vendor" && tget.Group == "premium" {
+			t.Fatal("premium system target retained")
+		}
+	}
+	manual := cfg.FindAlias("manual")
+	if manual == nil || len(manual.Targets) != 1 || manual.Targets[0].Group != "premium" {
+		t.Fatalf("manual must be untouched: %#v", manual)
+	}
+	locked := cfg.FindAutoAlias("locked")
+	if locked == nil || len(locked.Targets) != 1 || locked.Targets[0].Group != "premium" {
+		t.Fatalf("locked must be untouched: %#v", locked)
+	}
+	if cfg.FindAutoAlias("only-premium") != nil {
+		t.Fatal("empty pure auto alias retained")
+	}
+}
+
 func TestFindProvidersByModel(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{
 		ProviderPriority: []string{"p2", "p1", "p3"},
 		Providers: []Provider{
-			{ID: "p1", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p1.example.com/v1", Models: []string{"m-a", "m-b"}},
-			{ID: "p2", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p2.example.com/v1", Models: []string{"m-a"}},
-			{ID: "p3", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p3.example.com/v1", Models: []string{"m-a"}, Disabled: true},
-			{ID: "p4", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p4.example.com/v1", Models: []string{"m-b"}},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"m-a", "m-b"}}}},
+			{ID: "p2", BaseURL: "https://p2.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"m-a"}}}},
+			{ID: "p3", BaseURL: "https://p3.example.com/v1", Disabled: true, Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"m-a"}}}},
+			{ID: "p4", BaseURL: "https://p4.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"m-b"}}}},
 		},
 	}
 
@@ -1102,9 +1438,9 @@ func TestSetProviderPriority_DedupesCompletesAndReordersAutoTargets(t *testing.T
 
 	cfg := &Config{
 		Providers: []Provider{
-			{ID: "p1", BaseURL: "https://p1.example.com/v1"},
-			{ID: "p2", BaseURL: "https://p2.example.com/v1"},
-			{ID: "p3", BaseURL: "https://p3.example.com/v1"},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: "https://p2.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}},
+			{ID: "p3", BaseURL: "https://p3.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}},
 		},
 		Aliases: []Alias{
 			{
@@ -1269,8 +1605,10 @@ func TestProviderAutoAliasEnabled_DefaultTrueAndExplicitFalse(t *testing.T) {
 	cfg.UpsertProvider(Provider{
 		ID:               "p-off",
 		BaseURL:          "https://off.example.com/v1",
-		APIKey:           "sk-off",
 		AutoAliasEnabled: &falseVal,
+		Groups: []ProviderGroup{{
+			ID: DefaultGroupID, Name: DefaultGroupName, Protocol: ProtocolOpenAIResponses, APIKey: "sk-off",
+		}},
 	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -1299,10 +1637,11 @@ func TestAutoGenerateAliases_RespectsProviderSwitch(t *testing.T) {
 		AutoAliasEnabled: true,
 		Providers: []Provider{{
 			ID:               "p1",
-			Protocol:         ProtocolOpenAIResponses,
 			BaseURL:          "https://p1.example.com/v1",
-			Models:           []string{"provider-off-model"},
 			AutoAliasEnabled: &falseVal,
+			Groups: []ProviderGroup{{
+				ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"provider-off-model"},
+			}},
 		}},
 	}
 	created, updated := cfg.AutoGenerateAliases(cfg.Providers[0])
@@ -1369,8 +1708,8 @@ func TestLockAutoAlias(t *testing.T) {
 
 	// Locked alias is not modified by generation or cleanup.
 	cfg.Providers = []Provider{{
-		ID: "p2", Protocol: ProtocolOpenAIResponses, BaseURL: "https://p2.example.com/v1",
-		Models: []string{"auto-lock"},
+		ID: "p2", BaseURL: "https://p2.example.com/v1",
+		Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, Models: []string{"auto-lock"}}},
 	}}
 	created, updated := cfg.AutoGenerateAliases(cfg.Providers[0])
 	if len(created) != 0 || len(updated) != 0 {
@@ -1429,5 +1768,169 @@ func TestLoadAppliesProviderPriorityToAutoAliasTargets(t *testing.T) {
 	}
 	if got := []string{alias.Targets[0].Provider, alias.Targets[1].Provider}; !reflect.DeepEqual(got, []string{"p2", "p1"}) {
 		t.Fatalf("target order = %#v, want [p2 p1]", got)
+	}
+}
+
+func TestUpsertProvider_DoesNotInjectDefaultGroup(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.UpsertProvider(Provider{
+		ID:      "empty-groups",
+		BaseURL: "https://empty.example.com/v1",
+	})
+	got := cfg.FindProvider("empty-groups")
+	if got == nil {
+		t.Fatal("provider missing after UpsertProvider")
+	}
+	if len(got.Groups) != 0 {
+		t.Fatalf("UpsertProvider injected groups = %#v, want empty (only v1 decoder injects default)", got.Groups)
+	}
+
+	// Replace existing provider with empty groups must also stay empty.
+	cfg.UpsertProvider(Provider{
+		ID:      "empty-groups",
+		BaseURL: "https://empty.example.com/v1",
+		Groups: []ProviderGroup{{
+			ID: DefaultGroupID, Name: DefaultGroupName, Protocol: ProtocolOpenAIResponses, APIKey: "sk",
+		}},
+	})
+	cfg.UpsertProvider(Provider{
+		ID:      "empty-groups",
+		BaseURL: "https://empty.example.com/v1",
+		Groups:  nil,
+	})
+	got = cfg.FindProvider("empty-groups")
+	if got == nil || len(got.Groups) != 0 {
+		t.Fatalf("replace with empty groups = %#v, want empty Groups", got)
+	}
+}
+
+func TestValidate_EmptyProviderGroupsFailClosed(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Providers = []Provider{{
+		ID:      "no-groups",
+		BaseURL: "https://no-groups.example.com/v1",
+		Groups:  nil,
+	}}
+	errs := cfg.Validate()
+	if len(errs) == 0 {
+		t.Fatal("Validate() = nil, want empty-groups error")
+	}
+	found := false
+	for _, err := range errs {
+		if strings.Contains(err.Error(), `provider "no-groups" has no groups`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Validate() = %v, want has no groups", errs)
+	}
+
+	persistErrs := cfg.ValidateForPersist()
+	if len(persistErrs) == 0 {
+		t.Fatal("ValidateForPersist() = nil, want empty-groups error")
+	}
+	found = false
+	for _, err := range persistErrs {
+		if strings.Contains(err.Error(), `provider "no-groups" has no groups`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("ValidateForPersist() = %v, want has no groups", persistErrs)
+	}
+}
+
+func TestMarshalPersistent_DoesNotInjectDefaultTargetGroup(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Providers = []Provider{{
+		ID:      "p1",
+		BaseURL: "https://p1.example.com/v1",
+		Groups: []ProviderGroup{{
+			ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses, APIKey: "sk",
+		}},
+	}}
+	cfg.Aliases = []Alias{{
+		Alias: "chat", Enabled: true, Protocol: ProtocolOpenAIResponses,
+		Targets: []Target{{Provider: "p1", Group: "", Model: "m1", Enabled: true}},
+	}}
+	raw, err := cfg.MarshalPersistent()
+	if err != nil {
+		t.Fatalf("MarshalPersistent() error = %v", err)
+	}
+	var wire struct {
+		Aliases []struct {
+			Targets []struct {
+				Group string `json:"group"`
+			} `json:"targets"`
+		} `json:"aliases"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(wire.Aliases) != 1 || len(wire.Aliases[0].Targets) != 1 {
+		t.Fatalf("wire aliases = %#v", wire.Aliases)
+	}
+	if got := wire.Aliases[0].Targets[0].Group; got != "" {
+		t.Fatalf("persisted target group = %q, want empty (no write-time default injection)", got)
+	}
+}
+
+func TestRemoveTarget_LegacyWrapperUsesDefaultGroup(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Aliases = []Alias{{
+		Alias: "chat", Enabled: true, Protocol: ProtocolOpenAIResponses,
+		Targets: []Target{
+			{Provider: "p1", Group: DefaultGroupID, Model: "m1", Enabled: true},
+			{Provider: "p1", Group: "premium", Model: "m1", Enabled: true},
+		},
+	}}
+	if err := cfg.RemoveTarget("chat", "p1", "m1"); err != nil {
+		t.Fatalf("RemoveTarget() error = %v", err)
+	}
+	got := cfg.FindAlias("chat")
+	if got == nil || len(got.Targets) != 1 {
+		t.Fatalf("after RemoveTarget: %#v", got)
+	}
+	if got.Targets[0].Group != "premium" {
+		t.Fatalf("legacy RemoveTarget removed wrong group: %#v", got.Targets)
+	}
+}
+
+func TestSortTargetsByPriority_DoesNotTreatEmptyGroupAsDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Providers = []Provider{
+		{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []ProviderGroup{{ID: DefaultGroupID, Protocol: ProtocolOpenAIResponses}}},
+	}
+	// Empty group must sort before "default" when compared as raw strings ("" < "default"),
+	// not be rewritten so both collapse into the same sort key.
+	targets := []Target{
+		{Provider: "p1", Group: DefaultGroupID, Model: "b", Enabled: true},
+		{Provider: "p1", Group: "", Model: "a", Enabled: true},
+		{Provider: "p1", Group: DefaultGroupID, Model: "a", Enabled: true},
+	}
+	sorted := cfg.sortTargetsByPriorityLocked(targets)
+	if len(sorted) != 3 {
+		t.Fatalf("sorted len = %d", len(sorted))
+	}
+	// Same provider: order by group then model. Empty group sorts first.
+	want := []Target{
+		{Provider: "p1", Group: "", Model: "a", Enabled: true},
+		{Provider: "p1", Group: DefaultGroupID, Model: "a", Enabled: true},
+		{Provider: "p1", Group: DefaultGroupID, Model: "b", Enabled: true},
+	}
+	if !reflect.DeepEqual(sorted, want) {
+		t.Fatalf("sorted = %#v, want %#v", sorted, want)
 	}
 }

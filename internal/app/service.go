@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -21,6 +22,7 @@ type Service struct {
 	configPath     string
 	traces         proxy.RequestTraceStore
 	traceStoreInfo TraceStoreStatus
+	planTokenKey   [32]byte
 
 	mu            sync.Mutex
 	proxyCancel   context.CancelFunc
@@ -47,7 +49,11 @@ func NewService(configPath string) *Service {
 	} else {
 		traces = proxy.NewTraceStore(200)
 	}
-	return &Service{configPath: resolvedPath, traces: traces, traceStoreInfo: traceStoreInfo}
+	service := &Service{configPath: resolvedPath, traces: traces, traceStoreInfo: traceStoreInfo}
+	if _, err := rand.Read(service.planTokenKey[:]); err != nil {
+		panic(fmt.Sprintf("initialize lifecycle token key: %v", err))
+	}
+	return service
 }
 
 func (s *Service) TraceStoreStatus() TraceStoreStatus {
@@ -238,16 +244,6 @@ func (s *Service) ApplyOpenCodeSync(ctx context.Context, in SyncInput) (SyncResu
 }
 
 func (s *Service) StartProxy(ctx context.Context) error {
-	cfg, err := s.loadConfig()
-	if err != nil {
-		return err
-	}
-	if errs := cfg.Validate(); len(errs) > 0 {
-		return errs[0]
-	}
-
-	bindAddress := proxyBindAddress(cfg)
-
 	s.mu.Lock()
 	if s.proxyCancel != nil {
 		ready := s.proxyReady
@@ -265,6 +261,17 @@ func (s *Service) StartProxy(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
+	cfg, err := s.loadConfig()
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if errs := cfg.Validate(); len(errs) > 0 {
+		s.mu.Unlock()
+		return errs[0]
+	}
+
+	bindAddress := proxyBindAddress(cfg)
 	runCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	ready := make(chan struct{})
@@ -689,27 +696,46 @@ func resolveConfigPath(path string) string {
 }
 
 func providerView(provider config.Provider) ProviderView {
-	apiKeys := provider.EffectiveAPIKeys()
+	return ProviderView{
+		ID:               provider.ID,
+		Name:             provider.Name,
+		BaseURL:          provider.BaseURL,
+		BaseURLs:         append([]string(nil), provider.EffectiveBaseURLs()...),
+		BaseURLStrategy:  config.NormalizeProviderBaseURLStrategy(provider.BaseURLStrategy),
+		Headers:          cloneHeaders(provider.Headers),
+		Disabled:         provider.Disabled,
+		AutoAliasEnabled: provider.EffectiveAutoAliasEnabled(),
+		Groups:           providerGroupViews(provider.Groups),
+	}
+}
+
+func providerGroupViews(groups []config.ProviderGroup) []ProviderGroupView {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([]ProviderGroupView, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, providerGroupView(group))
+	}
+	return out
+}
+
+// providerGroupView returns a masked management view — never plaintext keys.
+func providerGroupView(group config.ProviderGroup) ProviderGroupView {
+	apiKeys := group.EffectiveAPIKeys()
 	maskedKeys := make([]string, 0, len(apiKeys))
 	for _, apiKey := range apiKeys {
 		maskedKeys = append(maskedKeys, maskKey(apiKey))
 	}
-	return ProviderView{
-		ID:               provider.ID,
-		Name:             provider.Name,
-		Protocol:         config.NormalizeProviderProtocol(provider.Protocol),
-		BaseURL:          provider.BaseURL,
-		BaseURLs:         append([]string(nil), provider.EffectiveBaseURLs()...),
-		BaseURLStrategy:  config.NormalizeProviderBaseURLStrategy(provider.BaseURLStrategy),
-		APIKeySet:        len(apiKeys) > 0,
-		APIKeyMasked:     firstMaskedKey(maskedKeys),
-		APIKeyCount:      len(apiKeys),
-		APIKeysMasked:    maskedKeys,
-		Headers:          cloneHeaders(provider.Headers),
-		Models:           append([]string(nil), provider.Models...),
-		ModelsSource:     provider.ModelsSource,
-		Disabled:         provider.Disabled,
-		AutoAliasEnabled: provider.EffectiveAutoAliasEnabled(),
+	return ProviderGroupView{
+		ID:            group.ID,
+		Name:          group.Name,
+		Protocol:      config.NormalizeProviderProtocol(group.Protocol),
+		APIKeyCount:   len(apiKeys),
+		APIKeysMasked: maskedKeys,
+		Models:        append([]string(nil), group.Models...),
+		ModelsSource:  group.ModelsSource,
+		Disabled:      group.Disabled,
 	}
 }
 
@@ -723,7 +749,7 @@ func firstMaskedKey(keys []string) string {
 func aliasView(cfg *config.Config, alias config.Alias) AliasView {
 	targets := make([]AliasTargetView, 0, len(alias.Targets))
 	for _, target := range alias.Targets {
-		targets = append(targets, aliasTargetView(cfg, alias, target))
+		targets = append(targets, aliasTargetViewWithGroup(cfg, alias, target))
 	}
 	return AliasView{
 		Alias:                alias.Alias,
@@ -738,6 +764,60 @@ func aliasView(cfg *config.Config, alias config.Alias) AliasView {
 	}
 }
 
+// aliasTargetViewWithGroup builds a group-aware target view.
+func aliasTargetViewWithGroup(cfg *config.Config, alias config.Alias, target config.Target) AliasTargetView {
+	groupID := strings.TrimSpace(target.Group)
+	view := AliasTargetView{
+		Provider:      target.Provider,
+		Group:         groupID,
+		Model:         target.Model,
+		Enabled:       target.Enabled,
+		AutoGenerated: target.AutoGenerated,
+	}
+	if !target.Enabled {
+		view.Reason = string(diagnostics.ReasonDisabled)
+		view.Code = string(diagnostics.CodeAliasTargetDisabled)
+		view.AllowedActions = targetActionsForAlias(alias)
+		if !alias.AutoGenerated && !alias.Locked {
+			view.AllowedActions = appendUniqueAction(view.AllowedActions, string(diagnostics.ActionEnableTarget))
+		}
+		return view
+	}
+	provider, group := cfg.FindProviderGroup(target.Provider, groupID)
+	if provider == nil {
+		view.Reason = string(diagnostics.ReasonMissing)
+		view.Code = string(diagnostics.CodeAliasTargetProviderMissing)
+		view.AllowedActions = targetActionsForAlias(alias)
+		return view
+	}
+	if group == nil {
+		view.Reason = string(diagnostics.ReasonMissing)
+		view.Code = string(diagnostics.CodeAliasTargetGroupMissing)
+		view.AllowedActions = targetActionsForAlias(alias)
+		return view
+	}
+	if !config.ProtocolsMatch(alias.Protocol, group.Protocol) {
+		view.Reason = string(diagnostics.ReasonProtocolMismatch)
+		view.Code = string(diagnostics.CodeAliasTargetProtocolMismatch)
+		view.AllowedActions = targetActionsForAlias(alias)
+		return view
+	}
+	if provider.Disabled {
+		view.Reason = string(diagnostics.ReasonDisabled)
+		view.Code = string(diagnostics.CodeAliasTargetProviderDisabled)
+		view.AllowedActions = appendUniqueAction(targetActionsForAlias(alias), string(diagnostics.ActionEnableProvider), string(diagnostics.ActionKeep))
+		return view
+	}
+	if group.Disabled {
+		view.Reason = string(diagnostics.ReasonDisabled)
+		view.Code = string(diagnostics.CodeAliasTargetGroupDisabled)
+		view.AllowedActions = targetActionsForAlias(alias)
+		return view
+	}
+	view.Available = true
+	return view
+}
+
 func requestRewriteRuleViews(rules []config.RequestRewriteRule) []RequestRewriteRuleView {
 	views := make([]RequestRewriteRuleView, 0, len(rules))
 	for _, rule := range rules {
@@ -748,15 +828,30 @@ func requestRewriteRuleViews(rules []config.RequestRewriteRule) []RequestRewrite
 
 func requestRewriteRuleView(rule config.RequestRewriteRule) RequestRewriteRuleView {
 	return RequestRewriteRuleView{
-		Name:      rule.Name,
-		Alias:     rule.Alias,
-		Providers: append([]string(nil), rule.Providers...),
-		Enabled:   rule.Enabled,
-		Override:  rule.Override,
-		Ops:       cloneRequestRewriteOperations(rule.Ops),
-		Legacy:    config.RequestRewriteRuleUsesLegacySyntax(rule),
-		Warnings:  config.RequestRewriteRuleWarnings(rule),
+		Name:           rule.Name,
+		Alias:          rule.Alias,
+		ProviderGroups: providerGroupSelectorViews(rule.ProviderGroups),
+		Enabled:        rule.Enabled,
+		Override:       rule.Override,
+		Ops:            cloneRequestRewriteOperations(rule.Ops),
+		Legacy:         config.RequestRewriteRuleUsesLegacySyntax(rule),
+		Warnings:       config.RequestRewriteRuleWarnings(rule),
 	}
+}
+
+func providerGroupSelectorViews(selectors []config.ProviderGroupSelector) []ProviderGroupSelectorView {
+	if selectors == nil {
+		return nil
+	}
+	// Preserve explicit empty slice (wildcard) vs omitted.
+	out := make([]ProviderGroupSelectorView, 0, len(selectors))
+	for _, sel := range selectors {
+		out = append(out, ProviderGroupSelectorView{
+			Provider: sel.Provider,
+			Group:    strings.TrimSpace(sel.Group),
+		})
+	}
+	return out
 }
 
 func doctorIssues(errs []error) []DoctorIssue {
@@ -920,15 +1015,22 @@ func syncDiffFieldPathsForPreview() []string {
 
 func selectCapabilityProbeTarget(cfg *config.Config, availableTargets []config.Target) (config.Target, opencode.ProviderModelProbeTarget, bool) {
 	for _, target := range availableTargets {
-		provider := cfg.FindProvider(target.Provider)
-		if provider == nil {
+		groupID := strings.TrimSpace(target.Group)
+		if groupID == "" {
+			// Migration: missing group on a target maps only to default.
+			groupID = config.DefaultGroupID
+		}
+		provider, group := cfg.FindProviderGroup(target.Provider, groupID)
+		if provider == nil || group == nil {
+			// Exact group required — never fall back to first or same-protocol sibling.
 			continue
 		}
 		return target, opencode.ProviderModelProbeTarget{
 			ProviderID: provider.ID,
-			Protocol:   provider.Protocol,
+			GroupID:    group.ID,
+			Protocol:   group.Protocol,
 			BaseURLs:   provider.EffectiveBaseURLs(),
-			APIKeys:    provider.EffectiveAPIKeys(),
+			APIKeys:    group.EffectiveAPIKeys(),
 			Headers:    cloneHeaders(provider.Headers),
 		}, true
 	}

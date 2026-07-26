@@ -1,6 +1,11 @@
 package cli
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/Apale7/opencode-provider-switch/internal/config"
+)
 
 func TestParseProviderModelRef(t *testing.T) {
 	t.Parallel()
@@ -29,4 +34,45 @@ func TestParseProviderModelRef(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolveAliasTargetFlags(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default combined form", func(t *testing.T) {
+		provider, model, group, err := resolveAliasTargetFlags("", "", "su8/gpt-5.4")
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if provider != "su8" || model != "gpt-5.4" || group != config.DefaultGroupID {
+			t.Fatalf("got %q %q %q", provider, model, group)
+		}
+	})
+
+	t.Run("default explicit provider keeps slash model", func(t *testing.T) {
+		provider, model, group, err := resolveAliasTargetFlags("relay", "", "openrouter/google/gemini")
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if provider != "relay" || model != "openrouter/google/gemini" || group != config.DefaultGroupID {
+			t.Fatalf("got %q %q %q", provider, model, group)
+		}
+	})
+
+	t.Run("non-default requires provider", func(t *testing.T) {
+		_, _, _, err := resolveAliasTargetFlags("", "premium", "su8/gpt-5.4")
+		if err == nil || !strings.Contains(err.Error(), "--provider is required") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("non-default explicit slash model literal", func(t *testing.T) {
+		provider, model, group, err := resolveAliasTargetFlags("relay", "premium", "openrouter/google/gemini")
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if provider != "relay" || model != "openrouter/google/gemini" || group != "premium" {
+			t.Fatalf("got %q %q %q", provider, model, group)
+		}
+	})
 }

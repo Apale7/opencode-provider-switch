@@ -1,0 +1,95 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "api_key": "ocswitch-local",
+    "failover_status_codes": [401, 402, 403, 429]
+  },
+  "providers": [
+    {
+      "id": "vendor-multi-proto",
+      "name": "Vendor Multi Protocol",
+      "base_url": "https://vendor-multi-proto.example.test/v1",
+      "base_url_strategy": "ordered",
+      "headers": {
+        "X-Shared-Client": "multi-proto-shared"
+      },
+      "disabled": false,
+      "auto_alias_enabled": false,
+      "groups": [
+        {
+          "id": "openai-group",
+          "name": "OpenAI Responses Group",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-openai-group",
+          "models": ["gpt-fake"],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "anthropic-group",
+          "name": "Anthropic Messages Group",
+          "protocol": "anthropic-messages",
+          "api_key": "sk-fake-anthropic-group",
+          "models": ["claude-fake"],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "compat-group",
+          "name": "OpenAI Compatible Group",
+          "protocol": "openai-compatible",
+          "api_key": "sk-fake-compat-group",
+          "models": ["compat-fake"],
+          "models_source": "manual",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "auth-openai",
+      "display_name": "Auth OpenAI",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-multi-proto",
+          "group": "openai-group",
+          "model": "gpt-fake",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "alias": "auth-anthropic",
+      "display_name": "Auth Anthropic",
+      "protocol": "anthropic-messages",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-multi-proto",
+          "group": "anthropic-group",
+          "model": "claude-fake",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "alias": "auth-compat",
+      "display_name": "Auth Compatible",
+      "protocol": "openai-compatible",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-multi-proto",
+          "group": "compat-group",
+          "model": "compat-fake",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

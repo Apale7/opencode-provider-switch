@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,6 +15,24 @@ import (
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
+
+func testDefaultGroup(p *config.Provider) *config.ProviderGroup {
+	if p == nil {
+		return nil
+	}
+	return p.FindGroup(config.DefaultGroupID)
+}
+
+func testProviderWithDefaultGroup(id, baseURL string, g config.ProviderGroup) config.Provider {
+	g.ID = config.DefaultGroupID
+	if strings.TrimSpace(g.Name) == "" {
+		g.Name = config.DefaultGroupName
+	}
+	if strings.TrimSpace(g.Protocol) == "" {
+		g.Protocol = config.ProtocolOpenAIResponses
+	}
+	return config.Provider{ID: id, BaseURL: baseURL, Groups: []config.ProviderGroup{g}}
+}
 
 func TestProviderAddPreservesExistingFields(t *testing.T) {
 	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
@@ -23,14 +42,11 @@ func TestProviderAddPreservesExistingFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:       "p1",
-		Name:     "Old",
-		BaseURL:  "https://old.example.com/v1",
-		APIKey:   "sk-old",
-		Headers:  map[string]string{"X-Test": "1"},
-		Disabled: true,
-	})
+	p0 := testProviderWithDefaultGroup("p1", "https://old.example.com/v1", config.ProviderGroup{APIKey: "sk-old"})
+	p0.Name = "Old"
+	p0.Headers = map[string]string{"X-Test": "1"}
+	p0.Disabled = true
+	cfg.UpsertProvider(p0)
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -52,8 +68,9 @@ func TestProviderAddPreservesExistingFields(t *testing.T) {
 	if p.Name != "Old" {
 		t.Fatalf("Name = %q, want Old", p.Name)
 	}
-	if p.APIKey != "sk-old" {
-		t.Fatalf("APIKey = %q, want sk-old", p.APIKey)
+	g := testDefaultGroup(p)
+	if g == nil || g.APIKey != "sk-old" {
+		t.Fatalf("APIKey = %#v, want sk-old", g)
 	}
 	if p.Headers["X-Test"] != "1" {
 		t.Fatalf("Headers = %#v, want preserved header", p.Headers)
@@ -115,14 +132,15 @@ func TestProviderAddDiscoverySuccessStoresCatalog(t *testing.T) {
 		t.Fatalf("reload config: %v", err)
 	}
 	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
+	g := testDefaultGroup(p)
+	if g == nil {
+		t.Fatal("provider p1 default group not found")
 	}
-	if got := strings.Join(p.Models, ","); got != "gpt-4.1,gpt-4o" {
+	if got := strings.Join(g.Models, ","); got != "gpt-4.1,gpt-4o" {
 		t.Fatalf("Models = %q", got)
 	}
-	if p.ModelsSource != "discovered" {
-		t.Fatalf("ModelsSource = %q, want discovered", p.ModelsSource)
+	if g.ModelsSource != "discovered" {
+		t.Fatalf("ModelsSource = %q, want discovered", g.ModelsSource)
 	}
 }
 
@@ -167,12 +185,9 @@ func TestProviderAddDiscoveryFailureMarksCatalogUntrustedAfterConnectionChange(t
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://old.example.com/v1",
-		Models:       []string{"old-model"},
-		ModelsSource: "discovered",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://old.example.com/v1", config.ProviderGroup{
+		Models: []string{"old-model"}, ModelsSource: "discovered",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -194,15 +209,15 @@ func TestProviderAddDiscoveryFailureMarksCatalogUntrustedAfterConnectionChange(t
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
-	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
+	g := testDefaultGroup(cfg.FindProvider("p1"))
+	if g == nil {
+		t.Fatal("provider p1 default group not found")
 	}
-	if got := strings.Join(p.Models, ","); got != "old-model" {
+	if got := strings.Join(g.Models, ","); got != "old-model" {
 		t.Fatalf("Models = %q, want old-model preserved", got)
 	}
-	if p.ModelsSource != "" {
-		t.Fatalf("ModelsSource = %q, want empty to disable strict validation", p.ModelsSource)
+	if g.ModelsSource != "" {
+		t.Fatalf("ModelsSource = %q, want empty to disable strict validation", g.ModelsSource)
 	}
 	if !strings.Contains(stderr.String(), "keeping existing model catalog as untrusted") {
 		t.Fatalf("stderr = %q", stderr.String())
@@ -217,12 +232,9 @@ func TestProviderAddSkipModelsMarksCatalogUntrustedAfterConnectionChange(t *test
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://old.example.com/v1",
-		Models:       []string{"old-model"},
-		ModelsSource: "discovered",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://old.example.com/v1", config.ProviderGroup{
+		Models: []string{"old-model"}, ModelsSource: "discovered",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -239,15 +251,15 @@ func TestProviderAddSkipModelsMarksCatalogUntrustedAfterConnectionChange(t *test
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
-	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
+	g := testDefaultGroup(cfg.FindProvider("p1"))
+	if g == nil {
+		t.Fatal("provider p1 default group not found")
 	}
-	if got := strings.Join(p.Models, ","); got != "old-model" {
+	if got := strings.Join(g.Models, ","); got != "old-model" {
 		t.Fatalf("Models = %q, want old-model preserved", got)
 	}
-	if p.ModelsSource != "" {
-		t.Fatalf("ModelsSource = %q, want empty to disable strict validation", p.ModelsSource)
+	if g.ModelsSource != "" {
+		t.Fatalf("ModelsSource = %q, want empty to disable strict validation", g.ModelsSource)
 	}
 	if !strings.Contains(stderr.String(), "connection changed with --skip-models") || !strings.Contains(stderr.String(), "untrusted") {
 		t.Fatalf("stderr = %q", stderr.String())
@@ -262,12 +274,9 @@ func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenConnectionEquivalent(t *
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      " https://example.com/v1/ ",
-		Models:       []string{"old-model"},
-		ModelsSource: "discovered",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", " https://example.com/v1/ ", config.ProviderGroup{
+		Models: []string{"old-model"}, ModelsSource: "discovered",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -288,14 +297,15 @@ func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenConnectionEquivalent(t *
 		t.Fatalf("reload config: %v", err)
 	}
 	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
+	g := testDefaultGroup(p)
+	if g == nil {
+		t.Fatal("provider p1 default group not found")
 	}
-	if got := strings.Join(p.Models, ","); got != "old-model" {
+	if got := strings.Join(g.Models, ","); got != "old-model" {
 		t.Fatalf("Models = %q", got)
 	}
-	if p.ModelsSource != "discovered" {
-		t.Fatalf("ModelsSource = %q, want discovered", p.ModelsSource)
+	if g.ModelsSource != "discovered" {
+		t.Fatalf("ModelsSource = %q, want discovered", g.ModelsSource)
 	}
 	if p.BaseURL != "https://example.com/v1" {
 		t.Fatalf("BaseURL = %q, want normalized", p.BaseURL)
@@ -310,13 +320,9 @@ func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenHeadersEquivalent(t *tes
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://example.com/v1",
-		Headers:      nil,
-		Models:       []string{"old-model"},
-		ModelsSource: "discovered",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{
+		Models: []string{"old-model"}, ModelsSource: "discovered",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -336,12 +342,9 @@ func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenHeadersEquivalent(t *tes
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
-	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
-	}
-	if p.ModelsSource != "discovered" {
-		t.Fatalf("ModelsSource = %q, want discovered", p.ModelsSource)
+	g := testDefaultGroup(cfg.FindProvider("p1"))
+	if g == nil || g.ModelsSource != "discovered" {
+		t.Fatalf("provider after update = %#v", cfg.FindProvider("p1"))
 	}
 }
 
@@ -358,12 +361,9 @@ func TestProviderAddDiscoveryEmptyKeepsDiscoveredCatalogWhenConnectionUnchanged(
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      srv.URL + "/v1",
-		Models:       []string{"gpt-4.1"},
-		ModelsSource: "discovered",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", srv.URL+"/v1", config.ProviderGroup{
+		Models: []string{"gpt-4.1"}, ModelsSource: "discovered",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -383,15 +383,15 @@ func TestProviderAddDiscoveryEmptyKeepsDiscoveredCatalogWhenConnectionUnchanged(
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
-	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
+	g := testDefaultGroup(cfg.FindProvider("p1"))
+	if g == nil {
+		t.Fatal("provider p1 default group not found")
 	}
-	if got := strings.Join(p.Models, ","); got != "gpt-4.1" {
+	if got := strings.Join(g.Models, ","); got != "gpt-4.1" {
 		t.Fatalf("Models = %q", got)
 	}
-	if p.ModelsSource != "discovered" {
-		t.Fatalf("ModelsSource = %q, want discovered", p.ModelsSource)
+	if g.ModelsSource != "discovered" {
+		t.Fatalf("ModelsSource = %q, want discovered", g.ModelsSource)
 	}
 }
 
@@ -403,12 +403,9 @@ func TestProviderAddDiscoveryEmptyMarksCatalogUntrustedAfterConnectionChange(t *
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://old.example.com/v1",
-		Models:       []string{"gpt-4.1"},
-		ModelsSource: "discovered",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://old.example.com/v1", config.ProviderGroup{
+		Models: []string{"gpt-4.1"}, ModelsSource: "discovered",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -433,15 +430,15 @@ func TestProviderAddDiscoveryEmptyMarksCatalogUntrustedAfterConnectionChange(t *
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
-	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
+	g := testDefaultGroup(cfg.FindProvider("p1"))
+	if g == nil {
+		t.Fatal("provider p1 default group not found")
 	}
-	if got := strings.Join(p.Models, ","); got != "gpt-4.1" {
+	if got := strings.Join(g.Models, ","); got != "gpt-4.1" {
 		t.Fatalf("Models = %q", got)
 	}
-	if p.ModelsSource != "" {
-		t.Fatalf("ModelsSource = %q, want empty to disable strict validation after connection change", p.ModelsSource)
+	if g.ModelsSource != "" {
+		t.Fatalf("ModelsSource = %q, want empty to disable strict validation after connection change", g.ModelsSource)
 	}
 }
 
@@ -453,13 +450,11 @@ func TestProviderAddRejectsEmptyHeaderName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://example.com/v1",
-		Headers:      map[string]string{"X-Test": "1"},
-		Models:       []string{"known-model"},
-		ModelsSource: "discovered",
+	p0 := testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{
+		Models: []string{"known-model"}, ModelsSource: "discovered",
 	})
+	p0.Headers = map[string]string{"X-Test": "1"}
+	cfg.UpsertProvider(p0)
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -479,7 +474,8 @@ func TestProviderAddRejectsEmptyHeaderName(t *testing.T) {
 		t.Fatalf("reload config: %v", err)
 	}
 	p := cfg.FindProvider("p1")
-	if p == nil || p.Headers["X-Test"] != "1" || p.ModelsSource != "discovered" {
+	g := testDefaultGroup(p)
+	if p == nil || p.Headers["X-Test"] != "1" || g == nil || g.ModelsSource != "discovered" {
 		t.Fatalf("provider after failed header parse = %#v", p)
 	}
 }
@@ -526,7 +522,7 @@ func TestProviderAddAllowsClearingAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://example.com/v1", APIKey: "sk-old"})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{APIKey: "sk-old"}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -541,12 +537,12 @@ func TestProviderAddAllowsClearingAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
-	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
+	g := testDefaultGroup(cfg.FindProvider("p1"))
+	if g == nil {
+		t.Fatal("provider p1 default group not found")
 	}
-	if p.APIKey != "" {
-		t.Fatalf("APIKey = %q, want cleared empty string", p.APIKey)
+	if g.APIKey != "" {
+		t.Fatalf("APIKey = %q, want cleared empty string", g.APIKey)
 	}
 }
 
@@ -558,11 +554,9 @@ func TestProviderAddAllowsClearingHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:      "p1",
-		BaseURL: "https://example.com/v1",
-		Headers: map[string]string{"x-token": "abc", "x-workspace": "team"},
-	})
+	p0 := testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{})
+	p0.Headers = map[string]string{"x-token": "abc", "x-workspace": "team"}
+	cfg.UpsertProvider(p0)
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -594,7 +588,9 @@ func TestProviderAddAllowsExplicitEnableViaDisabledFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://example.com/v1", Disabled: true})
+	p0 := testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{})
+	p0.Disabled = true
+	cfg.UpsertProvider(p0)
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -626,13 +622,11 @@ func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenHeaderCaseChangesOnly(t 
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://example.com/v1",
-		Headers:      map[string]string{"X-Test": "1"},
-		Models:       []string{"old-model"},
-		ModelsSource: "discovered",
+	p0 := testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{
+		Models: []string{"old-model"}, ModelsSource: "discovered",
 	})
+	p0.Headers = map[string]string{"X-Test": "1"}
+	cfg.UpsertProvider(p0)
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -652,9 +646,9 @@ func TestProviderAddSkipModelsKeepsDiscoveredCatalogWhenHeaderCaseChangesOnly(t 
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
-	p := cfg.FindProvider("p1")
-	if p == nil || p.ModelsSource != "discovered" {
-		t.Fatalf("provider after update = %#v", p)
+	g := testDefaultGroup(cfg.FindProvider("p1"))
+	if g == nil || g.ModelsSource != "discovered" {
+		t.Fatalf("provider after update = %#v", cfg.FindProvider("p1"))
 	}
 }
 
@@ -670,7 +664,7 @@ func TestAliasAddPreservesExistingFields(t *testing.T) {
 		Alias:       "gpt-5.4",
 		DisplayName: "Old Name",
 		Enabled:     true,
-		Targets:     []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		Targets:     []config.Target{{Provider: "p1", Group: config.DefaultGroupID, Model: "up-1", Enabled: true}},
 	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -709,10 +703,7 @@ func TestProviderEnableDisableCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:      "p1",
-		BaseURL: "https://example.com/v1",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -754,14 +745,11 @@ func TestOpencodeSyncDoesNotPanicOnSliceModelMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:      "p1",
-		BaseURL: "https://example.com/v1",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{}))
 	cfg.UpsertAlias(config.Alias{
 		Alias:   "gpt-5.4",
 		Enabled: true,
-		Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		Targets: []config.Target{{Provider: "p1", Group: config.DefaultGroupID, Model: "up-1", Enabled: true}},
 	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -824,11 +812,11 @@ func TestOpencodeSyncRejectsInvalidSelectedModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://example.com/v1"})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{}))
 	cfg.UpsertAlias(config.Alias{
 		Alias:   "gpt-5.4",
 		Enabled: true,
-		Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+		Targets: []config.Target{{Provider: "p1", Group: config.DefaultGroupID, Model: "up-1", Enabled: true}},
 	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
@@ -1029,7 +1017,9 @@ func TestAliasBindAcceptsSlashModelWithExplicitProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{ID: "relay", BaseURL: "https://example.com/v1", Models: []string{"openrouter/google/gemini-2.5-pro"}, ModelsSource: "discovered"})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("relay", "https://example.com/v1", config.ProviderGroup{
+		Models: []string{"openrouter/google/gemini-2.5-pro"}, ModelsSource: "discovered",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -1058,8 +1048,12 @@ func TestAliasUnbindAcceptsSlashModelWithExplicitProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{ID: "relay", BaseURL: "https://example.com/v1"})
-	cfg.UpsertAlias(config.Alias{Alias: "gemini", Enabled: true, Targets: []config.Target{{Provider: "relay", Model: "openrouter/google/gemini-2.5-pro", Enabled: true}}})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("relay", "https://example.com/v1", config.ProviderGroup{}))
+	cfg.UpsertAlias(config.Alias{
+		Alias:   "gemini",
+		Enabled: true,
+		Targets: []config.Target{{Provider: "relay", Group: config.DefaultGroupID, Model: "openrouter/google/gemini-2.5-pro", Enabled: true}},
+	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -1077,6 +1071,139 @@ func TestAliasUnbindAcceptsSlashModelWithExplicitProvider(t *testing.T) {
 	a := cfg.FindAlias("gemini")
 	if a == nil || len(a.Targets) != 0 {
 		t.Fatalf("alias targets = %#v", a)
+	}
+}
+
+func TestAliasBindNonDefaultRequiresExplicitProvider(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cmd := newAliasBindCmd()
+	cmd.SetArgs([]string{"--alias", "gpt", "--model", "su8/gpt-5.4", "--group", "premium"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected non-default --group without --provider to fail")
+	}
+	if !strings.Contains(err.Error(), "--provider is required") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestAliasBindNonDefaultSlashModelWithExplicitFlags(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "relay",
+		BaseURL: "https://example.com/v1",
+		Groups: []config.ProviderGroup{
+			{ID: config.DefaultGroupID, Name: config.DefaultGroupName, Protocol: config.ProtocolOpenAIResponses},
+			{
+				ID: "premium", Name: "Premium", Protocol: config.ProtocolOpenAIResponses,
+				Models: []string{"openrouter/google/gemini-2.5-pro"}, ModelsSource: "discovered",
+			},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := newAliasBindCmd()
+	cmd.SetArgs([]string{
+		"--alias", "gemini",
+		"--provider", "relay",
+		"--group", "premium",
+		"--model", "openrouter/google/gemini-2.5-pro",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute alias bind: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	a := cfg.FindAlias("gemini")
+	if a == nil || len(a.Targets) != 1 {
+		t.Fatalf("alias = %#v", a)
+	}
+	if a.Targets[0].Provider != "relay" || a.Targets[0].Group != "premium" ||
+		a.Targets[0].Model != "openrouter/google/gemini-2.5-pro" {
+		t.Fatalf("target = %#v", a.Targets[0])
+	}
+}
+
+func TestAliasUnbindNonDefaultRequiresExplicitProvider(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cmd := newAliasUnbindCmd()
+	cmd.SetArgs([]string{"--alias", "gpt", "--model", "su8/gpt-5.4", "--group", "premium"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected non-default --group without --provider to fail")
+	}
+	if !strings.Contains(err.Error(), "--provider is required") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestProviderAddUpdateAtomicSharedAndDefaultGroup(t *testing.T) {
+	t.Setenv(config.ConfigEnvVar, filepath.Join(t.TempDir(), "ocswitch.json"))
+	configPath = ""
+
+	cfg, err := loadCfg()
+	if err != nil {
+		t.Fatalf("loadCfg: %v", err)
+	}
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://old.example.com/v1", config.ProviderGroup{
+		APIKey: "sk-old", Protocol: config.ProtocolOpenAIResponses,
+		Models: []string{"m1"}, ModelsSource: "discovered",
+	}))
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	// Single provider add updates base URL + api key without multi-stage partial state.
+	cmd := newProviderAddCmd()
+	cmd.SetArgs([]string{
+		"--id", "p1",
+		"--base-url", "https://new.example.com/v1",
+		"--api-key", "sk-new",
+		"--protocol", config.ProtocolAnthropicMessages,
+		"--skip-models",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute provider add: %v", err)
+	}
+
+	cfg, err = loadCfg()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	p := cfg.FindProvider("p1")
+	if p == nil {
+		t.Fatal("provider missing")
+	}
+	if p.BaseURL != "https://new.example.com/v1" {
+		t.Fatalf("BaseURL = %q", p.BaseURL)
+	}
+	g := testDefaultGroup(p)
+	if g == nil {
+		t.Fatal("default group missing")
+	}
+	if g.APIKey != "sk-new" {
+		t.Fatalf("APIKey = %q", g.APIKey)
+	}
+	if g.Protocol != config.ProtocolAnthropicMessages {
+		t.Fatalf("Protocol = %q", g.Protocol)
+	}
+	if !reflect.DeepEqual(g.Models, []string{"m1"}) {
+		t.Fatalf("Models = %#v, want preserved", g.Models)
 	}
 }
 
@@ -1106,8 +1233,13 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	if rule == nil {
 		t.Fatal("rewrite rule fast not found")
 	}
-	if rule.Alias != "gpt-5.5-fast" || strings.Join(rule.Providers, ",") != "p1,p2" || !rule.Enabled || rule.Override {
+	if rule.Alias != "gpt-5.5-fast" || !rule.Enabled || rule.Override {
 		t.Fatalf("rule = %#v", rule)
+	}
+	if len(rule.ProviderGroups) != 2 ||
+		rule.ProviderGroups[0].Provider != "p1" || rule.ProviderGroups[0].Group != config.DefaultGroupID ||
+		rule.ProviderGroups[1].Provider != "p2" || rule.ProviderGroups[1].Group != config.DefaultGroupID {
+		t.Fatalf("rule.ProviderGroups = %#v, want p1/default and p2/default", rule.ProviderGroups)
 	}
 	if len(rule.Ops) != 3 {
 		t.Fatalf("ops = %#v, want 3", rule.Ops)
@@ -1129,7 +1261,7 @@ func TestRewriteCommandsManageRules(t *testing.T) {
 	if err := listCmd.Execute(); err != nil {
 		t.Fatalf("execute rewrite list: %v", err)
 	}
-	if out := stdout.String(); !strings.Contains(out, "fast") || !strings.Contains(out, "providers=p1,p2") || !strings.Contains(out, "service_tier") {
+	if out := stdout.String(); !strings.Contains(out, "fast") || !strings.Contains(out, "providerGroups=p1/default,p2/default") || !strings.Contains(out, "service_tier") {
 		t.Fatalf("rewrite list output = %q", out)
 	}
 
@@ -1248,12 +1380,9 @@ func TestImportedModelsDoNotBlockAliasBind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://example.com/v1",
-		Models:       []string{"subset-only"},
-		ModelsSource: "imported",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{
+		Models: []string{"subset-only"}, ModelsSource: "imported",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -1298,16 +1427,13 @@ func TestProviderImportOpencodeOverwritePreservesLocalStateAndDemotesCatalogAfte
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		Name:         "Local Name",
-		BaseURL:      "https://old.example.com/v1",
-		APIKey:       "sk-old",
-		Headers:      map[string]string{"X-Test": "1"},
-		Models:       []string{"discovered-model"},
-		ModelsSource: "discovered",
-		Disabled:     true,
+	p0 := testProviderWithDefaultGroup("p1", "https://old.example.com/v1", config.ProviderGroup{
+		APIKey: "sk-old", Models: []string{"discovered-model"}, ModelsSource: "discovered",
 	})
+	p0.Name = "Local Name"
+	p0.Headers = map[string]string{"X-Test": "1"}
+	p0.Disabled = true
+	cfg.UpsertProvider(p0)
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -1350,14 +1476,18 @@ func TestProviderImportOpencodeOverwritePreservesLocalStateAndDemotesCatalogAfte
 	if p.Name != "Imported Name" {
 		t.Fatalf("Name = %q, want imported name", p.Name)
 	}
-	if p.APIKey != "sk-new" {
-		t.Fatalf("APIKey = %q, want imported value", p.APIKey)
+	g := testDefaultGroup(p)
+	if g == nil {
+		t.Fatal("default group missing")
 	}
-	if got := strings.Join(p.Models, ","); got != "imported-model" {
+	if g.APIKey != "sk-new" {
+		t.Fatalf("APIKey = %q, want imported value", g.APIKey)
+	}
+	if got := strings.Join(g.Models, ","); got != "imported-model" {
 		t.Fatalf("Models = %q, want imported catalog after API key change", got)
 	}
-	if p.ModelsSource != "imported" {
-		t.Fatalf("ModelsSource = %q, want imported after API key change", p.ModelsSource)
+	if g.ModelsSource != "imported" {
+		t.Fatalf("ModelsSource = %q, want imported after API key change", g.ModelsSource)
 	}
 }
 
@@ -1369,12 +1499,9 @@ func TestProviderImportOpencodeOverwriteClearsRemovedImportedModels(t *testing.T
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://example.com/v1",
-		Models:       []string{"old-imported-model"},
-		ModelsSource: "imported",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{
+		Models: []string{"old-imported-model"}, ModelsSource: "imported",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -1407,15 +1534,15 @@ func TestProviderImportOpencodeOverwriteClearsRemovedImportedModels(t *testing.T
 	if err != nil {
 		t.Fatalf("reload config: %v", err)
 	}
-	p := cfg.FindProvider("p1")
-	if p == nil {
-		t.Fatal("provider p1 not found")
+	g := testDefaultGroup(cfg.FindProvider("p1"))
+	if g == nil {
+		t.Fatal("provider p1 default group not found")
 	}
-	if len(p.Models) != 0 {
-		t.Fatalf("Models = %#v, want empty after imported models removed", p.Models)
+	if len(g.Models) != 0 {
+		t.Fatalf("Models = %#v, want empty after imported models removed", g.Models)
 	}
-	if p.ModelsSource != "" {
-		t.Fatalf("ModelsSource = %q, want empty when imported models removed", p.ModelsSource)
+	if g.ModelsSource != "" {
+		t.Fatalf("ModelsSource = %q, want empty when imported models removed", g.ModelsSource)
 	}
 }
 
@@ -1427,12 +1554,9 @@ func TestDiscoveredModelsStillBlockUnknownAliasBind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCfg: %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{
-		ID:           "p1",
-		BaseURL:      "https://example.com/v1",
-		Models:       []string{"known-model"},
-		ModelsSource: "discovered",
-	})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1", config.ProviderGroup{
+		Models: []string{"known-model"}, ModelsSource: "discovered",
+	}))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("save config: %v", err)
 	}

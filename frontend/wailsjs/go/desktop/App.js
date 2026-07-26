@@ -22,12 +22,20 @@ export function Bindings() {
   return window['go']['desktop']['App']['Bindings']();
 }
 
+export function CreateProviderGroup(arg1) {
+  return window['go']['desktop']['App']['CreateProviderGroup'](arg1);
+}
+
 export function DeleteAlias(arg1) {
   return window['go']['desktop']['App']['DeleteAlias'](arg1);
 }
 
 export function DeleteProvider(arg1) {
   return window['go']['desktop']['App']['DeleteProvider'](arg1);
+}
+
+export function DeleteProviderGroup(arg1) {
+  return window['go']['desktop']['App']['DeleteProviderGroup'](arg1);
 }
 
 export function DeleteRewriteRule(arg1) {
@@ -74,6 +82,10 @@ export function ImportProviders(arg1) {
   return window['go']['desktop']['App']['ImportProviders'](arg1);
 }
 
+export function ListProviderGroups(arg1) {
+  return window['go']['desktop']['App']['ListProviderGroups'](arg1);
+}
+
 export function Meta() {
   return window['go']['desktop']['App']['Meta']();
 }
@@ -88,6 +100,10 @@ export function Overview() {
 
 export function PingProviderBaseURL(arg1) {
   return window['go']['desktop']['App']['PingProviderBaseURL'](arg1);
+}
+
+export function PingProviderGroupBaseURL(arg1) {
+  return window['go']['desktop']['App']['PingProviderGroupBaseURL'](arg1);
 }
 
 export function PreviewLifecycle(arg1) {
@@ -112,6 +128,10 @@ export function ProxySettings() {
 
 export function ProxyStatus() {
   return window['go']['desktop']['App']['ProxyStatus']();
+}
+
+export function RefreshProviderGroupModels(arg1) {
+  return window['go']['desktop']['App']['RefreshProviderGroupModels'](arg1);
 }
 
 export function RefreshProviderModels(arg1) {
@@ -216,6 +236,10 @@ export function TraceList(arg1) {
 
 export function UnbindTarget(arg1) {
   return window['go']['desktop']['App']['UnbindTarget'](arg1);
+}
+
+export function UpdateProviderGroup(arg1) {
+  return window['go']['desktop']['App']['UpdateProviderGroup'](arg1);
 }
 
 export function UpgradeAutoAlias(arg1) {

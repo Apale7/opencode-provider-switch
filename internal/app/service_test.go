@@ -102,41 +102,45 @@ func TestSaveDesktopPrefsPersistsToConfig(t *testing.T) {
 	}
 }
 
-func TestUpsertProviderCanClearAPIKeys(t *testing.T) {
+func TestUpsertProviderCreateDefaultGroupMultiKeyAndClearViaGroup(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "ocswitch.json")
 	svc := NewService(path)
 	ctx := context.Background()
 
-	_, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
+	created, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
 		ID:              "p1",
-		Protocol:        config.ProtocolOpenAIResponses,
 		BaseURL:         "https://example.com/v1",
 		BaseURLStrategy: config.ProviderBaseURLStrategyOrdered,
-		APIKeys:         []string{"sk-1", "sk-2"},
-		SkipModels:      true,
+		DefaultGroup:    testDefaultGroupInput(config.ProtocolOpenAIResponses, true, "sk-1", "sk-2"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertProvider(create) error = %v", err)
 	}
+	if len(created.Provider.Groups) != 1 || created.Provider.Groups[0].APIKeyCount != 2 {
+		t.Fatalf("create groups = %#v", created.Provider.Groups)
+	}
 
-	_, err = svc.UpsertProvider(ctx, ProviderUpsertInput{
-		ID:              "p1",
-		Protocol:        config.ProtocolOpenAIResponses,
-		BaseURL:         "https://example.com/v1",
-		BaseURLStrategy: config.ProviderBaseURLStrategyOrdered,
-		ClearAPIKeys:    true,
-		SkipModels:      true,
+	// Clearing keys is group-owned — use UpdateProviderGroup, not shared Upsert.
+	_, err = svc.UpdateProviderGroup(ctx, ProviderGroupUpdateInput{
+		ProviderID: "p1",
+		GroupID:    config.DefaultGroupID,
+		Group: ProviderGroupInput{
+			ID:             config.DefaultGroupID,
+			Protocol:       config.ProtocolOpenAIResponses,
+			APIKeysChanged: true,
+			APIKeys:        nil,
+		},
 	})
 	if err != nil {
-		t.Fatalf("UpsertProvider(clear) error = %v", err)
+		t.Fatalf("UpdateProviderGroup(clear) error = %v", err)
 	}
 	providers, err := svc.ListProviders(ctx)
 	if err != nil {
 		t.Fatalf("ListProviders() error = %v", err)
 	}
-	if len(providers) != 1 || providers[0].APIKeyCount != 0 || providers[0].APIKeySet {
+	if len(providers) != 1 || len(providers[0].Groups) != 1 || providers[0].Groups[0].APIKeyCount != 0 {
 		t.Fatalf("providers after clear = %#v", providers)
 	}
 }
@@ -412,8 +416,14 @@ func TestExportImportConfigPreservesOptionalConfigBlocks(t *testing.T) {
 		t.Fatalf("config.Load() error = %v", err)
 	}
 	cfg.Desktop = config.Desktop{Theme: "dark", Language: "zh-CN"}
-	cfg.Providers = []config.Provider{{ID: "p1", BaseURL: "https://example.com/v1", APIKey: "sk-1", APIKeys: []string{"sk-2"}}}
-	cfg.Aliases = []config.Alias{{Alias: "chat", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "gpt", Enabled: true}}}}
+	cfg.Providers = []config.Provider{{
+		ID: "p1", BaseURL: "https://example.com/v1",
+		Groups: []config.ProviderGroup{{
+			ID: config.DefaultGroupID, Name: config.DefaultGroupName,
+			Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-1", APIKeys: []string{"sk-2"},
+		}},
+	}}
+	cfg.Aliases = []config.Alias{{Alias: "chat", Enabled: true, Targets: []config.Target{testDefaultTarget("p1", "gpt", true)}}}
 	cfg.RequestRewriteRules = []config.RequestRewriteRule{{Name: "rule1", Alias: "chat", Enabled: true, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.temperature", Value: float64(0.2), ValueSet: true}}}}
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("cfg.Save() error = %v", err)
@@ -436,8 +446,11 @@ func TestExportImportConfigPreservesOptionalConfigBlocks(t *testing.T) {
 	if imported.Desktop.Language != "zh-CN" || imported.Desktop.Theme != "dark" {
 		t.Fatalf("imported desktop = %#v", imported.Desktop)
 	}
-	if len(imported.Providers) != 1 || imported.Providers[0].ID != "p1" || !reflect.DeepEqual(imported.Providers[0].EffectiveAPIKeys(), []string{"sk-1", "sk-2"}) {
+	if len(imported.Providers) != 1 || imported.Providers[0].ID != "p1" {
 		t.Fatalf("imported providers = %#v", imported.Providers)
+	}
+	if g := imported.Providers[0].FindGroup(config.DefaultGroupID); g == nil || !reflect.DeepEqual(g.EffectiveAPIKeys(), []string{"sk-1", "sk-2"}) {
+		t.Fatalf("imported default group keys = %#v", imported.Providers[0].Groups)
 	}
 	if len(imported.Aliases) != 1 || imported.Aliases[0].Alias != "chat" {
 		t.Fatalf("imported aliases = %#v", imported.Aliases)
@@ -456,8 +469,8 @@ func TestImportConfigRejectsPartialConfig(t *testing.T) {
 		t.Fatalf("config.Load() error = %v", err)
 	}
 	cfg.Desktop = config.Desktop{Theme: "dark", Language: "zh-CN"}
-	cfg.Providers = []config.Provider{{ID: "p1", BaseURL: "https://example.com/v1"}}
-	cfg.Aliases = []config.Alias{{Alias: "chat", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "gpt", Enabled: true}}}}
+	cfg.Providers = []config.Provider{testProviderWithDefaultGroup("p1", "https://example.com/v1")}
+	cfg.Aliases = []config.Alias{{Alias: "chat", Enabled: true, Targets: []config.Target{testDefaultTarget("p1", "gpt", true)}}}
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("cfg.Save() error = %v", err)
 	}
@@ -705,11 +718,13 @@ func TestUpsertProviderReturnsWarningsAndKeepsCatalog(t *testing.T) {
 		t.Fatalf("config.Load() error = %v", err)
 	}
 	cfg.UpsertProvider(config.Provider{
-		ID:           "relay",
-		BaseURL:      "https://old.example.com/v1",
-		APIKey:       "sk-old",
-		Models:       []string{"gpt-4.1"},
-		ModelsSource: "discovered",
+		ID:      "relay",
+		BaseURL: "https://old.example.com/v1",
+		Groups: []config.ProviderGroup{{
+			ID: config.DefaultGroupID, Name: config.DefaultGroupName,
+			Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-old",
+			Models: []string{"gpt-4.1"}, ModelsSource: "discovered",
+		}},
 	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("cfg.Save() error = %v", err)
@@ -725,22 +740,44 @@ func TestUpsertProviderReturnsWarningsAndKeepsCatalog(t *testing.T) {
 	defer upstream.Close()
 
 	svc := NewService(path)
-	result, err := svc.UpsertProvider(context.Background(), ProviderUpsertInput{
+	// Shared connection change keeps catalogs untrusted (no discovery on shared upsert).
+	shared, err := svc.UpsertProvider(context.Background(), ProviderUpsertInput{
 		ID:      "relay",
 		BaseURL: upstream.URL + "/v1",
-		APIKey:  "sk-new",
 	})
 	if err != nil {
 		t.Fatalf("UpsertProvider() error = %v", err)
 	}
-	if result.Provider.BaseURL != upstream.URL+"/v1" {
-		t.Fatalf("saved baseUrl = %q, want %q", result.Provider.BaseURL, upstream.URL+"/v1")
+	if shared.Provider.BaseURL != upstream.URL+"/v1" {
+		t.Fatalf("saved baseUrl = %q, want %q", shared.Provider.BaseURL, upstream.URL+"/v1")
 	}
-	if !containsWarning(result.Warnings, "model discovery failed") {
-		t.Fatalf("warnings %#v do not mention stale catalog preservation", result.Warnings)
+	if !containsWarning(shared.Warnings, "keeping existing model catalog as untrusted") {
+		t.Fatalf("warnings %#v do not mention untrusted catalog", shared.Warnings)
 	}
-	if !containsWarning(result.Warnings, "could not discover provider models") {
-		t.Fatalf("warnings %#v do not mention discovery failure", result.Warnings)
+
+	// Key is group-owned; discovery is explicit via group refresh.
+	if _, err := svc.UpdateProviderGroup(context.Background(), ProviderGroupUpdateInput{
+		ProviderID: "relay",
+		GroupID:    config.DefaultGroupID,
+		Group: ProviderGroupInput{
+			ID:             config.DefaultGroupID,
+			Name:           config.DefaultGroupName,
+			Protocol:       config.ProtocolOpenAIResponses,
+			APIKeysChanged: true,
+			APIKeys:        []string{"sk-new"},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateProviderGroup() error = %v", err)
+	}
+	result, err := svc.RefreshProviderGroupModels(context.Background(), ProviderGroupRefreshModelsInput{
+		ProviderID: "relay",
+		GroupID:    config.DefaultGroupID,
+	})
+	if err != nil {
+		t.Fatalf("RefreshProviderGroupModels() error = %v", err)
+	}
+	if !containsWarning(result.Warnings, "model discovery failed") && !containsWarning(result.Warnings, "could not discover provider models") && !containsWarning(result.Warnings, "untrusted") {
+		t.Fatalf("warnings %#v do not mention discovery failure / untrusted catalog", result.Warnings)
 	}
 
 	reloaded, err := config.Load(path)
@@ -751,11 +788,15 @@ func TestUpsertProviderReturnsWarningsAndKeepsCatalog(t *testing.T) {
 	if provider == nil {
 		t.Fatal("provider relay not found after save")
 	}
-	if provider.ModelsSource != "" {
-		t.Fatalf("provider.ModelsSource = %q, want empty", provider.ModelsSource)
+	group := provider.FindGroup(config.DefaultGroupID)
+	if group == nil {
+		t.Fatal("default group missing after save")
 	}
-	if len(provider.Models) != 1 || provider.Models[0] != "gpt-4.1" {
-		t.Fatalf("provider.Models = %#v, want existing catalog kept", provider.Models)
+	if group.ModelsSource != "" {
+		t.Fatalf("group.ModelsSource = %q, want empty", group.ModelsSource)
+	}
+	if len(group.Models) != 1 || group.Models[0] != "gpt-4.1" {
+		t.Fatalf("group.Models = %#v, want existing catalog kept", group.Models)
 	}
 }
 
@@ -811,10 +852,10 @@ func TestUpsertProviderUsesAnyReachableBaseURLForModelDiscovery(t *testing.T) {
 
 	svc := NewService(path)
 	result, err := svc.UpsertProvider(context.Background(), ProviderUpsertInput{
-		ID:       "relay",
-		Protocol: "openai-responses",
-		BaseURL:  first.URL + "/v1",
-		BaseURLs: []string{first.URL + "/v1", second.URL + "/v1"},
+		ID:           "relay",
+		BaseURL:      first.URL + "/v1",
+		BaseURLs:     []string{first.URL + "/v1", second.URL + "/v1"},
+		DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false),
 	})
 	if err != nil {
 		t.Fatalf("UpsertProvider() error = %v", err)
@@ -822,8 +863,8 @@ func TestUpsertProviderUsesAnyReachableBaseURLForModelDiscovery(t *testing.T) {
 	if got := strings.Join(result.Warnings, "; "); !strings.Contains(got, "auto-generated 2 alias(es)") {
 		t.Fatalf("warnings = %#v, want auto-generated alias summary", result.Warnings)
 	}
-	if !strings.Contains(strings.Join(result.Provider.Models, ","), "gpt-4.1") {
-		t.Fatalf("models = %#v", result.Provider.Models)
+	if len(result.Provider.Groups) != 1 || !strings.Contains(strings.Join(result.Provider.Groups[0].Models, ","), "gpt-4.1") {
+		t.Fatalf("groups = %#v", result.Provider.Groups)
 	}
 }
 
@@ -837,7 +878,7 @@ func TestImportProvidersReturnsWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{ID: "keep", BaseURL: "https://existing.example.com/v1"})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("keep", "https://existing.example.com/v1"))
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("cfg.Save() error = %v", err)
 	}
@@ -883,6 +924,34 @@ func TestImportProvidersReturnsWarnings(t *testing.T) {
 	}
 }
 
+func TestImportProvidersRejectsMaskedAPIKeyPlaceholder(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ocswitch.json")
+	sourcePath := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(sourcePath, []byte(`{
+		"provider": {
+			"masked": {
+				"npm": "@ai-sdk/openai",
+				"options": {"baseURL": "https://masked.example.com/v1", "apiKey": "sk-***-masked"}
+			}
+		}
+	}`), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	svc := NewService(path)
+	if _, err := svc.ImportProviders(context.Background(), ProviderImportInput{SourcePath: sourcePath}); err == nil || !strings.Contains(err.Error(), "masked placeholder") {
+		t.Fatalf("ImportProviders() error = %v, want masked placeholder", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	if cfg.FindProvider("masked") != nil {
+		t.Fatal("masked provider was persisted")
+	}
+}
+
 func TestSetAliasTargetDisabledPersistsState(t *testing.T) {
 	t.Parallel()
 
@@ -891,11 +960,11 @@ func TestSetAliasTargetDisabledPersistsState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{ID: "relay", BaseURL: "https://relay.example.com/v1"})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("relay", "https://relay.example.com/v1"))
 	cfg.UpsertAlias(config.Alias{
 		Alias:   "chat",
 		Enabled: true,
-		Targets: []config.Target{{Provider: "relay", Model: "gpt-4.1", Enabled: true}},
+		Targets: []config.Target{testDefaultTarget("relay", "gpt-4.1", true)},
 	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("cfg.Save() error = %v", err)
@@ -905,6 +974,7 @@ func TestSetAliasTargetDisabledPersistsState(t *testing.T) {
 	disabled, err := svc.SetAliasTargetDisabled(context.Background(), AliasTargetInput{
 		Alias:    "chat",
 		Provider: "relay",
+		Group:    config.DefaultGroupID,
 		Model:    "gpt-4.1",
 		Disabled: true,
 	})
@@ -918,6 +988,7 @@ func TestSetAliasTargetDisabledPersistsState(t *testing.T) {
 	enabled, err := svc.SetAliasTargetDisabled(context.Background(), AliasTargetInput{
 		Alias:    "chat",
 		Provider: "relay",
+		Group:    config.DefaultGroupID,
 		Model:    "gpt-4.1",
 		Disabled: false,
 	})
@@ -949,14 +1020,14 @@ func TestReorderAliasTargetsPersistsOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://p1.example.com/v1"})
-	cfg.UpsertProvider(config.Provider{ID: "p2", BaseURL: "https://p2.example.com/v1"})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://p1.example.com/v1"))
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p2", "https://p2.example.com/v1"))
 	cfg.UpsertAlias(config.Alias{
 		Alias:   "chat",
 		Enabled: true,
 		Targets: []config.Target{
-			{Provider: "p1", Model: "up-1", Enabled: true},
-			{Provider: "p2", Model: "up-2", Enabled: false},
+			testDefaultTarget("p1", "up-1", true),
+			testDefaultTarget("p2", "up-2", false),
 		},
 	})
 	if err := cfg.Save(); err != nil {
@@ -967,8 +1038,8 @@ func TestReorderAliasTargetsPersistsOrder(t *testing.T) {
 	view, err := svc.ReorderAliasTargets(context.Background(), AliasTargetReorderInput{
 		Alias: "chat",
 		Targets: []AliasTargetRefInput{
-			{Provider: "p2", Model: "up-2"},
-			{Provider: "p1", Model: "up-1"},
+			{Provider: "p2", Group: config.DefaultGroupID, Model: "up-2"},
+			{Provider: "p1", Group: config.DefaultGroupID, Model: "up-1"},
 		},
 	})
 	if err != nil {
@@ -1053,17 +1124,20 @@ func TestRequestRewriteRulesUpsertListReorderAndPersist(t *testing.T) {
 	}
 
 	second, err := svc.UpsertRequestRewriteRule(context.Background(), RequestRewriteRuleInput{
-		Name:      "strip-store",
-		Alias:     "chat-fast",
-		Providers: []string{"p1", "p1", " p2 "},
-		Enabled:   true,
-		Override:  true,
-		Ops:       []config.RequestRewriteOperation{{Op: config.RequestRewriteOpDelete, Path: "$.store"}},
+		Name:  "strip-store",
+		Alias: "chat-fast",
+		ProviderGroups: []ProviderGroupSelectorInput{
+			{Provider: "p1", Group: config.DefaultGroupID},
+			{Provider: "p2", Group: config.DefaultGroupID},
+		},
+		Enabled:  true,
+		Override: true,
+		Ops:      []config.RequestRewriteOperation{{Op: config.RequestRewriteOpDelete, Path: "$.store"}},
 	})
 	if err != nil {
 		t.Fatalf("UpsertRequestRewriteRule(second) error = %v", err)
 	}
-	if !second.Override || len(second.Ops) != 1 || second.Ops[0].Path != "$.store" || strings.Join(second.Providers, ",") != "p1,p2" {
+	if !second.Override || len(second.Ops) != 1 || second.Ops[0].Path != "$.store" || len(second.ProviderGroups) != 2 {
 		t.Fatalf("second rule view = %#v", second)
 	}
 
@@ -1146,11 +1220,11 @@ func TestRequestRewriteRuleMutationReloadsRunningProxy(t *testing.T) {
 	cfg.Server.Host = "127.0.0.1"
 	cfg.Server.Port = port
 	cfg.Server.APIKey = config.DefaultLocalAPIKey
-	cfg.Providers = []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}}
+	cfg.Providers = []config.Provider{testProviderWithDefaultGroup("p1", upstream.URL+"/v1")}
 	cfg.Aliases = []config.Alias{{
 		Alias:   "chat",
 		Enabled: true,
-		Targets: []config.Target{{Provider: "p1", Model: "gpt-5.5", Enabled: true}},
+		Targets: []config.Target{testDefaultTarget("p1", "gpt-5.5", true)},
 	}}
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("cfg.Save() error = %v", err)
@@ -1212,7 +1286,7 @@ func TestReconcileRuntimeSnapshotReportsDriftCategories(t *testing.T) {
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
-			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
+			Targets: []config.Target{testDefaultTarget("p1", "up-1", true)},
 		}},
 	}
 	fileSnapshot := opencode.FileConfigSnapshot{
@@ -1255,8 +1329,8 @@ func TestPreviewOpenCodeSyncIncludesRuntimeUnreachableAndSummary(t *testing.T) {
 	cfg.Server.Host = "127.0.0.1"
 	cfg.Server.Port = 9982
 	cfg.Server.APIKey = config.DefaultLocalAPIKey
-	cfg.UpsertProvider(config.Provider{ID: "p1", BaseURL: "https://example.com/v1"})
-	cfg.UpsertAlias(config.Alias{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}})
+	cfg.UpsertProvider(testProviderWithDefaultGroup("p1", "https://example.com/v1"))
+	cfg.UpsertAlias(config.Alias{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{testDefaultTarget("p1", "up-1", true)}})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("cfg.Save() error = %v", err)
 	}
@@ -1362,14 +1436,15 @@ func TestQueryProviderHealthAggregatesAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	cfg.Providers = []config.Provider{
-		{ID: "primary", Name: "Primary", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://primary.example/v1", APIKey: "sk-primary"},
-		{ID: "backup", Name: "Backup", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://backup.example/v1", APIKey: "sk-backup"},
-	}
+	primaryProvider := testProviderWithDefaultGroup("primary", "https://primary.example/v1", "sk-primary")
+	primaryProvider.Name = "Primary"
+	backupProvider := testProviderWithDefaultGroup("backup", "https://backup.example/v1", "sk-backup")
+	backupProvider.Name = "Backup"
+	cfg.Providers = []config.Provider{primaryProvider, backupProvider}
 	cfg.Aliases = []config.Alias{
 		{Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true, Targets: []config.Target{
-			{Provider: "primary", Model: "model-a", Enabled: true},
-			{Provider: "backup", Model: "model-b", Enabled: true},
+			testDefaultTarget("primary", "model-a", true),
+			testDefaultTarget("backup", "model-b", true),
 		}},
 	}
 	if err := cfg.Save(); err != nil {
@@ -1464,14 +1539,15 @@ func TestQueryProviderHealthExcludesClientCanceledAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	cfg.Providers = []config.Provider{
-		{ID: "primary", Name: "Primary", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://primary.example/v1", APIKey: "sk-primary"},
-		{ID: "backup", Name: "Backup", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://backup.example/v1", APIKey: "sk-backup"},
-	}
+	primaryProvider := testProviderWithDefaultGroup("primary", "https://primary.example/v1", "sk-primary")
+	primaryProvider.Name = "Primary"
+	backupProvider := testProviderWithDefaultGroup("backup", "https://backup.example/v1", "sk-backup")
+	backupProvider.Name = "Backup"
+	cfg.Providers = []config.Provider{primaryProvider, backupProvider}
 	cfg.Aliases = []config.Alias{
 		{Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true, Targets: []config.Target{
-			{Provider: "primary", Model: "model-a", Enabled: true},
-			{Provider: "backup", Model: "model-b", Enabled: true},
+			testDefaultTarget("primary", "model-a", true),
+			testDefaultTarget("backup", "model-b", true),
 		}},
 	}
 	if err := cfg.Save(); err != nil {
@@ -1642,10 +1718,9 @@ func TestUpsertProvider_AutoGeneratesAliases(t *testing.T) {
 
 	svc := NewService(path)
 	result, err := svc.UpsertProvider(context.Background(), ProviderUpsertInput{
-		ID:       "p-auto",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-test",
+		ID:           "p-auto",
+		BaseURL:      upstream.URL + "/v1",
+		DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-test"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertProvider() error = %v", err)
@@ -1656,8 +1731,8 @@ func TestUpsertProvider_AutoGeneratesAliases(t *testing.T) {
 	if !result.Provider.AutoAliasEnabled {
 		t.Fatal("create with nil AutoAliasEnabled should expose true")
 	}
-	if !reflect.DeepEqual(result.Provider.Models, []string{"gpt-auto-a", "gpt-auto-b"}) {
-		t.Fatalf("models = %#v", result.Provider.Models)
+	if len(result.Provider.Groups) != 1 || !reflect.DeepEqual(result.Provider.Groups[0].Models, []string{"gpt-auto-a", "gpt-auto-b"}) {
+		t.Fatalf("groups = %#v", result.Provider.Groups)
 	}
 
 	aliases, err := svc.ListAliases(context.Background())
@@ -1688,6 +1763,67 @@ func TestUpsertProvider_AutoGeneratesAliases(t *testing.T) {
 
 func boolPtr(v bool) *bool { return &v }
 
+// testDefaultGroupInput builds nested defaultGroup for UpsertProvider create tests.
+// skipDiscover true stores an empty catalog (no /v1/models probe).
+func testDefaultGroupInput(protocol string, skipDiscover bool, keys ...string) *ProviderGroupInput {
+	g := &ProviderGroupInput{
+		ID:       config.DefaultGroupID,
+		Name:     config.DefaultGroupName,
+		Protocol: protocol,
+	}
+	if len(keys) > 0 {
+		g.APIKeysChanged = true
+		g.APIKeys = append([]string(nil), keys...)
+	}
+	if skipDiscover {
+		g.Models = []string{}
+	}
+	return g
+}
+
+// testDefaultProviderGroup builds a minimal default config.ProviderGroup for fixtures.
+// Old single-group tests must materialize an explicit default group (v2 rejects empty groups).
+func testDefaultProviderGroup(protocol string, apiKeys ...string) config.ProviderGroup {
+	if strings.TrimSpace(protocol) == "" {
+		protocol = config.ProtocolOpenAIResponses
+	}
+	g := config.ProviderGroup{
+		ID:       config.DefaultGroupID,
+		Name:     config.DefaultGroupName,
+		Protocol: protocol,
+	}
+	if len(apiKeys) > 0 {
+		keys := config.NormalizeProviderAPIKeys("", apiKeys)
+		if len(keys) > 0 {
+			g.APIKey = keys[0]
+			if len(keys) > 1 {
+				g.APIKeys = append([]string(nil), keys[1:]...)
+			}
+		}
+	}
+	return g
+}
+
+// testProviderWithDefaultGroup builds a single-group provider fixture.
+func testProviderWithDefaultGroup(id, baseURL string, apiKeys ...string) config.Provider {
+	return config.Provider{
+		ID:      id,
+		BaseURL: baseURL,
+		Groups:  []config.ProviderGroup{testDefaultProviderGroup(config.ProtocolOpenAIResponses, apiKeys...)},
+	}
+}
+
+// testDefaultTarget builds an alias target that explicitly references the default group.
+// v2 ValidateForPersist rejects empty target groups; load also fails closed on blank group.
+func testDefaultTarget(provider, model string, enabled bool) config.Target {
+	return config.Target{
+		Provider: provider,
+		Group:    config.DefaultGroupID,
+		Model:    model,
+		Enabled:  enabled,
+	}
+}
+
 func TestUpsertProvider_ProviderAutoAliasSwitch(t *testing.T) {
 	t.Parallel()
 
@@ -1701,10 +1837,9 @@ func TestUpsertProvider_ProviderAutoAliasSwitch(t *testing.T) {
 	// Create with auto alias disabled: no generation warnings / aliases.
 	offResult, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
 		ID:               "p-switch",
-		Protocol:         config.ProtocolOpenAIResponses,
 		BaseURL:          upstream.URL + "/v1",
-		APIKey:           "sk-test",
 		AutoAliasEnabled: boolPtr(false),
+		DefaultGroup:     testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-test"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertProvider(create off) error = %v", err)
@@ -1721,12 +1856,10 @@ func TestUpsertProvider_ProviderAutoAliasSwitch(t *testing.T) {
 		t.Fatalf("alias should not exist when provider switch off: %#v", aliases)
 	}
 
-	// Update with nil keeps false.
+	// Update with nil keeps false (shared fields only; groups untouched).
 	keepResult, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
-		ID:       "p-switch",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-test",
+		ID:      "p-switch",
+		BaseURL: upstream.URL + "/v1",
 	})
 	if err != nil {
 		t.Fatalf("UpsertProvider(nil keep) error = %v", err)
@@ -1738,12 +1871,10 @@ func TestUpsertProvider_ProviderAutoAliasSwitch(t *testing.T) {
 		t.Fatalf("warnings %#v should stay quiet while provider switch off", keepResult.Warnings)
 	}
 
-	// Enable provider switch: generation resumes.
+	// Enable provider switch: generation resumes from existing group catalog.
 	onResult, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
 		ID:               "p-switch",
-		Protocol:         config.ProtocolOpenAIResponses,
 		BaseURL:          upstream.URL + "/v1",
-		APIKey:           "sk-test",
 		AutoAliasEnabled: boolPtr(true),
 	})
 	if err != nil {
@@ -1811,10 +1942,9 @@ func TestGetSetAutoAliasSettings(t *testing.T) {
 	upstream := modelsDiscoveryServer(t, "global-off-model")
 	defer upstream.Close()
 	result, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
-		ID:       "p-global-off",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-test",
+		ID:           "p-global-off",
+		BaseURL:      upstream.URL + "/v1",
+		DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-test"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertProvider() error = %v", err)
@@ -1839,10 +1969,9 @@ func TestUpgradeAutoAlias(t *testing.T) {
 	svc := NewService(path)
 	ctx := context.Background()
 	if _, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
-		ID:       "p-lock",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-test",
+		ID:           "p-lock",
+		BaseURL:      upstream.URL + "/v1",
+		DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-test"),
 	}); err != nil {
 		t.Fatalf("UpsertProvider() error = %v", err)
 	}
@@ -1866,10 +1995,9 @@ func TestUpgradeAutoAlias(t *testing.T) {
 
 	// Second provider must not append a target after the alias becomes manual.
 	if _, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
-		ID:       "p-lock-2",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-2",
+		ID:           "p-lock-2",
+		BaseURL:      upstream.URL + "/v1",
+		DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-2"),
 	}); err != nil {
 		t.Fatalf("UpsertProvider(p-lock-2) error = %v", err)
 	}
@@ -1900,11 +2028,7 @@ func TestUpsertProvider_DoesNotModifyManualAlias(t *testing.T) {
 		Protocol:      config.ProtocolOpenAIResponses,
 		Enabled:       true,
 		AutoGenerated: false,
-		Targets: []config.Target{{
-			Provider: "other",
-			Model:    "manual-model",
-			Enabled:  true,
-		}},
+		Targets:       []config.Target{testDefaultTarget("other", "manual-model", true)},
 	})
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("cfg.Save() error = %v", err)
@@ -1915,10 +2039,9 @@ func TestUpsertProvider_DoesNotModifyManualAlias(t *testing.T) {
 
 	svc := NewService(path)
 	result, err := svc.UpsertProvider(context.Background(), ProviderUpsertInput{
-		ID:       "p-manual",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-test",
+		ID:           "p-manual",
+		BaseURL:      upstream.URL + "/v1",
+		DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-test"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertProvider() error = %v", err)
@@ -1960,18 +2083,16 @@ func TestRemoveProvider_CleansAutoTargets(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
-		ID:       "p1",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-1",
+		ID:           "p1",
+		BaseURL:      upstream.URL + "/v1",
+		DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-1"),
 	}); err != nil {
 		t.Fatalf("UpsertProvider(p1) error = %v", err)
 	}
 	if _, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
-		ID:       "p2",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-2",
+		ID:           "p2",
+		BaseURL:      upstream.URL + "/v1",
+		DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-2"),
 	}); err != nil {
 		t.Fatalf("UpsertProvider(p2) error = %v", err)
 	}
@@ -2029,22 +2150,18 @@ func TestRemoveProvider_PreservesManualAlias(t *testing.T) {
 		t.Fatalf("config.Load() error = %v", err)
 	}
 	cfg.UpsertProvider(config.Provider{
-		ID:       "p-manual",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  "https://example.com/v1",
-		APIKey:   "sk-m",
-		Models:   []string{"manual-keep"},
+		ID:      "p-manual",
+		BaseURL: "https://example.com/v1",
+		Groups: []config.ProviderGroup{{
+			ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-m", Models: []string{"manual-keep"},
+		}},
 	})
 	cfg.UpsertAlias(config.Alias{
 		Alias:         "manual-keep",
 		Protocol:      config.ProtocolOpenAIResponses,
 		Enabled:       true,
 		AutoGenerated: false,
-		Targets: []config.Target{{
-			Provider: "p-manual",
-			Model:    "manual-keep",
-			Enabled:  true,
-		}},
+		Targets:       []config.Target{testDefaultTarget("p-manual", "manual-keep", true)},
 	})
 	cfg.UpsertAlias(config.Alias{
 		Alias:         "auto-only",
@@ -2053,6 +2170,7 @@ func TestRemoveProvider_PreservesManualAlias(t *testing.T) {
 		AutoGenerated: true,
 		Targets: []config.Target{{
 			Provider:      "p-manual",
+			Group:         config.DefaultGroupID,
 			Model:         "auto-only",
 			Enabled:       true,
 			AutoGenerated: true,
@@ -2131,10 +2249,11 @@ func TestRefreshProviderModels_AutoGeneratesAliases(t *testing.T) {
 		t.Fatalf("config.Load() error = %v", err)
 	}
 	cfg.UpsertProvider(config.Provider{
-		ID:       "p-refresh",
-		Protocol: config.ProtocolOpenAIResponses,
-		BaseURL:  upstream.URL + "/v1",
-		APIKey:   "sk-refresh",
+		ID:      "p-refresh",
+		BaseURL: upstream.URL + "/v1",
+		Groups: []config.ProviderGroup{{
+			ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-refresh",
+		}},
 		// No models yet — discovery happens on refresh.
 	})
 	if err := cfg.Save(); err != nil {
@@ -2149,8 +2268,8 @@ func TestRefreshProviderModels_AutoGeneratesAliases(t *testing.T) {
 	if !containsWarning(result.Warnings, "auto-generated") {
 		t.Fatalf("warnings %#v do not mention auto-generated aliases", result.Warnings)
 	}
-	if !reflect.DeepEqual(result.Provider.Models, []string{"refresh-a", "refresh-b"}) {
-		t.Fatalf("models = %#v", result.Provider.Models)
+	if len(result.Provider.Groups) != 1 || !reflect.DeepEqual(result.Provider.Groups[0].Models, []string{"refresh-a", "refresh-b"}) {
+		t.Fatalf("groups = %#v", result.Provider.Groups)
 	}
 
 	reloaded, err := config.Load(path)
@@ -2180,10 +2299,9 @@ func TestSetGetProviderPriority(t *testing.T) {
 
 	for _, id := range []string{"p-low", "p-high", "p-mid"} {
 		if _, err := svc.UpsertProvider(ctx, ProviderUpsertInput{
-			ID:       id,
-			Protocol: config.ProtocolOpenAIResponses,
-			BaseURL:  upstream.URL + "/v1",
-			APIKey:   "sk-" + id,
+			ID:           id,
+			BaseURL:      upstream.URL + "/v1",
+			DefaultGroup: testDefaultGroupInput(config.ProtocolOpenAIResponses, false, "sk-"+id),
 		}); err != nil {
 			t.Fatalf("UpsertProvider(%s) error = %v", id, err)
 		}
@@ -2225,5 +2343,475 @@ func TestSetGetProviderPriority(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotProviders, wantOrder) {
 		t.Fatalf("auto alias target order = %#v, want %#v", gotProviders, wantOrder)
+	}
+}
+
+func TestRefreshProviderModelsWritesOnlyTargetGroup(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	var auths []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths = append(auths, r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") != "Bearer sk-premium" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"wrong key"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"premium-a"},{"id":"premium-b"}]}`))
+	}))
+	defer upstream.Close()
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "vendor-a",
+		BaseURL: upstream.URL + "/v1",
+		Headers: map[string]string{"X-Shared": "1"},
+		Groups: []config.ProviderGroup{
+			{
+				ID:           config.DefaultGroupID,
+				Name:         config.DefaultGroupName,
+				Protocol:     config.ProtocolOpenAIResponses,
+				APIKey:       "sk-default",
+				Models:       []string{"default-old"},
+				ModelsSource: "discovered",
+			},
+			{
+				ID:           "premium",
+				Name:         "Premium",
+				Protocol:     config.ProtocolOpenAIResponses,
+				APIKey:       "sk-premium",
+				Models:       []string{"premium-old"},
+				ModelsSource: "imported",
+			},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	result, err := svc.RefreshProviderModels(context.Background(), ProviderRefreshModelsInput{
+		ID:    "vendor-a",
+		Group: "premium",
+	})
+	if err != nil {
+		t.Fatalf("RefreshProviderModels() error = %v", err)
+	}
+	_ = result
+
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	provider := reloaded.FindProvider("vendor-a")
+	if provider == nil {
+		t.Fatal("provider missing")
+	}
+	defaultGroup := provider.FindGroup(config.DefaultGroupID)
+	premium := provider.FindGroup("premium")
+	if defaultGroup == nil || premium == nil {
+		t.Fatalf("groups missing: %#v", provider.Groups)
+	}
+	if !reflect.DeepEqual(defaultGroup.Models, []string{"default-old"}) || defaultGroup.ModelsSource != "discovered" {
+		t.Fatalf("default group mutated: %#v", defaultGroup)
+	}
+	if !reflect.DeepEqual(premium.Models, []string{"premium-a", "premium-b"}) || premium.ModelsSource != "discovered" {
+		t.Fatalf("premium group = %#v", premium)
+	}
+	if len(auths) != 1 || auths[0] != "Bearer sk-premium" {
+		t.Fatalf("auths = %#v, want only premium key", auths)
+	}
+}
+
+func TestRefreshProviderModelsEmptyGroupMapsToDefaultOnly(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	var auths []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths = append(auths, r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(`{"data":[{"id":"default-new"}]}`))
+	}))
+	defer upstream.Close()
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "vendor-a",
+		BaseURL: upstream.URL + "/v1",
+		Groups: []config.ProviderGroup{
+			{
+				ID:       config.DefaultGroupID,
+				Protocol: config.ProtocolOpenAIResponses,
+				APIKey:   "sk-default",
+				Models:   []string{"default-old"},
+			},
+			{
+				ID:           "premium",
+				Protocol:     config.ProtocolOpenAIResponses,
+				APIKey:       "sk-premium",
+				Models:       []string{"premium-keep"},
+				ModelsSource: "imported",
+			},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	if _, err := svc.RefreshProviderModels(context.Background(), ProviderRefreshModelsInput{ID: "vendor-a"}); err != nil {
+		t.Fatalf("RefreshProviderModels() error = %v", err)
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	provider := reloaded.FindProvider("vendor-a")
+	if provider == nil {
+		t.Fatal("provider missing")
+	}
+	if got := provider.FindGroup(config.DefaultGroupID); got == nil || !reflect.DeepEqual(got.Models, []string{"default-new"}) {
+		t.Fatalf("default group = %#v", got)
+	}
+	if got := provider.FindGroup("premium"); got == nil || !reflect.DeepEqual(got.Models, []string{"premium-keep"}) {
+		t.Fatalf("premium group mutated: %#v", got)
+	}
+	if len(auths) != 1 || auths[0] != "Bearer sk-default" {
+		t.Fatalf("auths = %#v", auths)
+	}
+}
+
+func TestRefreshProviderModelsMissingGroupDoesNotFallback(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "vendor-a",
+		BaseURL: "https://example.com/v1",
+		Groups: []config.ProviderGroup{
+			{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-default"},
+			{ID: "premium", Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-premium"},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	_, err = svc.RefreshProviderModels(context.Background(), ProviderRefreshModelsInput{
+		ID:    "vendor-a",
+		Group: "missing-group",
+	})
+	if err == nil {
+		t.Fatal("expected missing group error")
+	}
+	if !strings.Contains(err.Error(), "group") {
+		t.Fatalf("error = %q, want group not found", err.Error())
+	}
+}
+
+func TestPingProviderBaseURLUsesExactGroupKeys(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	var auth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		if auth != "Bearer sk-premium" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"wrong key"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+	}))
+	defer upstream.Close()
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "vendor-a",
+		BaseURL: upstream.URL + "/v1",
+		Groups: []config.ProviderGroup{
+			{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-default"},
+			{ID: "premium", Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-premium"},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	result, err := svc.PingProviderBaseURL(context.Background(), ProviderPingInput{
+		ID:      "vendor-a",
+		Group:   "premium",
+		BaseURL: upstream.URL + "/v1",
+	})
+	if err != nil {
+		t.Fatalf("PingProviderBaseURL() error = %v", err)
+	}
+	if !result.Reachable {
+		t.Fatalf("result = %#v", result)
+	}
+	if auth != "Bearer sk-premium" {
+		t.Fatalf("Authorization = %q", auth)
+	}
+}
+
+func TestPingProviderBaseURLEmptyProtocolKeepsGroupProtocol(t *testing.T) {
+	t.Parallel()
+
+	// Empty Protocol must not force DefaultProviderProtocol over the exact group.
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	var sawAnthropicAuth bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// anthropic-messages uses x-api-key; openai-responses uses Authorization Bearer.
+		if got := r.Header.Get("x-api-key"); got == "sk-anthropic-premium" {
+			sawAnthropicAuth = true
+		}
+		if r.Header.Get("Authorization") == "Bearer sk-anthropic-premium" {
+			t.Fatalf("used openai-style Authorization; group protocol was overridden")
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"claude-model"}]}`))
+	}))
+	defer upstream.Close()
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "vendor-a",
+		BaseURL: upstream.URL + "/v1",
+		Groups: []config.ProviderGroup{
+			{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-default"},
+			{ID: "premium", Protocol: config.ProtocolAnthropicMessages, APIKey: "sk-anthropic-premium"},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	result, err := svc.PingProviderBaseURL(context.Background(), ProviderPingInput{
+		ID:      "vendor-a",
+		Group:   "premium",
+		BaseURL: upstream.URL + "/v1",
+		// Protocol intentionally empty — must use premium group's anthropic-messages.
+	})
+	if err != nil {
+		t.Fatalf("PingProviderBaseURL() error = %v", err)
+	}
+	if !result.Reachable {
+		t.Fatalf("result = %#v", result)
+	}
+	if !sawAnthropicAuth {
+		t.Fatal("expected anthropic-messages auth header from exact group protocol")
+	}
+}
+
+func TestSelectCapabilityProbeTargetUsesExactGroup(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Providers: []config.Provider{{
+			ID:      "vendor-a",
+			BaseURL: "https://example.com/v1",
+			Headers: map[string]string{"X-Shared": "1"},
+			Groups: []config.ProviderGroup{
+				{
+					ID:       config.DefaultGroupID,
+					Protocol: config.ProtocolOpenAIResponses,
+					APIKey:   "sk-default",
+				},
+				{
+					ID:       "premium",
+					Protocol: config.ProtocolAnthropicMessages,
+					APIKey:   "sk-premium",
+				},
+			},
+		}},
+	}
+	target, probe, ok := selectCapabilityProbeTarget(cfg, []config.Target{{
+		Provider: "vendor-a",
+		Group:    "premium",
+		Model:    "claude-model",
+		Enabled:  true,
+	}})
+	if !ok {
+		t.Fatal("expected probe target")
+	}
+	if target.Group != "premium" {
+		t.Fatalf("target.Group = %q", target.Group)
+	}
+	if probe.GroupID != "premium" {
+		t.Fatalf("probe.GroupID = %q", probe.GroupID)
+	}
+	if probe.Protocol != config.ProtocolAnthropicMessages {
+		t.Fatalf("probe.Protocol = %q", probe.Protocol)
+	}
+	if !reflect.DeepEqual(probe.APIKeys, []string{"sk-premium"}) {
+		t.Fatalf("probe.APIKeys = %#v", probe.APIKeys)
+	}
+	if probe.Headers["X-Shared"] != "1" {
+		t.Fatalf("probe.Headers = %#v", probe.Headers)
+	}
+
+	// Missing group must not fall back to default/first/same-protocol.
+	_, _, ok = selectCapabilityProbeTarget(cfg, []config.Target{{
+		Provider: "vendor-a",
+		Group:    "missing",
+		Model:    "m",
+		Enabled:  true,
+	}})
+	if ok {
+		t.Fatal("missing group must not select a fallback probe target")
+	}
+}
+
+func TestProviderBaseURLChangeMarksAllGroupsUntrusted(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "vendor-a",
+		BaseURL: "https://old.example.com/v1",
+		Groups: []config.ProviderGroup{
+			{
+				ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-default",
+				Models: []string{"d1"}, ModelsSource: "discovered",
+			},
+			{
+				ID: "premium", Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-premium",
+				Models: []string{"p1"}, ModelsSource: "discovered",
+			},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"down"}`))
+	}))
+	defer failing.Close()
+
+	svc := NewService(path)
+	// Shared connection change marks every group untrusted without touching group auth.
+	result, err := svc.UpsertProvider(context.Background(), ProviderUpsertInput{
+		ID:      "vendor-a",
+		BaseURL: failing.URL + "/v1",
+	})
+	if err != nil {
+		t.Fatalf("UpsertProvider() error = %v", err)
+	}
+	if !containsWarning(result.Warnings, "skip models") && !containsWarning(result.Warnings, "untrusted") {
+		t.Fatalf("warnings = %#v", result.Warnings)
+	}
+
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	provider := reloaded.FindProvider("vendor-a")
+	if provider == nil {
+		t.Fatal("provider missing")
+	}
+	for _, groupID := range []string{config.DefaultGroupID, "premium"} {
+		g := provider.FindGroup(groupID)
+		if g == nil {
+			t.Fatalf("group %q missing", groupID)
+		}
+		if g.ModelsSource != "" {
+			t.Fatalf("group %q ModelsSource = %q, want untrusted empty", groupID, g.ModelsSource)
+		}
+		if len(g.Models) == 0 {
+			t.Fatalf("group %q models cleared, want preserved catalog", groupID)
+		}
+	}
+}
+
+func TestGroupKeyChangeMarksOnlyDefaultGroupUntrusted(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.UpsertProvider(config.Provider{
+		ID:      "vendor-a",
+		BaseURL: "https://example.com/v1",
+		Groups: []config.ProviderGroup{
+			{
+				ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-default-old",
+				Models: []string{"d1"}, ModelsSource: "discovered",
+			},
+			{
+				ID: "premium", Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-premium",
+				Models: []string{"p1"}, ModelsSource: "discovered",
+			},
+		},
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	// Key-only change is group-owned — UpdateProviderGroup must not touch siblings.
+	svc := NewService(path)
+	if _, err := svc.UpdateProviderGroup(context.Background(), ProviderGroupUpdateInput{
+		ProviderID: "vendor-a",
+		GroupID:    config.DefaultGroupID,
+		Group: ProviderGroupInput{
+			ID:             config.DefaultGroupID,
+			Protocol:       config.ProtocolOpenAIResponses,
+			APIKeysChanged: true,
+			APIKeys:        []string{"sk-default-new"},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateProviderGroup() error = %v", err)
+	}
+
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	provider := reloaded.FindProvider("vendor-a")
+	if provider == nil {
+		t.Fatal("provider missing")
+	}
+	defaultGroup := provider.FindGroup(config.DefaultGroupID)
+	premium := provider.FindGroup("premium")
+	if defaultGroup == nil || premium == nil {
+		t.Fatalf("groups = %#v", provider.Groups)
+	}
+	if defaultGroup.ModelsSource != "" {
+		t.Fatalf("default ModelsSource = %q, want empty after key change", defaultGroup.ModelsSource)
+	}
+	if !reflect.DeepEqual(defaultGroup.Models, []string{"d1"}) {
+		t.Fatalf("default models = %#v", defaultGroup.Models)
+	}
+	if !reflect.DeepEqual(defaultGroup.EffectiveAPIKeys(), []string{"sk-default-new"}) {
+		t.Fatalf("default keys = %#v", defaultGroup.EffectiveAPIKeys())
+	}
+	if premium.ModelsSource != "discovered" || !reflect.DeepEqual(premium.Models, []string{"p1"}) {
+		t.Fatalf("premium group should stay trusted: %#v", premium)
 	}
 }

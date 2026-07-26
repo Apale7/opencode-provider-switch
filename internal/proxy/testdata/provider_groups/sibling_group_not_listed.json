@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "api_key": "ocswitch-local",
+    "failover_status_codes": [401, 402, 403, 429]
+  },
+  "providers": [
+    {
+      "id": "vendor-sib",
+      "name": "Vendor Sibling Guard",
+      "base_url": "https://vendor-sib.example.test/v1",
+      "base_url_strategy": "ordered",
+      "disabled": false,
+      "auto_alias_enabled": false,
+      "groups": [
+        {
+          "id": "listed",
+          "name": "Listed Group",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-listed-1",
+          "api_keys": [
+            "sk-fake-listed-2"
+          ],
+          "models": ["model-sib"],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "unlisted",
+          "name": "Unlisted Sibling",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-unlisted-1",
+          "api_keys": [
+            "sk-fake-unlisted-2"
+          ],
+          "models": ["model-sib"],
+          "models_source": "manual",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "no-sibling",
+      "display_name": "No Unlisted Sibling Attempts",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-sib",
+          "group": "listed",
+          "model": "model-sib",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

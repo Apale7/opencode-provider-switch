@@ -172,23 +172,25 @@ func PlanProviderRemove(base *config.Config, baseRevision, providerID string, se
 		}
 	}
 
-	// Rewrite provider selectors.
+	// Rewrite provider_group selectors.
 	for ri, rule := range base.RequestRewriteRules {
 		rulePath := fmt.Sprintf("/config/request_rewrite_rules/%d", ri)
-		if len(rule.Providers) == 0 {
-			// Wildcard preserved; deleting a provider does not change wildcard semantics.
+		// nil/empty ProviderGroups is wildcard; deleting a provider does not change it.
+		if rule.ProviderGroups == nil || len(rule.ProviderGroups) == 0 {
 			continue
 		}
+		selectorCount := len(rule.ProviderGroups)
+		selectorPath := rulePath + "/provider_groups"
 		matches := 0
-		for _, id := range rule.Providers {
-			if id == providerID {
+		for _, selector := range rule.ProviderGroups {
+			if selector.Provider == providerID {
 				matches++
 			}
 		}
 		if matches == 0 {
 			continue
 		}
-		remaining := len(rule.Providers) - matches
+		remaining := selectorCount - matches
 		if remaining > 0 {
 			plan.AutomaticChanges = append(plan.AutomaticChanges, Change{
 				ID:         fmt.Sprintf("auto:narrow_rewrite:%s", rule.Name),
@@ -196,7 +198,7 @@ func PlanProviderRemove(base *config.Config, baseRevision, providerID string, se
 				Source:     SourceAutomatic,
 				Entity:     EntityRewriteRule,
 				ReasonCode: ReasonRewriteSelectorNarrow,
-				Path:       rulePath + "/providers",
+				Path:       selectorPath,
 				Params: params(
 					"ruleName", rule.Name,
 					"ruleIndex", ri,
@@ -211,18 +213,18 @@ func PlanProviderRemove(base *config.Config, baseRevision, providerID string, se
 		choice := Choice{
 			ID:   choiceID,
 			Code: ReasonSingletonRewrite,
-			Path: rulePath + "/providers",
+			Path: selectorPath,
 			Params: params(
 				"ruleName", rule.Name,
 				"ruleIndex", ri,
 				"providerId", providerID,
-				"selectorCount", len(rule.Providers),
+				"selectorCount", selectorCount,
 			),
 			Options: []ChoiceOption{
 				{ID: OptionKeepDormant},
 				{ID: OptionDisableRule},
 				{ID: OptionDeleteRule},
-				{ID: OptionReplaceProviders},
+				{ID: OptionReplaceProviderGroups},
 			},
 		}
 		plan.Choices = append(plan.Choices, choice)
@@ -230,7 +232,7 @@ func PlanProviderRemove(base *config.Config, baseRevision, providerID string, se
 			ID:          "preserved:singleton_rewrite:" + rule.Name,
 			Code:        ReasonSingletonRewrite,
 			Disposition: DispositionPreserved,
-			Path:        rulePath + "/providers",
+			Path:        selectorPath,
 			Params:      params("ruleName", rule.Name, "providerId", providerID),
 		})
 		if sel, ok := selected[choiceID]; ok {
@@ -339,6 +341,7 @@ func selectedSingletonRewriteChange(sel Selection, rule config.RequestRewriteRul
 		base.Params["action"] = OptionDeleteRule
 		return base, nil
 	case OptionReplaceProviders:
+		// Legacy option id: map provider ids to default-group selectors.
 		raw, ok := sel.Params["providers"]
 		if !ok {
 			return Change{}, fmt.Errorf("replace_providers requires params.providers")
@@ -350,10 +353,34 @@ func selectedSingletonRewriteChange(sel Selection, rule config.RequestRewriteRul
 		if len(providers) == 0 {
 			return Change{}, fmt.Errorf("replace_providers must be non-empty (empty means wildcard)")
 		}
+		groups := make([]config.ProviderGroupSelector, 0, len(providers))
+		for _, id := range providers {
+			groups = append(groups, config.ProviderGroupSelector{Provider: id, Group: config.DefaultGroupID})
+		}
 		base.Kind = ChangeUpdate
 		base.ReasonCode = ReasonSingletonRewrite
-		base.Params["action"] = OptionReplaceProviders
-		base.Params["providers"] = providers
+		base.Params["action"] = OptionReplaceProviderGroups
+		base.Params["providerGroups"] = groups
+		return base, nil
+	case OptionReplaceProviderGroups:
+		raw, ok := sel.Params["providerGroups"]
+		if !ok {
+			raw, ok = sel.Params["provider_groups"]
+		}
+		if !ok {
+			return Change{}, fmt.Errorf("replace_provider_groups requires params.providerGroups")
+		}
+		groups, err := providerGroupSelectorParam(raw)
+		if err != nil {
+			return Change{}, err
+		}
+		if len(groups) == 0 {
+			return Change{}, fmt.Errorf("replace_provider_groups must be non-empty (empty means wildcard)")
+		}
+		base.Kind = ChangeUpdate
+		base.ReasonCode = ReasonSingletonRewrite
+		base.Params["action"] = OptionReplaceProviderGroups
+		base.Params["providerGroups"] = groups
 		return base, nil
 	default:
 		return Change{}, fmt.Errorf("unsupported option %q", sel.OptionID)
@@ -486,9 +513,9 @@ func applyProviderRemove(base *config.Config, providerID string, plan Plan) (*co
 				nextRules = append(nextRules, rule)
 			case OptionDeleteRule:
 				// drop
-			case OptionReplaceProviders:
-				if providers, err := stringSliceParam(ch.Params["providers"]); err == nil {
-					rule.Providers = providers
+			case OptionReplaceProviderGroups, OptionReplaceProviders:
+				if groups, err := providerGroupSelectorParam(ch.Params["providerGroups"]); err == nil {
+					rule.ProviderGroups = groups
 				}
 				nextRules = append(nextRules, rule)
 			default:
@@ -496,24 +523,23 @@ func applyProviderRemove(base *config.Config, providerID string, plan Plan) (*co
 			}
 			continue
 		}
-		if len(rule.Providers) == 0 {
+		// Automatic narrow of provider_groups (nil/empty = wildcard, leave alone).
+		if rule.ProviderGroups == nil || len(rule.ProviderGroups) == 0 {
 			nextRules = append(nextRules, rule)
 			continue
 		}
-		// Automatic narrow.
-		filtered := make([]string, 0, len(rule.Providers))
-		for _, id := range rule.Providers {
-			if id == providerID {
-				continue
+		filtered := make([]config.ProviderGroupSelector, 0, len(rule.ProviderGroups))
+		for _, selector := range rule.ProviderGroups {
+			if selector.Provider != providerID {
+				filtered = append(filtered, selector)
 			}
-			filtered = append(filtered, id)
 		}
-		if len(filtered) == 0 && len(rule.Providers) > 0 {
+		if len(filtered) == 0 {
 			// Unresolved singleton should not reach apply; keep as safety.
 			nextRules = append(nextRules, rule)
 			continue
 		}
-		rule.Providers = filtered
+		rule.ProviderGroups = filtered
 		nextRules = append(nextRules, rule)
 	}
 	cfg.RequestRewriteRules = nextRules

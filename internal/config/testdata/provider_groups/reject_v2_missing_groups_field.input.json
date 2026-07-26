@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9982,
+    "api_key": "ocswitch-local"
+  },
+  "providers": [
+    {
+      "id": "vendor-a",
+      "name": "Vendor A",
+      "base_url": "https://api.example.com/v1"
+    }
+  ],
+  "aliases": [],
+  "auto_alias_enabled": true
+}

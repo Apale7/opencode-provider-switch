@@ -1,0 +1,74 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "api_key": "ocswitch-local",
+    "failover_status_codes": [401, 402, 403, 429],
+    "routing": {
+      "strategy": "circuit-breaker",
+      "params": {
+        "failureThreshold": 1,
+        "baseCooldownMs": 60000,
+        "maxCooldownMs": 60000,
+        "backoffMultiplier": 2,
+        "halfOpenMaxRequests": 1,
+        "closeAfterSuccesses": 1,
+        "countPostCommitErrors": true,
+        "rateLimitCooldownMs": 60000
+      }
+    }
+  },
+  "providers": [
+    {
+      "id": "vendor-cb",
+      "name": "Vendor Circuit Breaker Isolation",
+      "base_url": "https://vendor-cb.example.test/v1",
+      "base_url_strategy": "ordered",
+      "disabled": false,
+      "auto_alias_enabled": false,
+      "groups": [
+        {
+          "id": "fragile",
+          "name": "Fragile Group",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-cb-fragile",
+          "models": ["model-cb"],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "stable",
+          "name": "Stable Group",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-cb-stable",
+          "models": ["model-cb"],
+          "models_source": "manual",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "cb-iso",
+      "display_name": "Circuit Breaker Isolation",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-cb",
+          "group": "fragile",
+          "model": "model-cb",
+          "enabled": true
+        },
+        {
+          "provider": "vendor-cb",
+          "group": "stable",
+          "model": "model-cb",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

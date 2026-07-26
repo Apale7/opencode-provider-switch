@@ -1,0 +1,8 @@
+{
+  "error_code": "mixed_schema_format",
+  "message_contains": [
+    "mixed",
+    "provider_groups"
+  ],
+  "notes": "schema_version 1 (or missing) must decode as legacy wire model; any Rewrite.provider_groups field presence is rejected at load boundary rather than silently dropped"
+}

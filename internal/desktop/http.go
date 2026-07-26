@@ -2,6 +2,9 @@ package desktop
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -46,15 +49,17 @@ func Run(opts RunOptions) error {
 		return fmt.Errorf("listen desktop control panel: %w", err)
 	}
 	defer listener.Close()
+	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok || tcpAddr.IP == nil || !tcpAddr.IP.IsLoopback() {
+		return fmt.Errorf("desktop control panel requires a loopback listen address")
+	}
+	token, err := generateDesktopSessionToken()
+	if err != nil {
+		return err
+	}
 
 	url := "http://" + listener.Addr().String()
-	handler, err := webadmin.NewHandler(webadmin.Options{
-		Version:          opts.Version,
-		Shell:            instance.shellName(),
-		BaseURL:          url,
-		Service:          instance.Bindings(),
-		SaveDesktopPrefs: instance.SaveDesktopPrefs,
-	})
+	handler, err := newHandler(instance, opts.Version, url, token)
 	if err != nil {
 		return err
 	}
@@ -69,6 +74,7 @@ func Run(opts RunOptions) error {
 	}()
 
 	fmt.Printf("ocswitch desktop control panel: %s\n", url)
+	fmt.Printf("one-time desktop session token: %s\n", token)
 	if opts.OpenBrowser {
 		if err := openBrowser(url); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: open browser: %v\n", err)
@@ -89,7 +95,10 @@ func Run(opts RunOptions) error {
 	}
 }
 
-func newHandler(instance *App, version string, baseURL string) (http.Handler, error) {
+func newHandler(instance *App, version string, baseURL string, token string) (http.Handler, error) {
+	if strings.TrimSpace(token) == "" {
+		return nil, fmt.Errorf("desktop session token is required")
+	}
 	return webadmin.NewHandler(webadmin.Options{
 		Version:          version,
 		Shell:            instance.shellName(),
@@ -97,7 +106,35 @@ func newHandler(instance *App, version string, baseURL string) (http.Handler, er
 		Service:          instance.Bindings(),
 		ImportConfig:     instance.ImportConfigHTTP,
 		SaveDesktopPrefs: instance.SaveDesktopPrefs,
+		Auth:             desktopSessionAuth(token),
+		SecureHeaders:    true,
 	})
+}
+
+func generateDesktopSessionToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate desktop session token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func desktopSessionAuth(expected string) func(http.ResponseWriter, *http.Request) bool {
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		header := strings.TrimSpace(r.Header.Get("Authorization"))
+		got := ""
+		if strings.HasPrefix(header, "Bearer ") {
+			got = strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+		}
+		if len(got) == len(expected) && subtle.ConstantTimeCompare([]byte(got), []byte(expected)) == 1 {
+			return true
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="ocswitch-desktop"`)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}` + "\n"))
+		return false
+	}
 }
 
 func openBrowser(url string) error {

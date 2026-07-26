@@ -27,7 +27,7 @@ func TestTransportMessageFromEnvelopeKinds(t *testing.T) {
 	}
 	for _, tt := range tests {
 		msg := TransportMessageFromEnvelope(app.APIEnvelope{
-			OK:   tt.ok,
+			OK: tt.ok,
 			Error: func() string {
 				if tt.ok {
 					return ""

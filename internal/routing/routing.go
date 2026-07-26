@@ -38,11 +38,30 @@ type ParameterDescriptor struct {
 type Candidate struct {
 	Index      int
 	ProviderID string
+	GroupID    string
 	Provider   string
 	Protocol   string
 	Model      string
 	BaseURL    string
 	Tags       map[string]string
+}
+
+// StableIdentity is the minimum routing identity for a candidate.
+// It always keeps ProviderID, GroupID, and Model as separate fields and must
+// never be formed by concatenating GroupID into Model.
+type StableIdentity struct {
+	ProviderID string
+	GroupID    string
+	Model      string
+}
+
+// StableIdentity returns the candidate's stable routing identity.
+func (c Candidate) StableIdentity() StableIdentity {
+	return StableIdentity{
+		ProviderID: c.ProviderID,
+		GroupID:    c.GroupID,
+		Model:      c.Model,
+	}
 }
 
 type SessionInput struct {
@@ -139,6 +158,33 @@ type StateKey struct {
 	Strategy   string
 	Protocol   string
 	ProviderID string
+	GroupID    string
+	Model      string
+}
+
+// StateKeyForCandidate builds a strategy state key from a candidate's stable identity.
+func StateKeyForCandidate(strategy, protocol string, c Candidate) StateKey {
+	id := c.StableIdentity()
+	return StateKey{
+		Strategy:   strategy,
+		Protocol:   protocol,
+		ProviderID: id.ProviderID,
+		GroupID:    id.GroupID,
+		Model:      id.Model,
+	}
+}
+
+// ProviderScopeStateKey is an explicit zero-value wrapper for callers that only
+// know a ProviderID. GroupID and Model are intentionally empty; prefer
+// StateKeyForCandidate once group-scoped identity is available.
+func ProviderScopeStateKey(strategy, protocol, providerID string) StateKey {
+	return StateKey{
+		Strategy:   strategy,
+		Protocol:   protocol,
+		ProviderID: providerID,
+		GroupID:    "",
+		Model:      "",
+	}
 }
 
 type ProviderState struct {

@@ -1,0 +1,68 @@
+{
+  "upstream_provider_group": {
+    "resource": "Provider Group (upstream keys for calling providers)",
+    "ui_labels": {
+      "en": "Upstream keys",
+      "zh-CN": "上游密钥"
+    },
+    "dto_types": {
+      "input": "ProviderGroupInput",
+      "view": "ProviderGroupView",
+      "selector_input": "ProviderGroupSelectorInput",
+      "selector_view": "ProviderGroupSelectorView"
+    },
+    "http_admin_paths": {
+      "list": "/api/admin/providers/{providerID}/groups",
+      "create": "/api/admin/providers/{providerID}/groups",
+      "get": "/api/admin/providers/{providerID}/groups/{groupID}",
+      "update": "/api/admin/providers/{providerID}/groups/{groupID}",
+      "delete": "/api/admin/providers/{providerID}/groups/{groupID}",
+      "refresh_models": "/api/admin/providers/{providerID}/groups/{groupID}/refresh-models",
+      "ping": "/api/admin/providers/{providerID}/groups/{groupID}/ping"
+    },
+    "must_not_register_paths": [
+      "/api-keys",
+      "/api/admin/api-keys",
+      "/api/admin/providers/{providerID}/api-keys",
+      "/api/admin/providers/{providerID}/groups/{groupID}/api-keys"
+    ]
+  },
+  "client_proxy_api_key": {
+    "resource": "Client proxy API key (auth for clients calling ocswitch)",
+    "ui_labels": {
+      "en": "API Keys",
+      "zh-CN": "API 密钥"
+    },
+    "dto_types": {
+      "input": "ProxyAPIKeyInput",
+      "view": "ProxyAPIKeyView",
+      "create_result": "ProxyAPIKeyCreateResult",
+      "rotate_result": "ProxyAPIKeyRotateResult"
+    },
+    "http_admin_paths": {
+      "list": "/api/admin/api-keys",
+      "create": "/api/admin/api-keys",
+      "get": "/api/admin/api-keys/{keyID}",
+      "update": "/api/admin/api-keys/{keyID}",
+      "rotate": "/api/admin/api-keys/{keyID}/rotate",
+      "delete": "/api/admin/api-keys/{keyID}"
+    },
+    "note": "These paths/DTOs belong to the separate client access-key feature and must not be reused by Provider Group management."
+  },
+  "isolation_assertions": {
+    "group_paths_must_not_be_api_keys": true,
+    "group_dto_must_not_reuse_proxy_api_key_dto": true,
+    "proxy_api_key_dto_must_not_reuse_provider_group_dto": true,
+    "group_input_uses_apiKeysChanged_and_apiKeys": true,
+    "group_view_uses_apiKeyCount_and_apiKeysMasked_only": true,
+    "shared_type_names_forbidden": [
+      "APIKeyInput",
+      "APIKeyView",
+      "ApiKeyDTO"
+    ],
+    "path_prefix_disjoint": [
+      "/api/admin/providers/{providerID}/groups",
+      "/api/admin/api-keys"
+    ]
+  }
+}

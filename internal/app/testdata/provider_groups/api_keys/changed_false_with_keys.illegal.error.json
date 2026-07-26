@@ -1,0 +1,10 @@
+{
+  "accepted": false,
+  "errorCode": "provider_group_api_keys_changed_required",
+  "errorMessage": "apiKeys must be empty when apiKeysChanged is false",
+  "assertions": {
+    "requestRejected": true,
+    "storedKeysUnchanged": true,
+    "mustNotPersistInputKeys": true
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "fake-strip-store-premium",
+  "alias": "fake-chat",
+  "providerGroups": [
+    {
+      "provider": "vendor-fake-a",
+      "group": "premium"
+    },
+    {
+      "provider": "vendor-fake-a",
+      "group": "default"
+    }
+  ],
+  "enabled": true,
+  "override": false,
+  "ops": [
+    {
+      "op": "delete",
+      "path": "$.store"
+    }
+  ]
+}

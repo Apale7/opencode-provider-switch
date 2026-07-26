@@ -1,0 +1,8 @@
+{
+  "error_code": "target_missing_group",
+  "message_contains": [
+    "group",
+    "missing-group-target"
+  ],
+  "notes": "schema v2 Target without non-empty group is a structural error; only schema v1/missing-version legacy targets may be filled with default"
+}

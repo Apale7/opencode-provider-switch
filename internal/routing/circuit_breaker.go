@@ -108,7 +108,7 @@ func (s *circuitBreakerSession) Next() (Decision, bool) {
 	for s.nextIndex < len(s.candidates) {
 		candidate := s.candidates[s.nextIndex]
 		s.nextIndex++
-		key := StateKey{Strategy: circuitBreakerName, Protocol: s.protocol, ProviderID: candidate.ProviderID}
+		key := StateKeyForCandidate(circuitBreakerName, s.protocol, candidate)
 		now := s.strategy.clock.Now()
 		skip := false
 		reason := ""
@@ -141,7 +141,7 @@ func (s *circuitBreakerSession) Next() (Decision, bool) {
 }
 
 func (s *circuitBreakerSession) Report(feedback AttemptFeedback) {
-	key := StateKey{Strategy: circuitBreakerName, Protocol: s.protocol, ProviderID: feedback.Candidate.ProviderID}
+	key := StateKeyForCandidate(circuitBreakerName, s.protocol, feedback.Candidate)
 	now := feedback.FinishedAt
 	if now.IsZero() {
 		now = s.strategy.clock.Now()

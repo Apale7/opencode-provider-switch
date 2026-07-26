@@ -1,0 +1,20 @@
+{
+  "alias": "fake-chat",
+  "targets": [
+    {
+      "provider": "vendor-fake-a",
+      "group": "premium",
+      "model": "fake-model-a"
+    },
+    {
+      "provider": "vendor-fake-a",
+      "group": "default",
+      "model": "fake-model-a"
+    },
+    {
+      "provider": "vendor-fake-b",
+      "group": "default",
+      "model": "fake-model-z"
+    }
+  ]
+}

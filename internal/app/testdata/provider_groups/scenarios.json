@@ -1,0 +1,154 @@
+{
+  "task": "1.3",
+  "package": "internal/app",
+  "purpose": "Freeze Provider Group management DTO wire shapes, apiKeysChanged semantics, mask rejection, no-plaintext responses, and path/DTO isolation from client proxy API keys.",
+  "frozen_contracts": {
+    "ProviderGroupInput": {
+      "id": "string",
+      "name": "string optional",
+      "protocol": "string",
+      "apiKeysChanged": "boolean",
+      "apiKeys": "string[] optional; empty when apiKeysChanged=false; full replacement when true",
+      "models": "string[] optional",
+      "disabled": "boolean optional"
+    },
+    "ProviderGroupView": {
+      "id": "string",
+      "name": "string optional",
+      "protocol": "string",
+      "apiKeyCount": "int",
+      "apiKeysMasked": "string[] optional; never plaintext",
+      "models": "string[] optional",
+      "modelsSource": "string optional",
+      "disabled": "boolean"
+    },
+    "ProviderView.groups": "[]ProviderGroupView",
+    "AliasTargetView.group": "string",
+    "AliasTargetRefInput.group": "string",
+    "ProviderGroupSelector": {
+      "provider": "string",
+      "group": "string"
+    },
+    "RequestRewriteRuleInput/View.providerGroups": "[]ProviderGroupSelector"
+  },
+  "scenarios": [
+    {
+      "id": "shape-input",
+      "description": "Frozen ProviderGroupInput wire shape for create/update",
+      "files": ["shapes/provider_group_input.json"]
+    },
+    {
+      "id": "shape-view",
+      "description": "Frozen ProviderGroupView wire shape for list/create/update responses",
+      "files": ["shapes/provider_group_view.json"]
+    },
+    {
+      "id": "create-group",
+      "description": "Create group request and masked response (no plaintext keys)",
+      "files": ["create/request.json", "create/response.json"]
+    },
+    {
+      "id": "update-group",
+      "description": "Update group request and masked response (no plaintext keys)",
+      "files": ["update/request.json", "update/response.json"]
+    },
+    {
+      "id": "api-keys-preserve",
+      "description": "apiKeysChanged=false with empty apiKeys preserves stored keys",
+      "files": [
+        "api_keys/changed_false_empty_preserve.request.json",
+        "api_keys/changed_false_empty_preserve.expected.json"
+      ]
+    },
+    {
+      "id": "api-keys-replace",
+      "description": "apiKeysChanged=true replaces stored keys with provided array",
+      "files": [
+        "api_keys/changed_true_replace.request.json",
+        "api_keys/changed_true_replace.response.json",
+        "api_keys/changed_true_replace.expected_store.json"
+      ]
+    },
+    {
+      "id": "api-keys-clear",
+      "description": "apiKeysChanged=true with empty array clears stored keys",
+      "files": [
+        "api_keys/changed_true_empty_clear.request.json",
+        "api_keys/changed_true_empty_clear.response.json",
+        "api_keys/changed_true_empty_clear.expected_store.json"
+      ]
+    },
+    {
+      "id": "api-keys-illegal-false-with-keys",
+      "description": "apiKeysChanged=false carrying apiKeys is illegal",
+      "files": [
+        "api_keys/changed_false_with_keys.illegal.request.json",
+        "api_keys/changed_false_with_keys.illegal.error.json"
+      ]
+    },
+    {
+      "id": "api-keys-reject-masked",
+      "description": "Any masked placeholder in apiKeys is rejected and never persisted",
+      "files": [
+        "api_keys/masked_placeholder.reject.request.json",
+        "api_keys/masked_placeholder.reject.error.json"
+      ]
+    },
+    {
+      "id": "response-list-no-plaintext",
+      "description": "List response contains only apiKeysMasked/apiKeyCount, never plaintext",
+      "files": ["responses/list_groups.json"]
+    },
+    {
+      "id": "response-create-no-plaintext",
+      "description": "Create response contains only apiKeysMasked/apiKeyCount, never plaintext",
+      "files": ["responses/create_group.json"]
+    },
+    {
+      "id": "response-update-no-plaintext",
+      "description": "Update response contains only apiKeysMasked/apiKeyCount, never plaintext",
+      "files": ["responses/update_group.json"]
+    },
+    {
+      "id": "provider-view-groups",
+      "description": "ProviderView embeds Groups as []ProviderGroupView with masked keys only",
+      "files": ["provider_view/with_groups.json"]
+    },
+    {
+      "id": "alias-target-group",
+      "description": "Alias target/view/ref/reorder carry exact group identity",
+      "files": [
+        "alias/target_view.json",
+        "alias/target_ref_input.json",
+        "alias/target_input.json",
+        "alias/reorder_input.json"
+      ]
+    },
+    {
+      "id": "rewrite-provider-groups",
+      "description": "Request rewrite uses provider_groups precise selector, not legacy providers",
+      "files": ["rewrite/rule_input.json", "rewrite/rule_view.json"]
+    },
+    {
+      "id": "path-dto-isolation",
+      "description": "Upstream Group admin paths/DTOs are isolated from client proxy API key paths/DTOs; Group path must not be /api-keys",
+      "files": ["path_isolation/routes_and_dtos.json"]
+    }
+  ],
+  "forbidden_response_fields": [
+    "apiKey",
+    "apiKeys",
+    "api_key",
+    "api_keys",
+    "key",
+    "secret",
+    "plaintext"
+  ],
+  "mask_examples": {
+    "sk-fake-primary-aaaa": "sk-f…aaaa",
+    "sk-fake-backup-bbbb": "sk-f…bbbb",
+    "sk-fake-new-key-cccc": "sk-f…cccc",
+    "sk-fake-rotate-dddd": "sk-f…dddd",
+    "short-key": "***"
+  }
+}

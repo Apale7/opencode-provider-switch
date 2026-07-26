@@ -1,0 +1,58 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9982,
+    "api_key": "ocswitch-local"
+  },
+  "providers": [
+    {
+      "id": "vendor-a",
+      "name": "Vendor A",
+      "protocol": "openai-responses",
+      "base_url": "https://api.example.com/v1",
+      "api_key": "sk-primary",
+      "models": ["model-a"]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "wildcard-chat",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-a",
+          "model": "model-a",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "request_rewrite_rules": [
+    {
+      "name": "empty-providers-wildcard",
+      "alias": "wildcard-chat",
+      "providers": [],
+      "enabled": true,
+      "ops": [
+        {
+          "op": "set",
+          "path": "$.store",
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "omitted-providers-wildcard",
+      "alias": "wildcard-chat",
+      "enabled": true,
+      "ops": [
+        {
+          "op": "delete",
+          "path": "$.parallel_tool_calls"
+        }
+      ]
+    }
+  ],
+  "auto_alias_enabled": true
+}

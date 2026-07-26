@@ -1,0 +1,7 @@
+{
+  "error_code": "unsupported_schema_version",
+  "message_contains": [
+    "unsupported schema version"
+  ],
+  "notes": "explicit null schema_version is not treated as missing; reject as unsupported schema version"
+}

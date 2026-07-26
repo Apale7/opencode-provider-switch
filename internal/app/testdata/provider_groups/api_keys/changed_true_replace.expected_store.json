@@ -1,0 +1,12 @@
+{
+  "behavior": "replace_all_keys",
+  "afterStoredKeys": [
+    "sk-fake-new-key-cccc",
+    "sk-fake-rotate-dddd"
+  ],
+  "assertions": {
+    "oldKeysRemoved": true,
+    "orderPreservedFromInput": true,
+    "responseHasNoPlaintextKeys": true
+  }
+}

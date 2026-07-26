@@ -28,6 +28,7 @@ func TestModelCapabilityProbeUsesUpstreamModels(t *testing.T) {
 
 	probe := ProbeModelCapability(context.Background(), ProviderModelProbeTarget{
 		ProviderID: "openai",
+		GroupID:    "premium",
 		Protocol:   "openai-responses",
 		BaseURLs:   []string{srv.URL + "/v1"},
 		APIKeys:    []string{"sk-test"},
@@ -47,6 +48,9 @@ func TestModelCapabilityProbeUsesUpstreamModels(t *testing.T) {
 		t.Fatalf("X-Test = %q, want 1", custom)
 	}
 	assertModelCapability(t, probe, "gpt-4o", "openai", "openai-responses", "upstream", false)
+	if probe.GroupID != "premium" {
+		t.Fatalf("GroupID = %q, want premium", probe.GroupID)
+	}
 	if probe.ContextLimit <= 0 {
 		t.Fatalf("ContextLimit = %d, want positive", probe.ContextLimit)
 	}
@@ -61,6 +65,35 @@ func TestModelCapabilityProbeUsesUpstreamModels(t *testing.T) {
 	}
 }
 
+func TestModelCapabilityProbeRejectsEmptyGroupID(t *testing.T) {
+	t.Parallel()
+
+	var auths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths = append(auths, r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") != "Bearer sk-default-only" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"error":"wrong key"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[{"id":"gpt-4o"}]}`)
+	}))
+	defer srv.Close()
+
+	probe := ProbeModelCapability(context.Background(), ProviderModelProbeTarget{
+		ProviderID: "vendor-a",
+		Protocol:   "openai-responses",
+		BaseURLs:   []string{srv.URL + "/v1"},
+		APIKeys:    []string{"sk-default-only"},
+	}, "gpt-4o")
+	if probe.GroupID != "" || !strings.Contains(probe.ProbeError, "groupID") {
+		t.Fatalf("probe = %#v, want missing groupID", probe)
+	}
+	if len(auths) != 0 {
+		t.Fatalf("auths = %#v, want no upstream request", auths)
+	}
+}
+
 func TestModelCapabilityProbeFallsBackToKnownDB(t *testing.T) {
 	t.Parallel()
 
@@ -72,6 +105,7 @@ func TestModelCapabilityProbeFallsBackToKnownDB(t *testing.T) {
 
 	probe := ProbeModelCapability(context.Background(), ProviderModelProbeTarget{
 		ProviderID: "deepseek",
+		GroupID:    "default",
 		Protocol:   "openai-responses",
 		BaseURLs:   []string{srv.URL + "/v1"},
 		APIKeys:    []string{"sk-bad"},
@@ -97,6 +131,7 @@ func TestModelCapabilityProbeFallsBackToDefault(t *testing.T) {
 
 	probe := ProbeModelCapability(context.Background(), ProviderModelProbeTarget{
 		ProviderID: "unknown-provider",
+		GroupID:    "default",
 		Protocol:   "openai-responses",
 		BaseURLs:   []string{srv.URL + "/v1"},
 		APIKeys:    []string{"sk-bad"},
@@ -111,6 +146,7 @@ func TestModelCapabilityProbeUnknownProtocolReturnsDefaultAndError(t *testing.T)
 
 	probe := ProbeModelCapability(context.Background(), ProviderModelProbeTarget{
 		ProviderID: "custom",
+		GroupID:    "default",
 		Protocol:   "unknown-protocol",
 		BaseURLs:   []string{"http://127.0.0.1:1/v1"},
 		APIKeys:    []string{"sk-test"},
@@ -128,6 +164,7 @@ func TestModelCapabilityProbeEmptyModelIDReturnsError(t *testing.T) {
 
 	probe := ProbeModelCapability(context.Background(), ProviderModelProbeTarget{
 		ProviderID: "openai",
+		GroupID:    "default",
 		Protocol:   "openai-responses",
 		BaseURLs:   []string{"http://127.0.0.1:1/v1"},
 		APIKeys:    []string{"sk-test"},

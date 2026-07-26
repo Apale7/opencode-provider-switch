@@ -1,0 +1,111 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9982,
+    "api_key": "ocswitch-local"
+  },
+  "providers": [
+    {
+      "id": "vendor-a",
+      "name": "Vendor A",
+      "base_url": "https://api.example.com/v1",
+      "base_urls": [
+        "https://api.example.com/v1",
+        "https://api-backup.example.com/v1"
+      ],
+      "base_url_strategy": "ordered",
+      "headers": {
+        "X-Org": "acme"
+      },
+      "disabled": false,
+      "auto_alias_enabled": true,
+      "groups": [
+        {
+          "id": "default",
+          "name": "Default",
+          "protocol": "openai-responses",
+          "api_key": "sk-default",
+          "models": ["model-a"],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "premium",
+          "name": "Premium",
+          "protocol": "openai-compatible",
+          "api_key": "sk-premium-primary",
+          "api_keys": ["sk-premium-backup"],
+          "models": ["model-a", "model-b"],
+          "models_source": "discovered",
+          "disabled": false
+        },
+        {
+          "id": "anthropic",
+          "name": "Anthropic Lane",
+          "protocol": "anthropic-messages",
+          "api_key": "sk-anthropic",
+          "models": ["claude-test"],
+          "disabled": true
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "multi-group-chat",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-a",
+          "group": "premium",
+          "model": "model-a",
+          "enabled": true
+        },
+        {
+          "provider": "vendor-a",
+          "group": "default",
+          "model": "model-a",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "request_rewrite_rules": [
+    {
+      "name": "premium-only",
+      "alias": "multi-group-chat",
+      "provider_groups": [
+        {
+          "provider": "vendor-a",
+          "group": "premium"
+        }
+      ],
+      "enabled": true,
+      "override": true,
+      "ops": [
+        {
+          "op": "set",
+          "path": "$.service_tier",
+          "value": "priority"
+        }
+      ]
+    },
+    {
+      "name": "all-groups-wildcard",
+      "alias": "multi-group-chat",
+      "provider_groups": [],
+      "enabled": true,
+      "ops": [
+        {
+          "op": "set",
+          "path": "$.store",
+          "value": false
+        }
+      ]
+    }
+  ],
+  "provider_priority": ["vendor-a"],
+  "auto_alias_enabled": true
+}

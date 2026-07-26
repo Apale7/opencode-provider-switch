@@ -37,6 +37,34 @@ then bind them to aliases with ocswitch alias bind.`,
 		newProviderDisableCmd(),
 		newProviderRemoveCmd(),
 		newProviderImportCmd(),
+		newProviderGroupCmd(),
+	)
+	return c
+}
+
+func newProviderGroupCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "group",
+		Short: "Manage provider groups (protocol, keys, models)",
+		Long: `provider group commands manage groups under one provider.
+
+Each group has its own protocol, API keys, and model catalog. Shared connection
+settings (base URL, headers) stay on the provider. Group identity is always
+explicit: create/update/delete/refresh-models/ping require a concrete group id.
+
+Legacy provider commands that omit --group only map to the default group.`,
+		Example: `  ocswitch provider group list --provider su8
+  ocswitch provider group create --provider su8 --id premium --protocol openai-responses --api-key sk-premium
+  ocswitch provider group refresh-models --provider su8 --group premium
+  ocswitch provider group ping --provider su8 --group premium`,
+	}
+	c.AddCommand(
+		newProviderGroupListCmd(),
+		newProviderGroupCreateCmd(),
+		newProviderGroupUpdateCmd(),
+		newProviderGroupDeleteCmd(),
+		newProviderGroupRefreshModelsCmd(),
+		newProviderGroupPingCmd(),
 	)
 	return c
 }
@@ -124,16 +152,8 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 			in := app.ProviderUpsertInput{
 				ID:           id,
 				Name:         name,
-				Protocol:     protocol,
 				BaseURL:      config.NormalizeProviderBaseURL(baseURL),
-				SkipModels:   skipModels,
 				ClearHeaders: clearHeadersRequested,
-			}
-			if apiKeyChanged {
-				in.APIKey = apiKey
-				if strings.TrimSpace(apiKey) == "" {
-					in.ClearAPIKeys = true
-				}
 			}
 			if headersChanged || clearHeadersRequested {
 				in.Headers = normalizeProviderHeaders(hdrs)
@@ -143,6 +163,47 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 			} else if existing != nil {
 				in.Disabled = existing.Disabled
 			}
+
+			// Group-owned flags always nest under defaultGroup so create/update
+			// share one UpsertProvider call (shared fields + default group +
+			// optional discovery) instead of multi-stage partial commits.
+			defaultGroup := app.ProviderGroupInput{
+				ID:       config.DefaultGroupID,
+				Name:     config.DefaultGroupName,
+				Protocol: protocol,
+			}
+			if existing != nil {
+				if dg := providerDisplayGroup(*existing, config.DefaultGroupID); dg.ID != "" {
+					if strings.TrimSpace(dg.Name) != "" {
+						defaultGroup.Name = dg.Name
+					}
+					if !cmd.Flags().Changed("protocol") {
+						defaultGroup.Protocol = dg.Protocol
+					}
+				}
+			}
+			if apiKeyChanged {
+				defaultGroup.APIKeysChanged = true
+				if strings.TrimSpace(apiKey) != "" {
+					defaultGroup.APIKeys = []string{strings.TrimSpace(apiKey)}
+				}
+			}
+			if skipModels {
+				// Non-nil Models skips discovery. Create stores empty; update
+				// re-passes the existing catalog so provenance can be kept when
+				// auth is unchanged.
+				if existing != nil {
+					if dg := providerDisplayGroup(*existing, config.DefaultGroupID); len(dg.Models) > 0 {
+						defaultGroup.Models = append([]string(nil), dg.Models...)
+					} else {
+						defaultGroup.Models = []string{}
+					}
+				} else {
+					defaultGroup.Models = []string{}
+				}
+			}
+			// Models stays nil when !skipModels → UpsertProvider discovers.
+			in.DefaultGroup = &defaultGroup
 
 			if dryRun {
 				action := "create"
@@ -164,9 +225,10 @@ Typical next step: run ocswitch provider list or bind the provider to an alias.`
 			if result.Provider.Disabled {
 				state = "disabled"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q [%s] %s → %s\n", result.Provider.ID, state, result.Provider.Protocol, result.Provider.BaseURL)
-			if !skipModels && result.Provider.ModelsSource == "discovered" {
-				fmt.Fprintf(cmd.OutOrStdout(), "  discovered %d model(s)\n", len(result.Provider.Models))
+			group := providerDisplayGroup(result.Provider, config.DefaultGroupID)
+			fmt.Fprintf(cmd.OutOrStdout(), "saved provider %q [%s] %s → %s\n", result.Provider.ID, state, group.Protocol, result.Provider.BaseURL)
+			if !skipModels && group.ModelsSource == "discovered" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  discovered %d model(s)\n", len(group.Models))
 			}
 			return nil
 		},
@@ -210,15 +272,16 @@ This command does not modify config and does not contact upstream providers.`,
 				return nil
 			}
 			for _, p := range providers {
+				group := providerDisplayGroup(p, config.DefaultGroupID)
 				key := "(none)"
-				if p.APIKeySet {
-					key = p.APIKeyMasked
+				if group.APIKeyCount > 0 && len(group.APIKeysMasked) > 0 {
+					key = group.APIKeysMasked[0]
 				}
 				state := "enabled"
 				if p.Disabled {
 					state = "disabled"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%-20s [%s] %-18s %s  apiKey=%s\n", p.ID, state, p.Protocol, p.BaseURL, key)
+				fmt.Fprintf(cmd.OutOrStdout(), "%-20s [%s] %-18s %s  apiKey=%s\n", p.ID, state, group.Protocol, p.BaseURL, key)
 			}
 			return nil
 		},
@@ -398,7 +461,8 @@ given.`,
 				return nil
 			}
 			for _, p := range result.Providers {
-				fmt.Fprintf(cmd.OutOrStdout(), "import %q [%s] → %s (models: %s)\n", p.ID, p.Protocol, p.BaseURL, strings.Join(p.Models, ","))
+				group := providerDisplayGroup(p, config.DefaultGroupID)
+				fmt.Fprintf(cmd.OutOrStdout(), "import %q [%s] → %s (models: %s)\n", p.ID, group.Protocol, p.BaseURL, strings.Join(group.Models, ","))
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "imported=%d skipped=%d\n", result.Imported, result.Skipped)
 			return nil
@@ -435,4 +499,605 @@ func rewriteProviderWarning(warning string) string {
 		"provider connection changed with skip models enabled", "provider connection changed with --skip-models",
 	)
 	return replacer.Replace(warning)
+}
+
+func newProviderGroupListCmd() *cobra.Command {
+	var providerID string
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List groups under a provider",
+		Long: `provider group list prints groups for one provider from local ocswitch config.
+
+Output shows group id, protocol, enabled state, masked API keys, and model count.
+It never prints plaintext keys.`,
+		Example: `  ocswitch provider group list --provider su8`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			providerID = strings.TrimSpace(providerID)
+			if providerID == "" {
+				return fmt.Errorf("--provider is required")
+			}
+			groups, err := appService().ListProviderGroups(cmd.Context(), providerID)
+			if err != nil {
+				return err
+			}
+			if len(groups) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "(no groups)")
+				return nil
+			}
+			for _, g := range groups {
+				state := "enabled"
+				if g.Disabled {
+					state = "disabled"
+				}
+				key := "(none)"
+				if g.APIKeyCount > 0 && len(g.APIKeysMasked) > 0 {
+					key = strings.Join(g.APIKeysMasked, ",")
+				} else if g.APIKeyCount > 0 {
+					key = fmt.Sprintf("(%d set)", g.APIKeyCount)
+				}
+				name := g.Name
+				if name == "" {
+					name = "-"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%-16s [%s] %-18s name=%s apiKeys=%s models=%d source=%s\n",
+					g.ID, state, g.Protocol, name, key, len(g.Models), emptyCLILabel(g.ModelsSource))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&providerID, "provider", "", "provider id (required)")
+	return cmd
+}
+
+func newProviderGroupCreateCmd() *cobra.Command {
+	var providerID, groupID, name, protocol, apiKey string
+	var apiKeys []string
+	var models []string
+	var disabled, dryRun bool
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a provider group",
+		Long: `provider group create adds one group under an existing provider via Service.
+
+Group identity (--id) is required and must be unique under the provider.
+Protocol and API keys are group-scoped; base URL stays on the provider.`,
+		Example: `  ocswitch provider group create --provider su8 --id premium --protocol openai-responses --api-key sk-premium
+  ocswitch provider group create --provider su8 --id free --protocol openai-compatible --api-key sk-free --disabled`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			providerID = strings.TrimSpace(providerID)
+			groupID = strings.TrimSpace(groupID)
+			if providerID == "" || groupID == "" {
+				return fmt.Errorf("--provider and --id are required")
+			}
+			protocol = config.NormalizeProviderProtocol(strings.TrimSpace(protocol))
+			if err := config.ValidateProtocol(protocol); err != nil {
+				return fmt.Errorf("invalid --protocol: %w", err)
+			}
+			keys := collectAPIKeys(apiKey, apiKeys, cmd.Flags().Changed("api-key") || cmd.Flags().Changed("api-keys"))
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would create provider %q group %q via Service\n", providerID, groupID)
+				return nil
+			}
+			view, err := appService().CreateProviderGroup(cmd.Context(), app.ProviderGroupCreateInput{
+				ProviderID: providerID,
+				Group: app.ProviderGroupInput{
+					ID:             groupID,
+					Name:           strings.TrimSpace(name),
+					Protocol:       protocol,
+					APIKeysChanged: cmd.Flags().Changed("api-key") || cmd.Flags().Changed("api-keys"),
+					APIKeys:        keys,
+					Models:         models,
+					Disabled:       disabled,
+				},
+			})
+			if err != nil {
+				return err
+			}
+			state := "enabled"
+			if view.Disabled {
+				state = "disabled"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "created provider %q group %q [%s] %s keys=%d models=%d\n",
+				providerID, view.ID, state, view.Protocol, view.APIKeyCount, len(view.Models))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&providerID, "provider", "", "provider id (required)")
+	cmd.Flags().StringVar(&groupID, "id", "", "group id (required)")
+	cmd.Flags().StringVar(&name, "name", "", "display name")
+	cmd.Flags().StringVar(&protocol, "protocol", config.ProtocolOpenAIResponses, "group protocol")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "upstream API key (single)")
+	cmd.Flags().StringArrayVar(&apiKeys, "api-keys", nil, "upstream API key (repeatable)")
+	cmd.Flags().StringArrayVar(&models, "model", nil, "seed model id (repeatable)")
+	cmd.Flags().BoolVar(&disabled, "disabled", false, "create group disabled")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
+	return cmd
+}
+
+func newProviderGroupUpdateCmd() *cobra.Command {
+	var providerID, groupID, name, protocol, apiKey, newID string
+	var apiKeys []string
+	var models []string
+	var disabled, dryRun, yes bool
+	var onProtected, onRewrite, rebind, rebindProvider, rebindGroup, rebindModel string
+	var replaceProviderGroups []string
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Update a provider group",
+		Long: `provider group update changes one existing group under a provider via Service.
+
+Identity is explicit: --provider and --group are required. Omitted fields keep
+current values except when --api-key/--api-keys are passed (then keys are replaced).
+Use --new-id to request a stable group id change. ID changes preview lifecycle
+impact and forward selections to UpdateProviderGroup (same safe defaults/flags as
+delete: --on-protected, --on-rewrite, --rebind, --replace-provider-group).`,
+		Example: `  ocswitch provider group update --provider su8 --group premium --name "Premium pool"
+  ocswitch provider group update --provider su8 --group free --api-key sk-new
+  ocswitch provider group update --provider su8 --group premium --new-id gold --yes
+  ocswitch provider group update --provider su8 --group premium --new-id gold --dry-run`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			providerID = strings.TrimSpace(providerID)
+			groupID = strings.TrimSpace(groupID)
+			if providerID == "" || groupID == "" {
+				return fmt.Errorf("--provider and --group are required")
+			}
+			groups, err := appService().ListProviderGroups(cmd.Context(), providerID)
+			if err != nil {
+				return err
+			}
+			var existing *app.ProviderGroupView
+			for i := range groups {
+				if groups[i].ID == groupID {
+					existing = &groups[i]
+					break
+				}
+			}
+			if existing == nil {
+				return fmt.Errorf("provider %q group %q not found", providerID, groupID)
+			}
+			desiredID := groupID
+			if cmd.Flags().Changed("new-id") {
+				desiredID = strings.TrimSpace(newID)
+				if desiredID == "" {
+					return fmt.Errorf("--new-id must not be empty")
+				}
+			}
+			proto := existing.Protocol
+			if cmd.Flags().Changed("protocol") {
+				proto = config.NormalizeProviderProtocol(strings.TrimSpace(protocol))
+				if err := config.ValidateProtocol(proto); err != nil {
+					return fmt.Errorf("invalid --protocol: %w", err)
+				}
+			}
+			nameChanged := cmd.Flags().Changed("name")
+			displayName := ""
+			if nameChanged {
+				displayName = strings.TrimSpace(name)
+			}
+			disabledVal := existing.Disabled
+			if cmd.Flags().Changed("disabled") {
+				disabledVal = disabled
+			}
+			keysChanged := cmd.Flags().Changed("api-key") || cmd.Flags().Changed("api-keys")
+			keys := collectAPIKeys(apiKey, apiKeys, keysChanged)
+			var seedModels []string
+			if cmd.Flags().Changed("model") {
+				seedModels = models
+			}
+			groupIn := app.ProviderGroupInput{
+				ID:             desiredID,
+				Name:           displayName,
+				NameChanged:    nameChanged,
+				Protocol:       proto,
+				APIKeysChanged: keysChanged,
+				APIKeys:        keys,
+				Models:         seedModels,
+				Disabled:       disabledVal,
+			}
+
+			// Stable ID change: preview lifecycle, resolve choices (safe defaults/flags), then
+			// UpdateProviderGroup with Selections so confirm cannot fail on missing choices.
+			if desiredID != groupID {
+				opts, perr := parseGroupRemoveSelectionOpts(onProtected, onRewrite, rebind, replaceProviderGroups)
+				if perr != nil {
+					return perr
+				}
+				opts, perr = applyExplicitRebindOpts(opts, rebindProvider, rebindGroup, rebindModel)
+				if perr != nil {
+					return perr
+				}
+				rev, plan, _, selections, perr := previewGroupIDChangeWithSelections(cmd, providerID, groupID, desiredID, opts)
+				if perr != nil {
+					return finishOutcome(cmd, perr, nil)
+				}
+				if jsonOutput && dryRun {
+					_, env := app.ClassifyOutcome(nil, plan)
+					return writeJSONEnvelope(cmd.OutOrStdout(), env)
+				}
+				if !jsonOutput {
+					if dryRun {
+						fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would rename provider %q group %q -> %q via UpdateProviderGroup\n", providerID, groupID, desiredID)
+					}
+					printPlanHuman(cmd.OutOrStdout(), plan)
+				}
+				if dryRun {
+					return nil
+				}
+				if !plan.Executable {
+					return finishOutcome(cmd, &app.OutcomeError{Code: "plan_not_executable", Params: map[string]any{
+						"operationKind": lifecycle.OpGroupIDChange,
+						"providerId":    providerID,
+						"groupId":       groupID,
+						"newGroupId":    desiredID,
+						"blockerCount":  len(plan.Blockers),
+						"choiceCount":   len(plan.Choices),
+					}}, plan)
+				}
+				ok, cerr := confirmExecute(cmd, yes)
+				if cerr != nil {
+					return finishOutcome(cmd, cerr, plan)
+				}
+				if !ok {
+					fmt.Fprintln(cmd.OutOrStdout(), "aborted")
+					return nil
+				}
+				view, uerr := appService().UpdateProviderGroup(cmd.Context(), app.ProviderGroupUpdateInput{
+					ProviderID:       providerID,
+					GroupID:          groupID,
+					Group:            groupIn,
+					Selections:       selections,
+					ExpectedRevision: rev,
+				})
+				if uerr != nil {
+					return finishOutcome(cmd, uerr, nil)
+				}
+				if jsonOutput {
+					_, env := app.ClassifyOutcome(nil, view)
+					return writeJSONEnvelope(cmd.OutOrStdout(), env)
+				}
+				state := "enabled"
+				if view.Disabled {
+					state = "disabled"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "updated provider %q group %q [%s] %s keys=%d models=%d\n",
+					providerID, view.ID, state, view.Protocol, view.APIKeyCount, len(view.Models))
+				return nil
+			}
+
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would update provider %q group %q via Service\n", providerID, groupID)
+				return nil
+			}
+			view, err := appService().UpdateProviderGroup(cmd.Context(), app.ProviderGroupUpdateInput{
+				ProviderID: providerID,
+				GroupID:    groupID,
+				Group:      groupIn,
+			})
+			if err != nil {
+				return err
+			}
+			state := "enabled"
+			if view.Disabled {
+				state = "disabled"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "updated provider %q group %q [%s] %s keys=%d models=%d\n",
+				providerID, view.ID, state, view.Protocol, view.APIKeyCount, len(view.Models))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&providerID, "provider", "", "provider id (required)")
+	cmd.Flags().StringVar(&groupID, "group", "", "group id (required)")
+	cmd.Flags().StringVar(&newID, "new-id", "", "optional new group id")
+	cmd.Flags().StringVar(&name, "name", "", "display name")
+	cmd.Flags().StringVar(&protocol, "protocol", "", "group protocol")
+	cmd.Flags().StringVar(&apiKey, "api-key", "", "upstream API key (single; replaces keys when set)")
+	cmd.Flags().StringArrayVar(&apiKeys, "api-keys", nil, "upstream API key (repeatable; replaces keys when set)")
+	cmd.Flags().StringArrayVar(&models, "model", nil, "replace model list (repeatable)")
+	cmd.Flags().BoolVar(&disabled, "disabled", false, "set disabled state")
+	cmd.Flags().StringVar(&onProtected, "on-protected", "", "for --new-id: protected target action (same as group delete)")
+	cmd.Flags().StringVar(&onRewrite, "on-rewrite", "", "for --new-id: singleton rewrite action (same as group delete)")
+	cmd.Flags().StringVar(&rebind, "rebind", "", "for --new-id: rebind protected targets to provider/group/model")
+	cmd.Flags().StringVar(&rebindProvider, "rebind-provider", "", "for --new-id: explicit rebind provider")
+	cmd.Flags().StringVar(&rebindGroup, "rebind-group", "", "for --new-id: explicit rebind group")
+	cmd.Flags().StringVar(&rebindModel, "rebind-model", "", "for --new-id: explicit rebind model")
+	cmd.Flags().StringArrayVar(&replaceProviderGroups, "replace-provider-group", nil, "for --new-id: replacement provider/group for rewrite (repeatable)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview impact (and for --new-id print lifecycle plan) without persisting")
+	cmd.Flags().BoolVar(&yes, "yes", false, "for --new-id: apply without interactive confirmation")
+	return cmd
+}
+
+func newProviderGroupDeleteCmd() *cobra.Command {
+	var providerID, groupID string
+	var dryRun, yes bool
+	var onProtected, onRewrite, rebind, rebindProvider, rebindGroup, rebindModel string
+	var replaceProviderGroups []string
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a provider group",
+		Long: `provider group delete removes one group under a provider via Service.
+
+Identity is explicit: --provider and --group are required. Protected alias targets
+and singleton rewrite selectors require an explicit choice. Select with
+--on-protected/--on-rewrite; rebind destinations may use the independent
+--rebind-provider/--rebind-group/--rebind-model flags.`,
+		Example: `  ocswitch provider group delete --provider su8 --group premium --dry-run
+  ocswitch provider group delete --provider su8 --group premium --yes
+  ocswitch provider group delete --provider su8 --group premium --rebind-provider su8 --rebind-group default --rebind-model org/model-a --yes`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			providerID = strings.TrimSpace(providerID)
+			groupID = strings.TrimSpace(groupID)
+			if providerID == "" || groupID == "" {
+				return fmt.Errorf("--provider and --group are required")
+			}
+			opts, err := parseGroupRemoveSelectionOpts(onProtected, onRewrite, rebind, replaceProviderGroups)
+			if err != nil {
+				return err
+			}
+			opts, err = applyExplicitRebindOpts(opts, rebindProvider, rebindGroup, rebindModel)
+			if err != nil {
+				return err
+			}
+			rev, plan, op, selections, err := previewRemoveProviderGroupWithSelections(cmd, providerID, groupID, opts)
+			if err != nil {
+				return finishOutcome(cmd, err, nil)
+			}
+			if jsonOutput && dryRun {
+				_, env := app.ClassifyOutcome(nil, plan)
+				return writeJSONEnvelope(cmd.OutOrStdout(), env)
+			}
+			if !jsonOutput {
+				if dryRun {
+					fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would delete provider %q group %q\n", providerID, groupID)
+				}
+				printPlanHuman(cmd.OutOrStdout(), plan)
+			}
+			if dryRun {
+				return nil
+			}
+			if !plan.Executable || strings.TrimSpace(plan.PlanToken) == "" {
+				return finishOutcome(cmd, &app.OutcomeError{Code: "plan_not_executable", Params: map[string]any{
+					"operationKind": lifecycle.OpGroupRemove,
+					"providerId":    providerID,
+					"groupId":       groupID,
+					"blockerCount":  len(plan.Blockers),
+					"choiceCount":   len(plan.Choices),
+				}}, plan)
+			}
+			ok, cerr := confirmExecute(cmd, yes)
+			if cerr != nil {
+				return finishOutcome(cmd, cerr, plan)
+			}
+			if !ok {
+				fmt.Fprintln(cmd.OutOrStdout(), "aborted")
+				return nil
+			}
+			result, err := executeLifecyclePlan(cmd, rev, plan, op, selections)
+			if err != nil {
+				return finishOutcome(cmd, err, result)
+			}
+			if jsonOutput {
+				_, env := app.ClassifyOutcome(nil, result)
+				return writeJSONEnvelope(cmd.OutOrStdout(), env)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "deleted provider %q group %q\n", providerID, groupID)
+			printExecuteHuman(cmd.OutOrStdout(), result)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&providerID, "provider", "", "provider id (required)")
+	cmd.Flags().StringVar(&groupID, "group", "", "group id (required)")
+	cmd.Flags().StringVar(&onProtected, "on-protected", "", "protected target action: remove_target, delete_alias, rebind_target")
+	cmd.Flags().StringVar(&onRewrite, "on-rewrite", "", "singleton rewrite action: keep_dormant, disable_rule, delete_rule, replace_provider_groups")
+	cmd.Flags().StringVar(&rebind, "rebind", "", "rebind protected targets to provider/group/model (implies rebind_target)")
+	cmd.Flags().StringVar(&rebindProvider, "rebind-provider", "", "explicit rebind provider")
+	cmd.Flags().StringVar(&rebindGroup, "rebind-group", "", "explicit rebind group")
+	cmd.Flags().StringVar(&rebindModel, "rebind-model", "", "explicit rebind model")
+	cmd.Flags().StringArrayVar(&replaceProviderGroups, "replace-provider-group", nil, "replacement provider/group for rewrite (repeatable; implies replace_provider_groups)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview impact plan without persisting")
+	cmd.Flags().BoolVar(&yes, "yes", false, "delete without interactive confirmation")
+	return cmd
+}
+
+func parseGroupRemoveSelectionOpts(onProtected, onRewrite, rebind string, replaceGroups []string) (groupRemoveSelectionOpts, error) {
+	opts := groupRemoveSelectionOpts{
+		OnProtected: strings.TrimSpace(onProtected),
+		OnRewrite:   strings.TrimSpace(onRewrite),
+	}
+	if rebind = strings.TrimSpace(rebind); rebind != "" {
+		parts := strings.SplitN(rebind, "/", 3)
+		if len(parts) != 3 {
+			return opts, fmt.Errorf("--rebind must be provider/group/model")
+		}
+		opts.RebindProvider = strings.TrimSpace(parts[0])
+		opts.RebindGroup = strings.TrimSpace(parts[1])
+		opts.RebindModel = strings.TrimSpace(parts[2])
+		if opts.RebindProvider == "" || opts.RebindGroup == "" || opts.RebindModel == "" {
+			return opts, fmt.Errorf("--rebind must be provider/group/model")
+		}
+		if opts.OnProtected == "" {
+			opts.OnProtected = lifecycle.OptionRebindTarget
+		}
+	}
+	if len(replaceGroups) > 0 {
+		selectors := make([]config.ProviderGroupSelector, 0, len(replaceGroups))
+		for _, raw := range replaceGroups {
+			raw = strings.TrimSpace(raw)
+			if raw == "" {
+				continue
+			}
+			slash := strings.Index(raw, "/")
+			if slash <= 0 || slash == len(raw)-1 {
+				return opts, fmt.Errorf("--replace-provider-group must be provider/group, got %q", raw)
+			}
+			selectors = append(selectors, config.ProviderGroupSelector{
+				Provider: strings.TrimSpace(raw[:slash]),
+				Group:    strings.TrimSpace(raw[slash+1:]),
+			})
+		}
+		opts.ReplaceProviderGroups = selectors
+		if opts.OnRewrite == "" {
+			opts.OnRewrite = lifecycle.OptionReplaceProviderGroups
+		}
+	}
+	switch opts.OnProtected {
+	case "", lifecycle.OptionRemoveTarget, lifecycle.OptionDeleteAlias, lifecycle.OptionRebindTarget:
+	default:
+		return opts, fmt.Errorf("invalid --on-protected %q", opts.OnProtected)
+	}
+	switch opts.OnRewrite {
+	case "", lifecycle.OptionKeepDormant, lifecycle.OptionDisableRule, lifecycle.OptionDeleteRule, lifecycle.OptionReplaceProviderGroups:
+	default:
+		return opts, fmt.Errorf("invalid --on-rewrite %q", opts.OnRewrite)
+	}
+	return opts, nil
+}
+
+func applyExplicitRebindOpts(opts groupRemoveSelectionOpts, provider, group, model string) (groupRemoveSelectionOpts, error) {
+	provider = strings.TrimSpace(provider)
+	group = strings.TrimSpace(group)
+	model = strings.TrimSpace(model)
+	if provider == "" && group == "" && model == "" {
+		return opts, nil
+	}
+	if provider == "" || group == "" || model == "" {
+		return opts, fmt.Errorf("--rebind-provider, --rebind-group and --rebind-model must be provided together")
+	}
+	opts.RebindProvider = provider
+	opts.RebindGroup = group
+	opts.RebindModel = model
+	opts.OnProtected = lifecycle.OptionRebindTarget
+	return opts, nil
+}
+
+func newProviderGroupRefreshModelsCmd() *cobra.Command {
+	var providerID, groupID string
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "refresh-models",
+		Short: "Refresh models for one provider group",
+		Long: `provider group refresh-models discovers models for one exact (provider, group).
+
+Empty group is not accepted here: identity must be explicit.`,
+		Example: `  ocswitch provider group refresh-models --provider su8 --group default
+  ocswitch provider group refresh-models --provider su8 --group premium`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			providerID = strings.TrimSpace(providerID)
+			groupID = strings.TrimSpace(groupID)
+			if providerID == "" || groupID == "" {
+				return fmt.Errorf("--provider and --group are required")
+			}
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would refresh models for provider %q group %q via Service\n", providerID, groupID)
+				return nil
+			}
+			result, err := appService().RefreshProviderGroupModels(cmd.Context(), app.ProviderGroupRefreshModelsInput{
+				ProviderID: providerID,
+				GroupID:    groupID,
+			})
+			if err != nil {
+				return err
+			}
+			for _, warning := range result.Warnings {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", rewriteProviderWarning(warning))
+			}
+			// Prefer the exact group catalog when present.
+			selectedGroup := providerDisplayGroup(result.Provider, groupID)
+			modelCount := len(selectedGroup.Models)
+			source := selectedGroup.ModelsSource
+			for _, g := range result.Provider.Groups {
+				if g.ID == groupID {
+					modelCount = len(g.Models)
+					source = g.ModelsSource
+					break
+				}
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "refreshed provider %q group %q models=%d source=%s\n",
+				providerID, groupID, modelCount, emptyCLILabel(source))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&providerID, "provider", "", "provider id (required)")
+	cmd.Flags().StringVar(&groupID, "group", "", "group id (required)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without contacting upstream")
+	return cmd
+}
+
+func providerDisplayGroup(provider app.ProviderView, groupID string) app.ProviderGroupView {
+	for _, group := range provider.Groups {
+		if group.ID == groupID {
+			return group
+		}
+	}
+	return app.ProviderGroupView{}
+}
+
+func newProviderGroupPingCmd() *cobra.Command {
+	var providerID, groupID, baseURL string
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "ping",
+		Short: "Ping base URL using one provider group's credentials",
+		Long: `provider group ping checks reachability of the provider base URL using one
+exact group's protocol and API keys. Identity is explicit.`,
+		Example: `  ocswitch provider group ping --provider su8 --group default
+  ocswitch provider group ping --provider su8 --group premium --base-url https://alt.example/v1`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			providerID = strings.TrimSpace(providerID)
+			groupID = strings.TrimSpace(groupID)
+			if providerID == "" || groupID == "" {
+				return fmt.Errorf("--provider and --group are required")
+			}
+			if dryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would ping provider %q group %q via Service\n", providerID, groupID)
+				return nil
+			}
+			result, err := appService().PingProviderGroupBaseURL(cmd.Context(), app.ProviderGroupPingInput{
+				ProviderID: providerID,
+				GroupID:    groupID,
+				BaseURL:    strings.TrimSpace(baseURL),
+			})
+			if err != nil {
+				return err
+			}
+			status := "unreachable"
+			if result.Reachable {
+				status = "reachable"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "ping provider %q group %q %s latency=%dms status=%d url=%s\n",
+				providerID, groupID, status, result.LatencyMs, result.StatusCode, result.BaseURL)
+			if result.Error != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", result.Error)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&providerID, "provider", "", "provider id (required)")
+	cmd.Flags().StringVar(&groupID, "group", "", "group id (required)")
+	cmd.Flags().StringVar(&baseURL, "base-url", "", "optional base URL override")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without contacting upstream")
+	return cmd
+}
+
+func collectAPIKeys(single string, multi []string, changed bool) []string {
+	if !changed {
+		return nil
+	}
+	out := make([]string, 0, 1+len(multi))
+	if strings.TrimSpace(single) != "" {
+		out = append(out, strings.TrimSpace(single))
+	}
+	for _, k := range multi {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func emptyCLILabel(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	return value
 }

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -86,6 +87,7 @@ type RequestTrace struct {
 	ErrorCode             string            `json:"errorCode,omitempty"`
 	Error                 string            `json:"error,omitempty"`
 	FinalProvider         string            `json:"finalProvider,omitempty"`
+	FinalGroup            string            `json:"finalGroup,omitempty"`
 	FinalModel            string            `json:"finalModel,omitempty"`
 	FinalURL              string            `json:"finalUrl,omitempty"`
 	Failover              bool              `json:"failover"`
@@ -113,6 +115,7 @@ type TraceUsage struct {
 type TraceAttempt struct {
 	Attempt         int               `json:"attempt"`
 	Provider        string            `json:"provider,omitempty"`
+	Group           string            `json:"group,omitempty"`
 	Model           string            `json:"model,omitempty"`
 	URL             string            `json:"url,omitempty"`
 	APIKeyIndex     int               `json:"apiKeyIndex,omitempty"`
@@ -131,6 +134,19 @@ type TraceAttempt struct {
 	RequestParams   any               `json:"requestParams,omitempty"`
 	ResponseHeaders map[string]string `json:"responseHeaders,omitempty"`
 	ResponseBody    string            `json:"responseBody,omitempty"`
+}
+
+// DefaultTraceGroupID is used when historical traces lack a Group field.
+const DefaultTraceGroupID = "default"
+
+// NormalizeTraceGroup returns the stable group id for trace display/aggregation.
+// Empty historical values are treated as the legacy default group.
+func NormalizeTraceGroup(group string) string {
+	group = strings.TrimSpace(group)
+	if group == "" {
+		return DefaultTraceGroupID
+	}
+	return group
 }
 
 func NewTraceStore(limit int) *TraceStore {
@@ -263,6 +279,7 @@ func cloneTrace(trace RequestTrace) RequestTrace {
 	trace.Usage = cloneTraceUsage(trace.Usage)
 	if len(trace.Attempts) == 0 {
 		trace.Attempts = []TraceAttempt{}
+		normalizeRequestTraceGroups(&trace)
 		return trace
 	}
 	trace.Attempts = append([]TraceAttempt(nil), trace.Attempts...)
@@ -271,6 +288,7 @@ func cloneTrace(trace RequestTrace) RequestTrace {
 		trace.Attempts[index].RequestParams = cloneJSONValue(trace.Attempts[index].RequestParams)
 		trace.Attempts[index].ResponseHeaders = cloneStringMap(trace.Attempts[index].ResponseHeaders)
 	}
+	normalizeRequestTraceGroups(&trace)
 	return trace
 }
 
@@ -361,7 +379,7 @@ var redactedPayloadKeys = map[string]bool{
 	"x-api-key":     true,
 }
 
-func sanitizeHeaderMap(header http.Header) map[string]string {
+func sanitizeHeaderMap(header http.Header, secrets ...string) map[string]string {
 	if len(header) == 0 {
 		return nil
 	}
@@ -376,13 +394,15 @@ func sanitizeHeaderMap(header http.Header) map[string]string {
 		joined := strings.Join(values, ", ")
 		if sensitiveHeaderNames[strings.ToLower(key)] {
 			joined = maskSensitiveValue(joined)
+		} else {
+			joined = redactKnownSecrets(joined, secrets)
 		}
 		out[key] = joined
 	}
 	return out
 }
 
-func sanitizeJSONValue(key string, value any) any {
+func sanitizeJSONValue(key string, value any, secrets []string) any {
 	if redactedPayloadKeys[strings.ToLower(strings.TrimSpace(key))] {
 		return redactedSummary(value)
 	}
@@ -395,15 +415,17 @@ func sanitizeJSONValue(key string, value any) any {
 		}
 		sort.Strings(keys)
 		for _, nestedKey := range keys {
-			out[nestedKey] = sanitizeJSONValue(nestedKey, typed[nestedKey])
+			out[nestedKey] = sanitizeJSONValue(nestedKey, typed[nestedKey], secrets)
 		}
 		return out
 	case []any:
 		out := make([]any, len(typed))
 		for index, nested := range typed {
-			out[index] = sanitizeJSONValue("", nested)
+			out[index] = sanitizeJSONValue("", nested, secrets)
 		}
 		return out
+	case string:
+		return redactKnownSecrets(typed, secrets)
 	default:
 		return typed
 	}
@@ -425,7 +447,7 @@ func redactedSummary(value any) any {
 	}
 }
 
-func sanitizeResponseBody(contentType string, body []byte) string {
+func sanitizeResponseBody(contentType string, body []byte, secrets ...string) string {
 	trimmed := strings.TrimSpace(string(body))
 	if trimmed == "" {
 		return ""
@@ -433,10 +455,12 @@ func sanitizeResponseBody(contentType string, body []byte) string {
 	if strings.Contains(strings.ToLower(contentType), "json") {
 		var payload any
 		if err := json.Unmarshal([]byte(trimmed), &payload); err == nil {
-			sanitized := sanitizeJSONValue("", payload)
-			encoded, err := json.Marshal(sanitized)
-			if err == nil {
-				return truncate(string(encoded), 200)
+			sanitized := sanitizeJSONValue("", payload, secrets)
+			var encoded bytes.Buffer
+			encoder := json.NewEncoder(&encoded)
+			encoder.SetEscapeHTML(false)
+			if err := encoder.Encode(sanitized); err == nil {
+				return truncate(redactKnownSecrets(strings.TrimSpace(encoded.String()), secrets), 200)
 			}
 		}
 	}
@@ -444,6 +468,16 @@ func sanitizeResponseBody(contentType string, body []byte) string {
 		return redacted
 	}
 	return "<redacted>"
+}
+
+func redactKnownSecrets(value string, secrets []string) string {
+	for _, secret := range secrets {
+		secret = strings.TrimSpace(secret)
+		if secret != "" {
+			value = strings.ReplaceAll(value, secret, "<redacted>")
+		}
+	}
+	return value
 }
 
 func maskSensitiveValue(value string) string {

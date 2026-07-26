@@ -1,0 +1,8 @@
+{
+  "error_code": "empty_provider_groups",
+  "message_contains": [
+    "group",
+    "vendor-a"
+  ],
+  "notes": "schema_version 2 missing groups field is not zero-value legacy; must reject because wire DTO distinguishes absence from valid group list"
+}

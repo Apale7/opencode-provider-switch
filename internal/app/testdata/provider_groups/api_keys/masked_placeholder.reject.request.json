@@ -1,0 +1,87 @@
+{
+  "providerId": "vendor-fake-a",
+  "groupId": "premium",
+  "cases": [
+    {
+      "name": "ellipsis_mask",
+      "group": {
+        "id": "premium",
+        "name": "Premium Fake Group",
+        "protocol": "openai",
+        "apiKeysChanged": true,
+        "apiKeys": [
+          "sk-f…aaaa"
+        ],
+        "models": [
+          "fake-model-a"
+        ],
+        "disabled": false
+      }
+    },
+    {
+      "name": "star_mask",
+      "group": {
+        "id": "premium",
+        "name": "Premium Fake Group",
+        "protocol": "openai",
+        "apiKeysChanged": true,
+        "apiKeys": [
+          "sk-****bbbb"
+        ],
+        "models": [
+          "fake-model-a"
+        ],
+        "disabled": false
+      }
+    },
+    {
+      "name": "short_mask_token",
+      "group": {
+        "id": "premium",
+        "name": "Premium Fake Group",
+        "protocol": "openai",
+        "apiKeysChanged": true,
+        "apiKeys": [
+          "***"
+        ],
+        "models": [
+          "fake-model-a"
+        ],
+        "disabled": false
+      }
+    },
+    {
+      "name": "bullet_mask",
+      "group": {
+        "id": "premium",
+        "name": "Premium Fake Group",
+        "protocol": "openai",
+        "apiKeysChanged": true,
+        "apiKeys": [
+          "••••••••"
+        ],
+        "models": [
+          "fake-model-a"
+        ],
+        "disabled": false
+      }
+    },
+    {
+      "name": "mixed_plaintext_and_mask",
+      "group": {
+        "id": "premium",
+        "name": "Premium Fake Group",
+        "protocol": "openai",
+        "apiKeysChanged": true,
+        "apiKeys": [
+          "sk-fake-new-key-cccc",
+          "sk-f…bbbb"
+        ],
+        "models": [
+          "fake-model-a"
+        ],
+        "disabled": false
+      }
+    }
+  ]
+}

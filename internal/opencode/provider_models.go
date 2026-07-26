@@ -23,6 +23,86 @@ type ProviderBaseURLProbe struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// ProviderGroupModelsInput is the precise (provider, group) contract for model
+// discovery and Base URL ping. Callers must supply one Group's protocol and keys
+// together with the Provider's shared BaseURLs and headers.
+//
+// Callers must supply the exact GroupID and must never select the first group or
+// a same-protocol sibling as a fallback.
+type ProviderGroupModelsInput struct {
+	ProviderID string
+	GroupID    string
+	Protocol   string
+	BaseURLs   []string
+	APIKeys    []string
+	Headers    map[string]string
+}
+
+// NormalizeProviderGroupModelsInput trims fields without inventing identity.
+func NormalizeProviderGroupModelsInput(in ProviderGroupModelsInput) ProviderGroupModelsInput {
+	in.ProviderID = strings.TrimSpace(in.ProviderID)
+	in.GroupID = strings.TrimSpace(in.GroupID)
+	in.Protocol = strings.TrimSpace(in.Protocol)
+	urls := make([]string, 0, len(in.BaseURLs))
+	for _, item := range in.BaseURLs {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			urls = append(urls, trimmed)
+		}
+	}
+	in.BaseURLs = urls
+	in.APIKeys = append([]string(nil), in.APIKeys...)
+	if len(in.Headers) > 0 {
+		headers := make(map[string]string, len(in.Headers))
+		for k, v := range in.Headers {
+			headers[k] = v
+		}
+		in.Headers = headers
+	}
+	return in
+}
+
+// ProbeTarget projects the group-scoped input into a capability probe target.
+func (in ProviderGroupModelsInput) ProbeTarget() ProviderModelProbeTarget {
+	normalized := NormalizeProviderGroupModelsInput(in)
+	return ProviderModelProbeTarget{
+		ProviderID: normalized.ProviderID,
+		GroupID:    normalized.GroupID,
+		Protocol:   normalized.Protocol,
+		BaseURLs:   append([]string(nil), normalized.BaseURLs...),
+		APIKeys:    append([]string(nil), normalized.APIKeys...),
+		Headers:    normalized.Headers,
+	}
+}
+
+// FetchProviderGroupModels discovers models for one exact provider group.
+// Only the supplied group API keys are tried; sibling group keys are never used.
+func FetchProviderGroupModels(ctx context.Context, in ProviderGroupModelsInput) ([]string, *ProviderBaseURLProbe, error) {
+	normalized := NormalizeProviderGroupModelsInput(in)
+	if normalized.GroupID == "" {
+		return nil, nil, fmt.Errorf("provider %q group id is required", normalized.ProviderID)
+	}
+	if normalized.Protocol == "" {
+		return nil, nil, fmt.Errorf("provider %q group %q protocol is required", normalized.ProviderID, normalized.GroupID)
+	}
+	if len(normalized.BaseURLs) == 0 {
+		return nil, nil, fmt.Errorf("provider %q group %q missing base_url", normalized.ProviderID, normalized.GroupID)
+	}
+	return FetchProviderModelsWithAuthFallbackCtx(ctx, normalized.Protocol, normalized.BaseURLs, normalized.APIKeys, normalized.Headers)
+}
+
+// ProbeProviderGroupBaseURL pings one Base URL using one exact group's protocol and keys.
+func ProbeProviderGroupBaseURL(ctx context.Context, in ProviderGroupModelsInput, baseURL string) (*ProviderBaseURLProbe, error) {
+	normalized := NormalizeProviderGroupModelsInput(in)
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return nil, fmt.Errorf("baseUrl is required")
+	}
+	if normalized.Protocol == "" {
+		return nil, fmt.Errorf("provider %q group %q protocol is required", normalized.ProviderID, normalized.GroupID)
+	}
+	return ProbeProviderBaseURLWithAuthFallback(ctx, normalized.Protocol, baseURL, normalized.APIKeys, normalized.Headers)
+}
+
 func FetchProviderModels(protocol, baseURL, apiKey string, headers map[string]string) ([]string, error) {
 	models, _, err := FetchProviderModelsDetailed(context.Background(), protocol, baseURL, apiKey, headers)
 	return models, err
@@ -71,6 +151,13 @@ func FetchProviderModelsWithFallback(protocol string, baseURLs []string, apiKey 
 }
 
 func FetchProviderModelsWithAuthFallback(protocol string, baseURLs []string, apiKeys []string, headers map[string]string) ([]string, *ProviderBaseURLProbe, error) {
+	return FetchProviderModelsWithAuthFallbackCtx(context.Background(), protocol, baseURLs, apiKeys, headers)
+}
+
+func FetchProviderModelsWithAuthFallbackCtx(ctx context.Context, protocol string, baseURLs []string, apiKeys []string, headers map[string]string) ([]string, *ProviderBaseURLProbe, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	urls := make([]string, 0, len(baseURLs))
 	for _, item := range baseURLs {
 		if trimmed := strings.TrimSpace(item); trimmed != "" {
@@ -86,7 +173,7 @@ func FetchProviderModelsWithAuthFallback(protocol string, baseURLs []string, api
 	var reachableProbe *ProviderBaseURLProbe
 	for _, baseURL := range urls {
 		for _, apiKey := range keys {
-			models, probe, err := FetchProviderModelsDetailed(context.Background(), protocol, baseURL, apiKey, headers)
+			models, probe, err := FetchProviderModelsDetailed(ctx, protocol, baseURL, apiKey, headers)
 			if err == nil {
 				if len(models) > 0 {
 					return models, probe, nil

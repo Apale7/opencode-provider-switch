@@ -90,7 +90,7 @@ func Run(opts RunOptions) error {
 	}
 	if generated {
 		logger.Printf("admin API key generated and saved in config admin.api_key")
-		logger.Printf("Authorization: Bearer %s", cfg.Admin.APIKey)
+		logger.Printf("read the admin API key from the protected config file: %s", cfg.Path())
 	} else {
 		logger.Printf("admin API key loaded from config admin.api_key")
 	}
@@ -218,6 +218,14 @@ func bootstrapConfigStore(path string) (*configstore.Store[*config.Config], erro
 			}
 			return nil
 		},
+		// Match app ConfigStore: legacy schema must be backed up before first v2 write.
+		// Backup failure aborts Mutate before AtomicWrite so the original file is unchanged.
+		BeforePersist: func(_ context.Context, candidate configstore.Candidate[*config.Config]) error {
+			if !config.NeedsLegacyConfigBackup(candidate.BaseBytes()) {
+				return nil
+			}
+			return config.BackupLegacyConfigFile(path)
+		},
 	}
 	codec := configstore.Codec[*config.Config]{
 		Decode: func(p string, raw []byte, exists bool) (*config.Config, error) {
@@ -330,6 +338,30 @@ func (s appService) RefreshProviderModels(ctx context.Context, in app.ProviderRe
 
 func (s appService) PingProviderBaseURL(ctx context.Context, in app.ProviderPingInput) (app.ProviderPingResult, error) {
 	return s.service.PingProviderBaseURL(ctx, in)
+}
+
+func (s appService) ListProviderGroups(ctx context.Context, providerID string) ([]app.ProviderGroupView, error) {
+	return s.service.ListProviderGroups(ctx, providerID)
+}
+
+func (s appService) CreateProviderGroup(ctx context.Context, in app.ProviderGroupCreateInput) (app.ProviderGroupView, error) {
+	return s.service.CreateProviderGroup(ctx, in)
+}
+
+func (s appService) UpdateProviderGroup(ctx context.Context, in app.ProviderGroupUpdateInput) (app.ProviderGroupView, error) {
+	return s.service.UpdateProviderGroup(ctx, in)
+}
+
+func (s appService) DeleteProviderGroup(ctx context.Context, in app.ProviderGroupDeleteInput) error {
+	return s.service.DeleteProviderGroup(ctx, in)
+}
+
+func (s appService) RefreshProviderGroupModels(ctx context.Context, in app.ProviderGroupRefreshModelsInput) (app.ProviderSaveResult, error) {
+	return s.service.RefreshProviderGroupModels(ctx, in)
+}
+
+func (s appService) PingProviderGroupBaseURL(ctx context.Context, in app.ProviderGroupPingInput) (app.ProviderPingResult, error) {
+	return s.service.PingProviderGroupBaseURL(ctx, in)
 }
 
 func (s appService) SetProviderDisabled(ctx context.Context, in app.ProviderStateInput) (app.ProviderView, error) {

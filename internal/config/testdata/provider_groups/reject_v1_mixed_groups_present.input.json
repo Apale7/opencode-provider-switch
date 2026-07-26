@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9982,
+    "api_key": "ocswitch-local"
+  },
+  "providers": [
+    {
+      "id": "vendor-a",
+      "name": "Vendor A",
+      "protocol": "openai-responses",
+      "base_url": "https://api.example.com/v1",
+      "api_key": "sk-primary",
+      "models": ["model-a"],
+      "groups": [
+        {
+          "id": "default",
+          "name": "Default",
+          "protocol": "openai-responses",
+          "api_key": "sk-primary",
+          "models": ["model-a"]
+        }
+      ]
+    }
+  ],
+  "aliases": [],
+  "auto_alias_enabled": true
+}

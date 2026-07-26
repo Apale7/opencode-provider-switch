@@ -30,8 +30,10 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 		ID:      "demo",
 		Name:    "Demo",
 		BaseURL: "https://example.com/v1",
-		APIKey:  "sk-demo-12345678",
-		Models:  []string{"gpt-4.1-mini"},
+		Groups: []config.ProviderGroup{{
+			ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses,
+			APIKey: "sk-demo-12345678", Models: []string{"gpt-4.1-mini"},
+		}},
 	})
 	cfg.UpsertAlias(config.Alias{
 		Alias:       "chat",
@@ -39,6 +41,7 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 		Enabled:     true,
 		Targets: []config.Target{{
 			Provider: "demo",
+			Group:    config.DefaultGroupID,
 			Model:    "gpt-4.1-mini",
 			Enabled:  true,
 		}},
@@ -48,10 +51,21 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 	}
 
 	instance := New(path)
-	h, err := newHandler(instance, "test", "http://127.0.0.1:9982")
+	const desktopToken = "desktop-test-token"
+	rawHandler, err := newHandler(instance, "test", "http://127.0.0.1:9982", desktopToken)
 	if err != nil {
 		t.Fatalf("newHandler() error = %v", err)
 	}
+	unauthorizedReq := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+	unauthorizedResp := httptest.NewRecorder()
+	rawHandler.ServeHTTP(unauthorizedResp, unauthorizedReq)
+	if unauthorizedResp.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", unauthorizedResp.Code, http.StatusUnauthorized)
+	}
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Authorization", "Bearer "+desktopToken)
+		rawHandler.ServeHTTP(w, r)
+	})
 
 	t.Run("overview api", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
@@ -366,8 +380,10 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 			ID:      "demo",
 			Name:    "Demo",
 			BaseURL: "https://example.com/v1",
-			APIKey:  "sk-demo-12345678",
-			Models:  []string{"gpt-4.1-mini"},
+			Groups: []config.ProviderGroup{{
+				ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses,
+				APIKey: "sk-demo-12345678", Models: []string{"gpt-4.1-mini"},
+			}},
 		})
 		cfg.UpsertAlias(config.Alias{
 			Alias:       "chat",
@@ -375,6 +391,7 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 			Enabled:     true,
 			Targets: []config.Target{{
 				Provider: "demo",
+				Group:    config.DefaultGroupID,
 				Model:    "gpt-4.1-mini",
 				Enabled:  true,
 			}},
@@ -399,7 +416,7 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 		}()
 
 		req := httptest.NewRequest(http.MethodPost, "/api/config/import", strings.NewReader(`{
-			"content":"{\"server\":{\"host\":\"127.0.0.1\",\"port\":9982,\"api_key\":\"ocswitch-local\"},\"desktop\":{\"launch_at_login\":true,\"minimize_to_tray\":true,\"notifications\":true,\"theme\":\"dark\",\"language\":\"zh-CN\"},\"providers\":[{\"id\":\"demo\",\"name\":\"Demo\",\"base_url\":\"https://example.com/v1\",\"api_key\":\"sk-demo-12345678\",\"models\":[\"gpt-4.1-mini\"]}],\"aliases\":[{\"alias\":\"chat\",\"display_name\":\"Chat\",\"enabled\":true,\"targets\":[{\"provider\":\"demo\",\"model\":\"gpt-4.1-mini\",\"enabled\":true}]}]}"
+			"content":"{\"schema_version\":2,\"server\":{\"host\":\"127.0.0.1\",\"port\":9982,\"api_key\":\"ocswitch-local\"},\"desktop\":{\"launch_at_login\":true,\"minimize_to_tray\":true,\"notifications\":true,\"theme\":\"dark\",\"language\":\"zh-CN\"},\"providers\":[{\"id\":\"demo\",\"name\":\"Demo\",\"base_url\":\"https://example.com/v1\",\"groups\":[{\"id\":\"default\",\"protocol\":\"openai-responses\",\"api_keys\":[\"sk-demo-12345678\"],\"models\":[\"gpt-4.1-mini\"]}]}],\"aliases\":[{\"alias\":\"chat\",\"display_name\":\"Chat\",\"protocol\":\"openai-responses\",\"enabled\":true,\"targets\":[{\"provider\":\"demo\",\"group\":\"default\",\"model\":\"gpt-4.1-mini\",\"enabled\":true}]}]}"
 		}`))
 		req.Header.Set("Content-Type", "application/json")
 		resp := httptest.NewRecorder()
@@ -454,11 +471,12 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 			t.Fatalf("config.Load() error = %v", err)
 		}
 		cfg.UpsertProvider(config.Provider{
-			ID:           "warnme",
-			BaseURL:      "https://prior.example.com/v1",
-			APIKey:       "sk-prior",
-			Models:       []string{"gpt-4.1"},
-			ModelsSource: "discovered",
+			ID:      "warnme",
+			BaseURL: "https://prior.example.com/v1",
+			Groups: []config.ProviderGroup{{
+				ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses,
+				APIKey: "sk-prior", Models: []string{"gpt-4.1"}, ModelsSource: "discovered",
+			}},
 		})
 		if err := cfg.Save(); err != nil {
 			t.Fatalf("cfg.Save() error = %v", err)
@@ -492,7 +510,7 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 	})
 
 	t.Run("alias target state route toggles enabled flag", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/api/aliases/state", strings.NewReader(`{"alias":"chat","provider":"demo","model":"gpt-4.1-mini","disabled":true}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/aliases/state", strings.NewReader(`{"alias":"chat","provider":"demo","group":"default","model":"gpt-4.1-mini","disabled":true}`))
 		req.Header.Set("Content-Type", "application/json")
 		resp := httptest.NewRecorder()
 		h.ServeHTTP(resp, req)
@@ -515,7 +533,7 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 			t.Fatalf("disabled payload = %#v", payload.Data)
 		}
 
-		req = httptest.NewRequest(http.MethodPost, "/api/aliases/state", strings.NewReader(`{"alias":"chat","provider":"demo","model":"gpt-4.1-mini","disabled":false}`))
+		req = httptest.NewRequest(http.MethodPost, "/api/aliases/state", strings.NewReader(`{"alias":"chat","provider":"demo","group":"default","model":"gpt-4.1-mini","disabled":false}`))
 		req.Header.Set("Content-Type", "application/json")
 		resp = httptest.NewRecorder()
 		h.ServeHTTP(resp, req)
@@ -588,6 +606,17 @@ func TestDesktopHTTPHandlerServesOverviewAndStaticApp(t *testing.T) {
 			t.Fatalf("unexpected body = %q", resp.Body.String())
 		}
 	})
+}
+
+func TestDesktopRunRejectsNonLoopbackListener(t *testing.T) {
+	t.Parallel()
+	err := Run(RunOptions{
+		ConfigPath: filepath.Join(t.TempDir(), "ocswitch.json"),
+		ListenAddr: "0.0.0.0:0",
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires a loopback") {
+		t.Fatalf("Run() error = %v, want loopback rejection", err)
+	}
 }
 
 type failingAutoStart struct {

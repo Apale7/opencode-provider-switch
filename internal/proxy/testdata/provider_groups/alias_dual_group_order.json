@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "api_key": "ocswitch-local",
+    "failover_status_codes": [401, 402, 403, 429]
+  },
+  "providers": [
+    {
+      "id": "vendor-a",
+      "name": "Vendor A",
+      "base_url": "https://vendor-a.example.test/v1",
+      "base_url_strategy": "ordered",
+      "headers": {
+        "X-Shared-Header": "vendor-a-shared"
+      },
+      "disabled": false,
+      "auto_alias_enabled": false,
+      "groups": [
+        {
+          "id": "standard",
+          "name": "Standard",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-standard-primary",
+          "api_keys": ["sk-fake-standard-backup"],
+          "models": ["model-shared", "model-standard-only"],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "premium",
+          "name": "Premium",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-premium-primary",
+          "api_keys": ["sk-fake-premium-backup"],
+          "models": ["model-shared", "model-premium-only"],
+          "models_source": "manual",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "dual-order",
+      "display_name": "Dual Group Order",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-a",
+          "group": "premium",
+          "model": "model-shared",
+          "enabled": true
+        },
+        {
+          "provider": "vendor-a",
+          "group": "standard",
+          "model": "model-shared",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

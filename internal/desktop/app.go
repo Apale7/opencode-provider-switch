@@ -196,6 +196,30 @@ func (a *App) PingProviderBaseURL(in app.ProviderPingInput) (app.ProviderPingRes
 	return a.bindings.PingProviderBaseURL(a.callContext(), in)
 }
 
+func (a *App) ListProviderGroups(providerID string) ([]app.ProviderGroupView, error) {
+	return a.bindings.ListProviderGroups(a.callContext(), providerID)
+}
+
+func (a *App) CreateProviderGroup(in app.ProviderGroupCreateInput) (app.ProviderGroupView, error) {
+	return a.bindings.CreateProviderGroup(a.callContext(), in)
+}
+
+func (a *App) UpdateProviderGroup(in app.ProviderGroupUpdateInput) (app.ProviderGroupView, error) {
+	return a.bindings.UpdateProviderGroup(a.callContext(), in)
+}
+
+func (a *App) DeleteProviderGroup(in app.ProviderGroupDeleteInput) error {
+	return a.bindings.DeleteProviderGroup(a.callContext(), in)
+}
+
+func (a *App) RefreshProviderGroupModels(in app.ProviderGroupRefreshModelsInput) (app.ProviderSaveResult, error) {
+	return a.bindings.RefreshProviderGroupModels(a.callContext(), in)
+}
+
+func (a *App) PingProviderGroupBaseURL(in app.ProviderGroupPingInput) (app.ProviderPingResult, error) {
+	return a.bindings.PingProviderGroupBaseURL(a.callContext(), in)
+}
+
 func (a *App) SetProviderState(in app.ProviderStateInput) (app.ProviderView, error) {
 	return a.bindings.SetProviderDisabled(a.callContext(), in)
 }

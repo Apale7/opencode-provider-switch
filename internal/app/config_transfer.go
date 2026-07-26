@@ -44,29 +44,21 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 	if err := validateFullConfigImport(topLevel); err != nil {
 		return ConfigImportResult{}, err
 	}
-	serverAPIKeyExplicit := configContentHasExplicitServerAPIKey([]byte(content))
-	imported := config.Default()
-	if err := json.Unmarshal([]byte(content), imported); err != nil {
+
+	// Decode through the unified schema codec (v1 migrate / v2 strict).
+	// Path is only used as an in-memory anchor; import never Save()s this object
+	// and never changes disk until commitConfig applies fields onto the live config.
+	imported, err := config.LoadFromBytes(s.configPath, data)
+	if err != nil {
 		return ConfigImportResult{}, fmt.Errorf("parse config: %w", err)
 	}
-	if imported.Server.Host == "" {
-		imported.Server.Host = "127.0.0.1"
-	}
-	if imported.Server.Port == 0 {
-		imported.Server.Port = 9982
-	}
-	if imported.Server.APIKey == "" && !serverAPIKeyExplicit {
-		imported.Server.APIKey = config.DefaultLocalAPIKey
-	}
-	if imported.Admin.Host == "" {
-		imported.Admin.Host = "127.0.0.1"
-	}
-	if imported.Admin.Port == 0 {
-		imported.Admin.Port = 9983
+	if err := validateImportedProviderGroupAPIKeys(imported); err != nil {
+		return ConfigImportResult{}, err
 	}
 
 	var result ConfigImportResult
 	_, err = s.commitConfig(ctx, "", func(_ context.Context, cfg *config.Config) (configstore.Mutation[*config.Config], error) {
+		// Preserve local-only / optional sections when the payload omits them.
 		if _, ok := topLevel["admin"]; !ok {
 			imported.Admin = cfg.Admin
 		}
@@ -85,6 +77,7 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 		if _, ok := topLevel["auto_alias_enabled"]; !ok {
 			imported.AutoAliasEnabled = cfg.AutoAliasEnabled
 		}
+		// Apply imported fields onto the live config so path / store identity stay on cfg.
 		cfg.Server = imported.Server
 		cfg.Admin = imported.Admin
 		cfg.Desktop = imported.Desktop
@@ -93,6 +86,7 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 		cfg.RequestRewriteRules = append([]config.RequestRewriteRule(nil), imported.RequestRewriteRules...)
 		cfg.ProviderPriority = append([]string(nil), imported.ProviderPriority...)
 		cfg.AutoAliasEnabled = imported.AutoAliasEnabled
+		cfg.SchemaVersion = config.CurrentSchemaVersion
 		issues, err := diagnostics.ScanConfig(cfg, diagnostics.ScanOptions{})
 		if err != nil {
 			return configstore.Mutation[*config.Config]{}, fmt.Errorf("scan imported config: %w", err)
@@ -117,6 +111,22 @@ func (s *Service) ImportConfig(ctx context.Context, in ConfigImportInput) (Confi
 	return result, nil
 }
 
+func validateImportedProviderGroupAPIKeys(cfg *config.Config) error {
+	if cfg == nil {
+		return nil
+	}
+	for _, provider := range cfg.Providers {
+		for _, group := range provider.Groups {
+			for _, key := range group.EffectiveAPIKeys() {
+				if isMaskedAPIKeyPlaceholder(key) {
+					return fmt.Errorf("provider %q group %q contains a masked API key placeholder", provider.ID, group.ID)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func isIdentityAmbiguity(code diagnostics.Code) bool {
 	switch code {
 	case diagnostics.CodeProviderIdentityAmbiguous,
@@ -129,36 +139,17 @@ func isIdentityAmbiguity(code diagnostics.Code) bool {
 	}
 }
 
+// marshalConfigContent encodes the live config as canonical schema v2 JSON.
+// Prefer Config.MarshalPersistent so export matches Save field set and schema_version.
 func marshalConfigContent(cfg *config.Config) (string, error) {
-	providers := append([]config.Provider{}, cfg.Providers...)
-	sort.Slice(providers, func(i, j int) bool { return providers[i].ID < providers[j].ID })
-	aliases := append([]config.Alias{}, cfg.Aliases...)
-	sort.Slice(aliases, func(i, j int) bool { return aliases[i].Alias < aliases[j].Alias })
-	rewriteRules := append([]config.RequestRewriteRule{}, cfg.RequestRewriteRules...)
-	snapshot := struct {
-		Server              config.Server               `json:"server"`
-		Admin               config.Admin                `json:"admin"`
-		Desktop             config.Desktop              `json:"desktop"`
-		Providers           []config.Provider           `json:"providers"`
-		Aliases             []config.Alias              `json:"aliases"`
-		RequestRewriteRules []config.RequestRewriteRule `json:"request_rewrite_rules"`
-		ProviderPriority    []string                    `json:"provider_priority"`
-		AutoAliasEnabled    bool                        `json:"auto_alias_enabled"`
-	}{
-		Server:              cfg.Server,
-		Admin:               cfg.Admin,
-		Desktop:             cfg.Desktop,
-		Providers:           providers,
-		Aliases:             aliases,
-		RequestRewriteRules: rewriteRules,
-		ProviderPriority:    append([]string{}, cfg.ProviderPriority...),
-		AutoAliasEnabled:    cfg.AutoAliasEnabled,
+	if cfg == nil {
+		return "", fmt.Errorf("marshal config: nil config")
 	}
-	data, err := json.MarshalIndent(snapshot, "", "  ")
+	data, err := cfg.MarshalPersistent()
 	if err != nil {
 		return "", fmt.Errorf("marshal config: %w", err)
 	}
-	return string(append(data, '\n')), nil
+	return string(data), nil
 }
 
 func configTopLevelFields(data []byte) (map[string]json.RawMessage, error) {
@@ -174,7 +165,7 @@ func validateFullConfigImport(raw map[string]json.RawMessage) error {
 	var nullFields []string
 	for field, value := range raw {
 		switch field {
-		case "server", "admin", "desktop", "providers", "aliases",
+		case "schema_version", "server", "admin", "desktop", "providers", "aliases",
 			"request_rewrite_rules", "provider_priority", "auto_alias_enabled":
 			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 				nullFields = append(nullFields, field)
@@ -185,7 +176,8 @@ func validateFullConfigImport(raw map[string]json.RawMessage) error {
 	}
 	sort.Strings(unknownFields)
 	if len(unknownFields) > 0 {
-		return fmt.Errorf("import contains unknown top-level field %q", unknownFields[0])
+		// Keep the stable "unknown field" substring for wire/compat tests and clients.
+		return fmt.Errorf("import contains unknown field %q", unknownFields[0])
 	}
 	sort.Strings(nullFields)
 	if len(nullFields) > 0 {
@@ -211,13 +203,106 @@ func validateImportJSON(data []byte) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	strict := json.NewDecoder(bytes.NewReader(data))
-	strict.DisallowUnknownFields()
-	var document config.Config
-	if err := strict.Decode(&document); err != nil {
+	// Identity ambiguity is a stable import contract and must outrank later
+	// schema codec rejection (e.g. mixed/legacy fields) so error priority stays stable.
+	if err := rejectImportIdentityAmbiguity(data); err != nil {
+		return err
+	}
+
+	// Unified schema codec: supports v1 migrate and v2 strict (incl. mixed fail-closed).
+	// Use a non-disk validation path so this precheck never implies a write target.
+	if _, err := config.LoadFromBytes("import-validation", data); err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
 	return nil
+}
+
+// rejectImportIdentityAmbiguity is a read-only raw-JSON precheck at the import
+// boundary. It never mutates runtime config and never writes disk. It only
+// surfaces the same identity codes used by diagnostics.ScanConfig so error
+// priority stays stable even when schema decode rejects mixed/legacy fields
+// before ScanConfig can run.
+func rejectImportIdentityAmbiguity(data []byte) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil
+	}
+
+	if raw, ok := root["providers"]; ok {
+		var items []struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &items); err == nil {
+			if path, found := firstDuplicateIdentityPath(len(items), func(i int) string { return items[i].ID }, "/config/providers"); found {
+				return ambiguousImportIdentityError(path, diagnostics.CodeProviderIdentityAmbiguous)
+			}
+		}
+	}
+
+	if raw, ok := root["aliases"]; ok {
+		var items []struct {
+			Alias   string `json:"alias"`
+			Targets []struct {
+				Provider string `json:"provider"`
+				Group    string `json:"group"`
+				Model    string `json:"model"`
+			} `json:"targets"`
+		}
+		if err := json.Unmarshal(raw, &items); err == nil {
+			for ai, alias := range items {
+				if path, found := firstDuplicateIdentityPath(len(alias.Targets), func(ti int) string {
+					return alias.Targets[ti].Provider + "\x00" + effectiveImportGroupID(alias.Targets[ti].Group) + "\x00" + alias.Targets[ti].Model
+				}, fmt.Sprintf("/config/aliases/%d/targets", ai)); found {
+					return ambiguousImportIdentityError(path, diagnostics.CodeAliasTargetIdentityAmbiguous)
+				}
+			}
+			if path, found := firstDuplicateIdentityPath(len(items), func(i int) string { return items[i].Alias }, "/config/aliases"); found {
+				return ambiguousImportIdentityError(path, diagnostics.CodeAliasIdentityAmbiguous)
+			}
+		}
+	}
+
+	if raw, ok := root["request_rewrite_rules"]; ok {
+		var items []struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &items); err == nil {
+			if path, found := firstDuplicateIdentityPath(len(items), func(i int) string { return items[i].Name }, "/config/request_rewrite_rules"); found {
+				return ambiguousImportIdentityError(path, diagnostics.CodeRewriteIdentityAmbiguous)
+			}
+		}
+	}
+
+	return nil
+}
+
+// effectiveImportGroupID matches diagnostics identity: missing/blank group maps to default.
+func effectiveImportGroupID(group string) string {
+	group = strings.TrimSpace(group)
+	if group == "" {
+		return config.DefaultGroupID
+	}
+	return group
+}
+
+func firstDuplicateIdentityPath(n int, keyAt func(int) string, root string) (string, bool) {
+	indexes := make(map[string][]int, n)
+	for i := 0; i < n; i++ {
+		key := keyAt(i)
+		indexes[key] = append(indexes[key], i)
+	}
+	// Stable report: first array index that participates in a duplicate identity.
+	for i := 0; i < n; i++ {
+		key := keyAt(i)
+		if len(indexes[key]) > 1 {
+			return fmt.Sprintf("%s/%d", root, i), true
+		}
+	}
+	return "", false
+}
+
+func ambiguousImportIdentityError(path string, code diagnostics.Code) error {
+	return fmt.Errorf("import candidate has ambiguous identity at %s (%s)", path, code)
 }
 
 func validateJSONValue(decoder *json.Decoder, path string) error {
@@ -272,16 +357,4 @@ func validateJSONValue(decoder *json.Decoder, path string) error {
 
 func escapeJSONPointerToken(value string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(value, "~", "~0"), "/", "~1")
-}
-
-func configContentHasExplicitServerAPIKey(data []byte) bool {
-	var raw struct {
-		Server *struct {
-			APIKey *string `json:"api_key"`
-		} `json:"server"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return false
-	}
-	return raw.Server != nil && raw.Server.APIKey != nil
 }

@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "api_key": "ocswitch-local",
+    "failover_status_codes": [401, 402, 403, 429]
+  },
+  "providers": [
+    {
+      "id": "vendor-direct",
+      "name": "Vendor No Direct Routing",
+      "base_url": "https://vendor-direct.example.test/v1",
+      "base_url_strategy": "ordered",
+      "disabled": false,
+      "auto_alias_enabled": false,
+      "groups": [
+        {
+          "id": "default",
+          "name": "Default",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-direct-default",
+          "models": [
+            "not-an-alias",
+            "catalog-model-a"
+          ],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "extra",
+          "name": "Extra",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-direct-extra",
+          "models": [
+            "not-an-alias",
+            "catalog-model-b"
+          ],
+          "models_source": "manual",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "known-alias",
+      "display_name": "Known Alias Only",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-direct",
+          "group": "default",
+          "model": "catalog-model-a",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

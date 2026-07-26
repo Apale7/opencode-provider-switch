@@ -58,6 +58,12 @@ func (s *Service) configStore(ctx context.Context) (*configstore.Store[*config.C
 			}
 			return s.reloadRunningProxyConfig(result.Snapshot.Value)
 		},
+		BeforePersist: func(_ context.Context, candidate configstore.Candidate[*config.Config]) error {
+			if !config.NeedsLegacyConfigBackup(candidate.BaseBytes()) {
+				return nil
+			}
+			return config.BackupLegacyConfigFile(s.ConfigPath())
+		},
 	}
 	return configstore.New(s.ConfigPath(), configCodec(), hooks)
 }

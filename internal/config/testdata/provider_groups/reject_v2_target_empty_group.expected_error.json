@@ -1,0 +1,8 @@
+{
+  "error_code": "target_missing_group",
+  "message_contains": [
+    "group",
+    "empty-group-target"
+  ],
+  "notes": "schema v2 Target with empty string group is not a valid non-empty group and must reject"
+}

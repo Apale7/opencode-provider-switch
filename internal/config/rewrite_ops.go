@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -53,7 +54,9 @@ func (op *RequestRewriteOperation) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if value, ok := raw["value"]; ok {
-		if err := json.Unmarshal(value, &op.Value); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(value))
+		decoder.UseNumber()
+		if err := decoder.Decode(&op.Value); err != nil {
 			return fmt.Errorf("value: %w", err)
 		}
 		op.ValueSet = true
@@ -88,22 +91,58 @@ func RequestRewriteLegacyWarning(rule RequestRewriteRule) string {
 	return fmt.Sprintf("request rewrite rule %q uses legacy set/delete syntax and will be skipped; migrate it to ops with RFC 9535 JSONPath paths", strings.TrimSpace(rule.Name))
 }
 
-func ApplyRequestRewriteRules(payload map[string]any, aliasName, provider, model string, rules []RequestRewriteRule) {
+// ApplyRequestRewriteRules applies matching rewrite rules for a resolved target.
+// An empty groupID is unresolved and fails closed.
+//
+// Matching semantics (PRD frozen):
+//   - non-empty provider_groups: both provider and group must equal
+//   - empty provider_groups: explicit wildcard (current and future groups)
+//   - nil/omitted provider_groups: treated as wildcard after normalize/decode
+//   - missing or non-matching Provider/Group selectors never fallback to default/siblings
+//   - duplicate selectors are deduped by normalize (first-seen order preserved)
+func ApplyRequestRewriteRules(payload map[string]any, aliasName, providerID, groupID, model string, rules []RequestRewriteRule) {
 	if payload == nil || len(rules) == 0 {
 		return
 	}
 	aliasName = strings.TrimSpace(aliasName)
-	provider = strings.TrimSpace(provider)
+	providerID = strings.TrimSpace(providerID)
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return
+	}
 	model = strings.TrimSpace(model)
+	_ = model
 	for _, rule := range rules {
 		rule = normalizeRequestRewriteRule(rule)
-		if !rule.Enabled || RequestRewriteRuleUsesLegacySyntax(rule) || !requestRewriteRuleMatches(rule, aliasName, provider) {
+		if !rule.Enabled || RequestRewriteRuleUsesLegacySyntax(rule) || !rewriteRuleMatchesResolvedTarget(rule, aliasName, providerID, groupID) {
 			continue
 		}
 		for _, op := range rule.Ops {
 			applyRequestRewriteOperation(payload, rule.Override, op)
 		}
 	}
+}
+
+// rewriteRuleMatchesResolvedTarget implements apply-time selector matching for a
+// resolved (alias, provider, group).
+func rewriteRuleMatchesResolvedTarget(rule RequestRewriteRule, aliasName, providerID, groupID string) bool {
+	if rule.Alias == "" || rule.Alias != aliasName {
+		return false
+	}
+	providerID = strings.TrimSpace(providerID)
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return false
+	}
+	if rule.ProviderGroups == nil || len(rule.ProviderGroups) == 0 {
+		return true
+	}
+	for _, sel := range rule.ProviderGroups {
+		if strings.TrimSpace(sel.Provider) == providerID && strings.TrimSpace(sel.Group) == groupID {
+			return true
+		}
+	}
+	return false
 }
 
 func applyRequestRewriteOperation(payload map[string]any, override bool, op RequestRewriteOperation) {

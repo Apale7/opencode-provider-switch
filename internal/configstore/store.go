@@ -92,6 +92,9 @@ type Hooks[T any] struct {
 	Validate func(context.Context, Candidate[T]) error
 	Build    func(context.Context, Candidate[T]) (any, error)
 	Apply    func(context.Context, Result[T], any) error
+	// BeforePersist runs after validation/build and before the atomic write.
+	// Failure aborts the write and must leave the original file untouched.
+	BeforePersist func(context.Context, Candidate[T]) error
 }
 
 type Mutation[T any] struct {
@@ -183,6 +186,23 @@ func (s *Store[T]) Mutate(ctx context.Context, expected Revision, mutate func(co
 			return err
 		}
 		if candidate.Changed {
+			if s.hooks.BeforePersist != nil {
+				view, cloneErr := s.cloneCandidate(candidate)
+				if cloneErr != nil {
+					return fmt.Errorf("clone before-persist candidate: %w", cloneErr)
+				}
+				if beforeErr := s.hooks.BeforePersist(ctx, view); beforeErr != nil {
+					// Backup / pre-write failure must not overwrite the original file
+					// or apply a new runtime snapshot.
+					result = Result[T]{}
+					return &PersistError[T]{
+						Candidate:   candidate.CandidateRevision,
+						Committed:   false,
+						CommitState: CommitStateNotCommitted,
+						Err:         beforeErr,
+					}
+				}
+			}
 			if writeErr := s.writeFile(s.path, candidate.candidateRaw, 0o600); writeErr != nil {
 				state, verifyErr := candidateCommitState(s.path, candidate)
 				cause := writeErr

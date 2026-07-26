@@ -62,6 +62,15 @@ type Service interface {
 	ExecuteLifecycle(context.Context, appcore.LifecycleExecuteInput) (appcore.LifecycleExecuteResult, error)
 }
 
+type providerGroupService interface {
+	ListProviderGroups(context.Context, string) ([]appcore.ProviderGroupView, error)
+	CreateProviderGroup(context.Context, appcore.ProviderGroupCreateInput) (appcore.ProviderGroupView, error)
+	UpdateProviderGroup(context.Context, appcore.ProviderGroupUpdateInput) (appcore.ProviderGroupView, error)
+	DeleteProviderGroup(context.Context, appcore.ProviderGroupDeleteInput) error
+	RefreshProviderGroupModels(context.Context, appcore.ProviderGroupRefreshModelsInput) (appcore.ProviderSaveResult, error)
+	PingProviderGroupBaseURL(context.Context, appcore.ProviderGroupPingInput) (appcore.ProviderPingResult, error)
+}
+
 type ImportConfigFunc func(context.Context, appcore.ConfigImportInput) (appcore.ConfigImportResult, error)
 type SaveDesktopPrefsFunc func(context.Context, appcore.DesktopPrefsInput) (appcore.DesktopPrefsSaveResult, error)
 
@@ -88,11 +97,11 @@ type MetaView struct {
 }
 
 type Capabilities struct {
-	DesktopPrefs              bool   `json:"desktopPrefs"`
-	OpenCodeDirectSync        bool   `json:"openCodeDirectSync"`
-	ProxyControl              bool   `json:"proxyControl"`
-	TransportEnvelopeVersion  int    `json:"transportEnvelopeVersion"`
-	LifecycleContractVersion  int    `json:"lifecycleContractVersion"`
+	DesktopPrefs             bool `json:"desktopPrefs"`
+	OpenCodeDirectSync       bool `json:"openCodeDirectSync"`
+	ProxyControl             bool `json:"proxyControl"`
+	TransportEnvelopeVersion int  `json:"transportEnvelopeVersion"`
+	LifecycleContractVersion int  `json:"lifecycleContractVersion"`
 }
 
 func NewHandler(opts Options) (http.Handler, error) {
@@ -109,6 +118,7 @@ func NewHandler(opts Options) (http.Handler, error) {
 
 	api := http.NewServeMux()
 	b := opts.Service
+	groups, groupsAvailable := any(b).(providerGroupService)
 	capabilities := Capabilities{
 		DesktopPrefs:             !opts.ServerMode,
 		OpenCodeDirectSync:       !opts.ServerMode,
@@ -259,6 +269,135 @@ func NewHandler(opts Options) (http.Handler, error) {
 		default:
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
 		}
+	})
+
+	// Provider Group management (upstream keys). Frozen under /api/admin/...;
+	// never register /api-keys or reuse client proxy API-key handlers.
+	api.HandleFunc("/api/admin/providers/{providerID}/groups", func(w http.ResponseWriter, r *http.Request) {
+		if !groupsAvailable {
+			writeInvalidRequest(w, "provider_group_management_unavailable")
+			return
+		}
+		providerID := strings.TrimSpace(r.PathValue("providerID"))
+		if providerID == "" {
+			writeInvalidRequest(w, "provider_id_required")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			data, err := groups.ListProviderGroups(r.Context(), providerID)
+			writeResult(w, data, err)
+		case http.MethodPost:
+			var in appcore.ProviderGroupCreateInput
+			if !decodeJSONBody(w, r, &in) {
+				return
+			}
+			// Path identity wins — body providerId cannot override the route.
+			in.ProviderID = providerID
+			data, err := groups.CreateProviderGroup(r.Context(), in)
+			writeResult(w, data, err)
+		default:
+			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	})
+
+	api.HandleFunc("/api/admin/providers/{providerID}/groups/{groupID}", func(w http.ResponseWriter, r *http.Request) {
+		if !groupsAvailable {
+			writeInvalidRequest(w, "provider_group_management_unavailable")
+			return
+		}
+		providerID := strings.TrimSpace(r.PathValue("providerID"))
+		groupID := strings.TrimSpace(r.PathValue("groupID"))
+		if providerID == "" {
+			writeInvalidRequest(w, "provider_id_required")
+			return
+		}
+		if groupID == "" {
+			writeInvalidRequest(w, "group_id_required")
+			return
+		}
+		switch r.Method {
+		case http.MethodPut:
+			var in appcore.ProviderGroupUpdateInput
+			if !decodeJSONBody(w, r, &in) {
+				return
+			}
+			// Path supplies old identity; Group.ID may request a rename.
+			in.ProviderID = providerID
+			in.GroupID = groupID
+			data, err := groups.UpdateProviderGroup(r.Context(), in)
+			writeResult(w, data, err)
+		case http.MethodDelete:
+			var in appcore.ProviderGroupDeleteInput
+			// Optional lifecycle selections body (empty body is valid).
+			if !decodeJSONBody(w, r, &in) {
+				return
+			}
+			in.ProviderID = providerID
+			in.GroupID = groupID
+			writeResult(w, map[string]bool{"ok": true}, groups.DeleteProviderGroup(r.Context(), in))
+		default:
+			writeMethodNotAllowed(w, http.MethodPut, http.MethodDelete)
+		}
+	})
+
+	api.HandleFunc("/api/admin/providers/{providerID}/groups/{groupID}/refresh-models", func(w http.ResponseWriter, r *http.Request) {
+		if !groupsAvailable {
+			writeInvalidRequest(w, "provider_group_management_unavailable")
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		providerID := strings.TrimSpace(r.PathValue("providerID"))
+		groupID := strings.TrimSpace(r.PathValue("groupID"))
+		if providerID == "" {
+			writeInvalidRequest(w, "provider_id_required")
+			return
+		}
+		if groupID == "" {
+			writeInvalidRequest(w, "group_id_required")
+			return
+		}
+		var in appcore.ProviderGroupRefreshModelsInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		in.ProviderID = providerID
+		in.GroupID = groupID
+		data, err := groups.RefreshProviderGroupModels(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/admin/providers/{providerID}/groups/{groupID}/ping", func(w http.ResponseWriter, r *http.Request) {
+		if !groupsAvailable {
+			writeInvalidRequest(w, "provider_group_management_unavailable")
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		providerID := strings.TrimSpace(r.PathValue("providerID"))
+		groupID := strings.TrimSpace(r.PathValue("groupID"))
+		if providerID == "" {
+			writeInvalidRequest(w, "provider_id_required")
+			return
+		}
+		if groupID == "" {
+			writeInvalidRequest(w, "group_id_required")
+			return
+		}
+		var in appcore.ProviderGroupPingInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		// Path identity wins over any body providerId/groupId.
+		in.ProviderID = providerID
+		in.GroupID = groupID
+		data, err := groups.PingProviderGroupBaseURL(r.Context(), in)
+		writeResult(w, data, err)
 	})
 
 	api.HandleFunc("/api/aliases", func(w http.ResponseWriter, r *http.Request) {
@@ -430,19 +569,19 @@ func NewHandler(opts Options) (http.Handler, error) {
 		writeResult(w, data, err)
 	})
 
-		api.HandleFunc("/api/desktop-prefs", func(w http.ResponseWriter, r *http.Request) {
-			if opts.ServerMode {
-				writeOutcome(w, http.StatusNotFound, apiEnvelope{
-					OK:    false,
-					Error: "not_found",
-					Outcome: appcore.TransportOutcome{
-						Code:      "not_found",
-						Params:    map[string]any{"resourceType": "desktop_prefs"},
-						Retryable: false,
-					},
-				})
-				return
-			}
+	api.HandleFunc("/api/desktop-prefs", func(w http.ResponseWriter, r *http.Request) {
+		if opts.ServerMode {
+			writeOutcome(w, http.StatusNotFound, apiEnvelope{
+				OK:    false,
+				Error: "not_found",
+				Outcome: appcore.TransportOutcome{
+					Code:      "not_found",
+					Params:    map[string]any{"resourceType": "desktop_prefs"},
+					Retryable: false,
+				},
+			})
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			data, err := b.GetDesktopPrefs(r.Context())
@@ -736,6 +875,18 @@ func writeMethodNotAllowed(w http.ResponseWriter, allowed ...string) {
 		Outcome: appcore.TransportOutcome{
 			Code:      "method_not_allowed",
 			Params:    map[string]any{},
+			Retryable: false,
+		},
+	})
+}
+
+func writeInvalidRequest(w http.ResponseWriter, reason string) {
+	writeOutcome(w, http.StatusBadRequest, apiEnvelope{
+		OK:    false,
+		Error: "invalid_request",
+		Outcome: appcore.TransportOutcome{
+			Code:      "invalid_request",
+			Params:    map[string]any{"reason": reason},
 			Retryable: false,
 		},
 	})

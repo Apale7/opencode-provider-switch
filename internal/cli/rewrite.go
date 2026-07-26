@@ -37,7 +37,7 @@ migrated to ops.`,
 func newRewriteAddCmd() *cobra.Command {
 	var name, alias string
 	var disabled, override bool
-	var providers, opItems, setItems, deleteItems []string
+	var providers, providerGroups, opItems, setItems, deleteItems []string
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "add",
@@ -51,6 +51,10 @@ func newRewriteAddCmd() *cobra.Command {
 				return fmt.Errorf("--set/--delete are legacy and no longer create active rules; use --op instead")
 			}
 			ops, err := parseRewriteOpItems(opItems)
+			if err != nil {
+				return err
+			}
+			selectors, err := parseProviderGroupSelectors(providerGroups)
 			if err != nil {
 				return err
 			}
@@ -71,14 +75,27 @@ func newRewriteAddCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would upsert rewrite rule %q via Service/ConfigStore\n", ruleName)
 				return nil
 			}
-			view, err := appService().UpsertRequestRewriteRule(cmd.Context(), app.RequestRewriteRuleInput{
-				Name:      ruleName,
-				Alias:     strings.TrimSpace(alias),
-				Providers: providers,
-				Enabled:   enabled,
-				Override:  override,
-				Ops:       ops,
-			})
+			in := app.RequestRewriteRuleInput{
+				Name:     ruleName,
+				Alias:    strings.TrimSpace(alias),
+				Enabled:  enabled,
+				Override: override,
+				Ops:      ops,
+			}
+			if cmd.Flags().Changed("provider-group") {
+				// Explicit selector path (including empty) — maps only declared pairs.
+				in.ProviderGroups = selectors
+			} else if len(providers) > 0 {
+				// Legacy CLI flag is explicitly scoped to each provider's default group.
+				in.ProviderGroups = make([]app.ProviderGroupSelectorInput, 0, len(providers))
+				for _, provider := range providers {
+					provider = strings.TrimSpace(provider)
+					if provider != "" {
+						in.ProviderGroups = append(in.ProviderGroups, app.ProviderGroupSelectorInput{Provider: provider, Group: config.DefaultGroupID})
+					}
+				}
+			}
+			view, err := appService().UpsertRequestRewriteRule(cmd.Context(), in)
 			if err != nil {
 				return err
 			}
@@ -96,6 +113,7 @@ func newRewriteAddCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "save rule disabled")
 	cmd.Flags().BoolVar(&override, "override", false, "allow replacing or deleting existing request fields")
 	cmd.Flags().StringArrayVar(&opItems, "op", nil, "rewrite op (repeatable): set:$.path=JSON, delete:$.path, append:$.array=JSON, insert:$.array:INDEX=JSON")
+	cmd.Flags().StringArrayVar(&providerGroups, "provider-group", nil, "match selected target provider/group (repeatable; omit for all groups on alias)")
 	cmd.Flags().StringArrayVar(&setItems, "set", nil, "legacy inactive syntax; use --op set:$.path=VALUE")
 	cmd.Flags().StringArrayVar(&deleteItems, "delete", nil, "legacy inactive syntax; use --op delete:$.path with --override")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
@@ -325,13 +343,60 @@ func rewriteRuleScopeLabel(rule app.RequestRewriteRuleView) string {
 	if rule.Alias != "" {
 		parts = append(parts, "alias="+rule.Alias)
 	}
-	if len(rule.Providers) > 0 {
-		parts = append(parts, "providers="+strings.Join(rule.Providers, ","))
+	if len(rule.ProviderGroups) > 0 {
+		labels := make([]string, 0, len(rule.ProviderGroups))
+		for _, sel := range rule.ProviderGroups {
+			group := strings.TrimSpace(sel.Group)
+			if group == "" {
+				group = config.DefaultGroupID
+			}
+			labels = append(labels, sel.Provider+"/"+group)
+		}
+		parts = append(parts, "providerGroups="+strings.Join(labels, ","))
+	} else if rule.ProviderGroups != nil {
+		parts = append(parts, "providerGroups=*")
 	}
 	if len(parts) == 0 {
 		return "(invalid)"
 	}
 	return strings.Join(parts, ",")
+}
+
+// parseProviderGroupSelectors parses --provider-group values as "provider" or "provider/group".
+// Bare provider maps only to the default group (never siblings).
+func parseProviderGroupSelectors(items []string) ([]app.ProviderGroupSelectorInput, error) {
+	if items == nil {
+		return nil, nil
+	}
+	out := make([]app.ProviderGroupSelectorInput, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		provider, group, ok := strings.Cut(item, "/")
+		provider = strings.TrimSpace(provider)
+		if provider == "" {
+			return nil, fmt.Errorf("invalid --provider-group %q (want provider or provider/group)", item)
+		}
+		if !ok || strings.TrimSpace(group) == "" {
+			group = config.DefaultGroupID
+		} else {
+			group = strings.TrimSpace(group)
+		}
+		key := provider + "\x00" + group
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, app.ProviderGroupSelectorInput{Provider: provider, Group: group})
+	}
+	// Preserve explicit empty as non-nil empty (wildcard).
+	if len(items) == 0 {
+		return []app.ProviderGroupSelectorInput{}, nil
+	}
+	return out, nil
 }
 
 func formatRewriteOps(ops []config.RequestRewriteOperation) []string {

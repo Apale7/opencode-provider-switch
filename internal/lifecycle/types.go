@@ -14,6 +14,8 @@ const (
 	PlannerVersion  = "lifecycle-planner/v1"
 
 	OpProviderRemove = "provider.remove"
+	OpGroupRemove    = "group.remove"
+	OpGroupIDChange  = "group.id_change"
 	OpAliasRemove    = "alias.remove"
 	OpAliasUpgrade   = "alias.upgrade"
 	OpAliasMutate    = "alias.mutate"
@@ -24,50 +26,57 @@ const (
 	ChangeUpdate  = "update"
 	ChangeReorder = "reorder"
 
-	SourceRequested  = "requested"
-	SourceAutomatic  = "automatic"
-	SourceSelection  = "selection"
+	SourceRequested = "requested"
+	SourceAutomatic = "automatic"
+	SourceSelection = "selection"
 
-	DispositionBlocker         = "blocker"
-	DispositionRequiredChoice  = "required_choice"
-	DispositionPreserved       = "preserved"
+	DispositionBlocker        = "blocker"
+	DispositionRequiredChoice = "required_choice"
+	DispositionPreserved      = "preserved"
 
-	EntityProvider     = "provider"
-	EntityAlias        = "alias"
-	EntityAliasTarget  = "alias_target"
-	EntityRewriteRule  = "rewrite_rule"
-	EntityPriority     = "priority_entry"
+	EntityProvider      = "provider"
+	EntityProviderGroup = "provider_group"
+	EntityAlias         = "alias"
+	EntityAliasTarget   = "alias_target"
+	EntityRewriteRule   = "rewrite_rule"
+	EntityPriority      = "priority_entry"
 
 	// Stable choice option IDs (no force/ignore).
-	OptionRebindTarget     = "rebind_target"
-	OptionRemoveTarget     = "remove_target"
-	OptionDeleteAlias      = "delete_alias"
-	OptionKeepDormant      = "keep_dormant"
-	OptionDisableRule      = "disable_rule"
-	OptionDeleteRule       = "delete_rule"
-	OptionReplaceProviders = "replace_providers"
-	OptionKeepRule = "keep_rule"
+	OptionRebindTarget          = "rebind_target"
+	OptionRemoveTarget          = "remove_target"
+	OptionDeleteAlias           = "delete_alias"
+	OptionKeepDormant           = "keep_dormant"
+	OptionDisableRule           = "disable_rule"
+	OptionDeleteRule            = "delete_rule"
+	OptionReplaceProviders      = "replace_providers"
+	OptionReplaceProviderGroups = "replace_provider_groups"
+	OptionKeepRule              = "keep_rule"
 
-	ReasonProviderRemove           = "provider_remove"
-	ReasonSystemTargetCleanup      = "system_target_cleanup"
-	ReasonEmptyAutoAliasCleanup    = "empty_auto_alias_cleanup"
-	ReasonPriorityCleanup          = "priority_cleanup"
-	ReasonRewriteSelectorNarrow    = "rewrite_selector_narrow"
-	ReasonProtectedTarget          = "protected_target"
-	ReasonSingletonRewrite         = "singleton_rewrite_selector"
-	ReasonAliasRemove              = "alias_remove"
-	ReasonRewriteSelectorImpact    = "rewrite_selector_impact"
-	ReasonDirectFallbackPossible   = "direct_fallback_possible"
-	ReasonOpenCodeWeakRef          = "opencode_weak_ref"
-	ReasonUpgradeRequired          = "upgrade_required"
-	ReasonUpgradeOwnership         = "upgrade_ownership"
-	ReasonDiscoveryUntrusted       = "discovery_untrusted"
-	ReasonSystemTargetReconcile    = "system_target_reconcile"
-	ReasonProviderMissing          = "provider_missing"
-	ReasonAliasMissing             = "alias_missing"
-	ReasonAliasAmbiguous           = "alias_identity_ambiguous"
-	ReasonSelectionRequired        = "selection_required"
-	ReasonInvalidSelection         = "invalid_selection"
+	ReasonProviderRemove         = "provider_remove"
+	ReasonGroupRemove            = "group_remove"
+	ReasonGroupIDChange          = "group_id_change"
+	ReasonSystemTargetCleanup    = "system_target_cleanup"
+	ReasonEmptyAutoAliasCleanup  = "empty_auto_alias_cleanup"
+	ReasonPriorityCleanup        = "priority_cleanup"
+	ReasonRewriteSelectorNarrow  = "rewrite_selector_narrow"
+	ReasonProtectedTarget        = "protected_target"
+	ReasonSingletonRewrite       = "singleton_rewrite_selector"
+	ReasonAliasRemove            = "alias_remove"
+	ReasonRewriteSelectorImpact  = "rewrite_selector_impact"
+	ReasonDirectFallbackPossible = "direct_fallback_possible"
+	ReasonOpenCodeWeakRef        = "opencode_weak_ref"
+	ReasonUpgradeRequired        = "upgrade_required"
+	ReasonUpgradeOwnership       = "upgrade_ownership"
+	ReasonDiscoveryUntrusted     = "discovery_untrusted"
+	ReasonSystemTargetReconcile  = "system_target_reconcile"
+	ReasonProviderMissing        = "provider_missing"
+	ReasonGroupMissing           = "group_missing"
+	ReasonLastGroup              = "last_group"
+	ReasonGroupIDConflict        = "group_id_conflict"
+	ReasonAliasMissing           = "alias_missing"
+	ReasonAliasAmbiguous         = "alias_identity_ambiguous"
+	ReasonSelectionRequired      = "selection_required"
+	ReasonInvalidSelection       = "invalid_selection"
 )
 
 // Selection resolves one required choice.
@@ -115,28 +124,30 @@ type Choice struct {
 // RuntimeImpact summarizes runtime-facing effects without embedding secrets.
 type RuntimeImpact struct {
 	ProviderRemoved bool `json:"providerRemoved,omitempty"`
+	GroupRemoved    bool `json:"groupRemoved,omitempty"`
+	GroupIDChanged  bool `json:"groupIdChanged,omitempty"`
 	AliasRemoved    bool `json:"aliasRemoved,omitempty"`
 	RoutingChanged  bool `json:"routingChanged,omitempty"`
 }
 
 // Plan is the immutable preview/execute planning result.
 type Plan struct {
-	ContractVersion    string       `json:"contractVersion"`
-	PlannerVersion     string       `json:"plannerVersion"`
-	BaseRevision       string       `json:"baseRevision"`
-	CandidateRevision  string       `json:"candidateRevision,omitempty"`
-	OperationKind      string       `json:"operationKind"`
-	Executable         bool         `json:"executable"`
-	NoOp               bool         `json:"noOp"`
-	PlanToken          string       `json:"planToken,omitempty"`
-	ExpiresAt          *time.Time   `json:"expiresAt,omitempty"`
-	RequestedChanges   []Change     `json:"requestedChanges"`
-	AutomaticChanges   []Change     `json:"automaticChanges"`
-	SelectedChanges    []Change     `json:"selectedChanges"`
-	Blockers           []Issue      `json:"blockers"`
-	Choices            []Choice     `json:"choices"`
-	PreservedIssues    []Issue      `json:"preservedIssues"`
-	RuntimeImpact      RuntimeImpact `json:"runtimeImpact"`
+	ContractVersion   string        `json:"contractVersion"`
+	PlannerVersion    string        `json:"plannerVersion"`
+	BaseRevision      string        `json:"baseRevision"`
+	CandidateRevision string        `json:"candidateRevision,omitempty"`
+	OperationKind     string        `json:"operationKind"`
+	Executable        bool          `json:"executable"`
+	NoOp              bool          `json:"noOp"`
+	PlanToken         string        `json:"planToken,omitempty"`
+	ExpiresAt         *time.Time    `json:"expiresAt,omitempty"`
+	RequestedChanges  []Change      `json:"requestedChanges"`
+	AutomaticChanges  []Change      `json:"automaticChanges"`
+	SelectedChanges   []Change      `json:"selectedChanges"`
+	Blockers          []Issue       `json:"blockers"`
+	Choices           []Choice      `json:"choices"`
+	PreservedIssues   []Issue       `json:"preservedIssues"`
+	RuntimeImpact     RuntimeImpact `json:"runtimeImpact"`
 }
 
 // Result pairs a plan with an optional candidate config snapshot.
@@ -168,6 +179,20 @@ type Operation struct {
 // ProviderRemovePayload is the payload for OpProviderRemove.
 type ProviderRemovePayload struct {
 	ProviderID string `json:"providerId"`
+}
+
+// GroupRemovePayload is the payload for OpGroupRemove.
+type GroupRemovePayload struct {
+	ProviderID string `json:"providerId"`
+	GroupID    string `json:"groupId"`
+}
+
+// GroupIDChangePayload is the payload for OpGroupIDChange.
+// Identity rename only: never silently rebinds to default or a sibling group.
+type GroupIDChangePayload struct {
+	ProviderID string `json:"providerId"`
+	OldGroupID string `json:"oldGroupId"`
+	NewGroupID string `json:"newGroupId"`
 }
 
 // AliasRemovePayload is the payload for OpAliasRemove.

@@ -1,0 +1,11 @@
+{
+  "id": "premium",
+  "name": "Premium Fake Group",
+  "protocol": "openai",
+  "apiKeyCount": 0,
+  "models": [
+    "fake-model-a"
+  ],
+  "modelsSource": "manual",
+  "disabled": false
+}

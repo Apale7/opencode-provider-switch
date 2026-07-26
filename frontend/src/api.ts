@@ -23,6 +23,12 @@ import type {
   ProviderImportResult,
   ProviderHealthInput,
   ProviderHealthResult,
+  ProviderGroupCreateInput,
+  ProviderGroupDeleteInput,
+  ProviderGroupPingInput,
+  ProviderGroupRefreshModelsInput,
+  ProviderGroupUpdateInput,
+  ProviderGroupView,
   ProviderPingInput,
   ProviderPingResult,
   ProviderPriorityInput,
@@ -161,6 +167,19 @@ function bridge() {
     throw new Error('Wails bridge unavailable')
   }
   return app
+}
+
+type ProviderGroupBridge = {
+  ListProviderGroups: (providerID: string) => Promise<ProviderGroupView[]>
+  CreateProviderGroup: (input: ProviderGroupCreateInput) => Promise<ProviderGroupView>
+  UpdateProviderGroup: (input: ProviderGroupUpdateInput) => Promise<ProviderGroupView>
+  DeleteProviderGroup: (input: ProviderGroupDeleteInput) => Promise<void>
+  RefreshProviderGroupModels: (input: ProviderGroupRefreshModelsInput) => Promise<ProviderSaveResult>
+  PingProviderGroupBaseURL: (input: ProviderGroupPingInput) => Promise<ProviderPingResult>
+}
+
+function providerGroupBridge(): ProviderGroupBridge {
+  return bridge() as unknown as ProviderGroupBridge
 }
 
 /** Map Wails lifecycle envelope (resolved, never rejected for business codes). */
@@ -520,4 +539,49 @@ export async function executeLifecycleEnvelope(
     }
     throw err
   }
+}
+
+export function listProviderGroups(providerID: string): Promise<ProviderGroupView[]> {
+  return isWails()
+    ? providerGroupBridge().ListProviderGroups(providerID)
+    : http<ProviderGroupView[]>('/api/admin/providers/' + encodeURIComponent(providerID) + '/groups')
+}
+
+export function createProviderGroup(input: ProviderGroupCreateInput): Promise<ProviderGroupView> {
+  return isWails()
+    ? providerGroupBridge().CreateProviderGroup(input)
+    : http<ProviderGroupView>('/api/admin/providers/' + encodeURIComponent(input.providerId) + '/groups', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      })
+}
+
+export function updateProviderGroup(input: ProviderGroupUpdateInput): Promise<ProviderGroupView> {
+  const path = '/api/admin/providers/' + encodeURIComponent(input.providerId) + '/groups/' + encodeURIComponent(input.groupId)
+  return isWails()
+    ? providerGroupBridge().UpdateProviderGroup(input)
+    : http<ProviderGroupView>(path, { method: 'PUT', body: JSON.stringify(input) })
+}
+
+export async function deleteProviderGroup(input: ProviderGroupDeleteInput): Promise<void> {
+  const path = '/api/admin/providers/' + encodeURIComponent(input.providerId) + '/groups/' + encodeURIComponent(input.groupId)
+  if (isWails()) {
+    await providerGroupBridge().DeleteProviderGroup(input)
+    return
+  }
+  await http<{ ok: boolean }>(path, { method: 'DELETE', body: JSON.stringify(input) })
+}
+
+export function refreshProviderGroupModels(input: ProviderGroupRefreshModelsInput): Promise<ProviderSaveResult> {
+  const path = '/api/admin/providers/' + encodeURIComponent(input.providerId) + '/groups/' + encodeURIComponent(input.groupId) + '/refresh-models'
+  return isWails()
+    ? providerGroupBridge().RefreshProviderGroupModels(input)
+    : http<ProviderSaveResult>(path, { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function pingProviderGroupBaseURL(input: ProviderGroupPingInput): Promise<ProviderPingResult> {
+  const path = '/api/admin/providers/' + encodeURIComponent(input.providerId) + '/groups/' + encodeURIComponent(input.groupId) + '/ping'
+  return isWails()
+    ? providerGroupBridge().PingProviderGroupBaseURL(input)
+    : http<ProviderPingResult>(path, { method: 'POST', body: JSON.stringify(input) })
 }

@@ -1,0 +1,8 @@
+{
+  "error_code": "v2_legacy_provider_fields",
+  "message_contains": [
+    "legacy",
+    "vendor-a"
+  ],
+  "notes": "schema_version 2 rejects Provider top-level legacy group fields: protocol, api_key, api_keys, models, models_source"
+}

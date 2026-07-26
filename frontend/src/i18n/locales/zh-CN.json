@@ -91,9 +91,19 @@
     "runtime": "运行时影响：providerRemoved={{providerRemoved}}，aliasRemoved={{aliasRemoved}}，routingChanged={{routingChanged}}",
     "refresh": "刷新预览",
     "execute": "执行删除",
+    "executeRename": "应用重命名",
     "executed": "生命周期已应用（{{state}}）",
     "restartPending": "配置已保存；需重启后完整生效",
     "applyFailed": "已保存，但运行时应用失败（{{state}}）",
+    "params": {
+      "providerId": "提供商 ID",
+      "groupId": "分组 ID",
+      "model": "模型",
+      "providerGroups": "提供商分组",
+      "providerGroupsPlaceholder": "provider/group, provider/group",
+      "providers": "提供商",
+      "providersPlaceholder": "provider-a, provider-b"
+    },
     "option": {
       "rebind_target": "重绑目标",
       "remove_target": "移除目标",
@@ -102,7 +112,8 @@
       "disable_rule": "禁用规则",
       "delete_rule": "删除规则",
       "keep_rule": "保留规则",
-      "replace_providers": "替换 providers"
+      "replace_providers": "替换 providers",
+      "replace_provider_groups": "替换 provider groups"
     }
   },
   "transport": {
@@ -326,7 +337,28 @@
     "priority": "优先级",
     "priorityDragHint": "拖拽调整供应商优先级",
     "autoAliasEnabled": "自动生成别名",
-    "autoAliasDisabledWarning": "关闭自动别名后需手动配置别名路由。"
+    "autoAliasDisabledWarning": "关闭自动别名后需手动配置别名路由。",
+    "groups": {
+      "layoutLabel": "提供商分组", "listRegionLabel": "提供商分组列表", "detailRegionLabel": "提供商分组详情",
+      "listTitle": "提供商分组", "listSubtitle": "将凭据、协议和模型按分组隔离。", "listEmpty": "尚未配置分组。",
+      "formCreateTitle": "新建分组", "formEditTitle": "编辑分组", "actionAdd": "新增分组", "actionSave": "保存分组", "actionDelete": "删除分组", "actionRefreshModels": "刷新模型", "actionPing": "Ping",
+      "fieldId": "分组 id", "fieldName": "分组名称", "fieldProtocol": "协议", "fieldModels": "模型", "fieldDisabled": "禁用分组", "placeholderId": "group-id", "placeholderName": "显示名称", "placeholderModel": "model-id",
+      "badgeEnabled": "已启用", "badgeDisabled": "已禁用", "modelsCount": "{{count}} 个模型", "upstreamKeysLabel": "上游密钥", "upstreamKeysCount": "已保存 {{count}} 个密钥", "upstreamKeysNotSet": "未保存密钥", "upstreamKeysMaskHint": "已保存的上游密钥会被掩码，绝不显示明文。", "upstreamKeysReplace": "替换已保存密钥", "upstreamKeysKeepHint": "不启用替换即可保留已保存密钥。", "placeholderUpstreamKey": "每行粘贴一个上游密钥",
+      "statusCreating": "正在新建分组...", "statusCreated": "分组已新建", "statusSaving": "正在保存分组...", "statusSaved": "分组已保存", "statusDeleting": "正在删除分组...", "statusDeleted": "分组已删除", "statusRefreshingModels": "正在刷新分组模型...", "statusRefreshedModels": "分组模型已刷新", "statusPinging": "正在 Ping 分组...", "statusPingOk": "Ping 成功（{{latency}} ms）", "statusPingFail": "Ping 失败",
+      "errorRequiredId": "必须填写分组 id", "errorSave": "无法保存分组", "errorDelete": "无法删除分组", "errorRefreshModels": "无法刷新模型", "errorPing": "无法 Ping 分组",
+       "aliasSelectorGroup": "分组", "aliasSelectorModel": "模型", "aliasSelectorGroupPlaceholder": "选择兼容分组", "aliasSelectorSubtitle": "请先明确选择分组，再选择模型。", "aliasSelectorNoCompatibleGroups": "没有可用的兼容分组。",
+       "sharedSettingsTitle": "提供商共享设置", "sharedSettingsSubtitle": "所有分组共用的连接设置。", "sharedSettingsHint": "凭据、协议和模型均在各分组中配置。", "sharedBaseUrl": "基础 URL", "sharedBaseUrls": "基础 URL 列表", "sharedBaseUrlStrategy": "基础 URL 策略", "sharedHeaders": "请求头", "sharedAutoAlias": "自动生成别名", "sharedProviderDisabled": "禁用提供商", "sharedProviderDisabledHint": "禁用提供商会阻止所有分组参与路由。",
+       "listCount": "{{count}} 个分组", "listEmptyHint": "新建分组以配置上游协议和凭据。", "listLoading": "正在加载分组...", "listError": "无法加载分组。", "listNoMatches": "没有匹配的分组。", "listNoMatchesHint": "请调整筛选条件或新建分组。", "listSelectHint": "选择分组以编辑其隔离设置。", "listCardId": "ID", "listCardName": "名称", "listCardProtocol": "协议", "listCardModels": "模型", "listCardUpstreamKeys": "上游密钥", "listCardStatus": "状态", "listCardDefaultBadge": "默认", "providerGroupCount": "{{count}} 个分组", "providerGroupAvailableCount": "{{count}} 个可用",
+       "detailTitle": "分组详情", "detailSubtitle": "这些设置仅应用于当前分组。", "detailEmpty": "请选择分组", "detailEmptyHint": "从列表选择分组或新建一个分组。", "fieldIdHint": "为路由和规则使用稳定标识。", "fieldNameHint": "管理视图中显示的可选名称。", "fieldDisabledHint": "禁用的分组不会参与路由。", "fieldModelsSource": "模型来源", "placeholderProtocol": "选择协议",
+       "actionCreate": "新建分组", "actionReset": "重置", "actionCancel": "取消", "actionEnable": "启用", "actionDisable": "禁用", "actionEdit": "编辑分组",
+       "statusLoading": "正在加载分组...", "statusEnabling": "正在启用分组...", "statusDisabling": "正在禁用分组...", "statusEnabled": "分组已启用", "statusDisabled": "分组已禁用", "statusPingIdle": "尚未执行 Ping", "statusUnsaved": "有未保存的修改",
+       "modelsNone": "暂无模型", "modelsSourceLabel": "来源", "modelsSourceDiscovered": "已发现", "modelsSourceConfigured": "已配置", "modelsSourceEmpty": "未设置", "modelsRefreshHint": "仅刷新当前分组的模型。",
+       "upstreamKeysHint": "这些密钥用于 ocswitch 向此上游分组发起认证。", "upstreamKeysCurrent": "当前密钥", "upstreamKeysSummaryItem": "掩码密钥", "upstreamKeysDraftCount": "{{count}} 个替换密钥", "upstreamKeysSavedMode": "保留已保存密钥", "upstreamKeysPendingMode": "替换已保存密钥", "upstreamKeysClearMode": "清空已保存密钥", "upstreamKeysReplaceHint": "替换会覆盖所有已保存的上游密钥。", "upstreamKeysPendingReplace": "替换密钥将被保存。", "upstreamKeysPendingClear": "已保存的上游密钥将被清空。", "upstreamKeysKeep": "保留已保存密钥", "upstreamKeysEmptyHint": "仅当上游不需要密钥时才保持为空。", "upstreamKeysAdd": "添加密钥", "upstreamKeysClear": "清空密钥", "upstreamKeysCancelEdit": "取消密钥编辑", "placeholderUpstreamKeyAdditional": "额外上游密钥", "errorMaskedKeyRejected": "不能保存掩码后的密钥值。",
+       "groupDisabledHint": "当前分组已禁用，不会接收流量。", "providerAndGroupDisabledHint": "提供商或当前分组已禁用。", "disabledBlocksRouting": "禁用分组不可路由。",
+       "aliasSelectorTitle": "目标分组", "aliasSelectorProvider": "提供商", "aliasSelectorProviderPlaceholder": "选择兼容提供商", "aliasSelectorModelPlaceholder": "选择模型", "aliasSelectorNoProviders": "没有可用的兼容提供商。", "aliasSelectorNoGroups": "请先选择提供商。", "aliasSelectorNoModels": "当前分组没有可用模型。", "aliasSelectorProtocolMismatch": "当前分组与别名协议不兼容。", "aliasSelectorGroupDisabled": "当前分组已禁用。", "aliasSelectorProviderDisabled": "当前提供商已禁用。", "aliasTargetSummary": "{{provider}} / {{group}} / {{model}}", "aliasTargetUnavailable": "当前目标不可用。",
+       "lifecycleDeleteTitle": "删除分组引用", "lifecycleDeleteHint": "删除当前分组前请检查引用。", "lifecycleRenameTitle": "重命名分组引用", "lifecycleRenameHint": "修改分组 ID 前请检查路由和重写规则更新。", "lifecycleIdChangeTitle": "修改分组 ID", "lifecycleIdChangeHint": "新 ID 会原子应用于受支持的引用。", "lifecycleLoading": "正在准备引用计划...", "lifecycleReady": "引用计划已就绪", "lifecycleNotExecutable": "此修改需要有效的引用计划。", "lifecycleBlockers": "阻断项", "lifecycleChoices": "需要的选择", "lifecycleAutomatic": "自动", "lifecyclePreserved": "已保留", "lifecycleExecute": "应用修改", "lifecycleCancel": "取消", "lifecycleRefresh": "刷新计划", "lifecycleExecuted": "引用计划已应用", "lifecycleApplyFailed": "无法应用引用计划。", "lifecycleRestartPending": "等待重启", "lifecycleDanglingTarget": "悬空别名目标", "lifecycleReferencedByAliases": "被别名引用", "lifecycleReferencedByRewrite": "被重写规则引用",
+       "errorLoad": "无法加载分组", "errorValidation": "请检查分组值后重试。", "errorDuplicateId": "已存在相同 ID 的分组", "errorRequiredProtocol": "必须选择协议", "emptyStateTitle": "没有提供商分组", "emptyStateHint": "新建分组以通过此提供商开始路由。", "loadingStateTitle": "正在加载提供商分组", "loadingStateHint": "正在获取隔离的分组设置。", "sharedRegionLabel": "提供商共享设置", "aliasSelectorRegionLabel": "别名目标选择器", "narrowStackHint": "窄屏下会以单列展示分组设置。"
+    }
   },
   "aliases": {
     "title": "别名路由",
@@ -740,9 +772,9 @@
   },
   "rewriteRules": {
     "title": "请求改写规则",
-    "subtitle": "按 alias 与选定 provider，管理基于 JSONPath 的请求改写操作。",
+    "subtitle": "按 alias 与选定 provider 分组，管理基于 JSONPath 的请求改写操作。",
     "aliasTitle": "请求改写",
-    "aliasSubtitle": "这里仅管理当前别名下的规则，请求转发到选定 provider target 前会按顺序执行。",
+    "aliasSubtitle": "这里仅管理当前别名下的规则，请求转发到选定 provider 分组 target 前会按顺序执行。",
     "count": "共 {{count}} 条规则",
     "semantics": "规则按列表顺序执行。每行使用 JSONPath op。默认只允许 set 补缺失路径；开启覆盖后可覆盖、删除、append、insert。",
     "empty": "还没有请求改写规则。",
@@ -753,8 +785,8 @@
     "saveAliasFirstHint": "请求改写规则需要绑定到已保存的 alias 名称。保存别名后，再回到这里新增规则。",
     "aliasLockedHint": "Alias 已锁定为当前别名，保存时会强制使用它。",
     "scopeAliasProviders": "alias {{alias}} / {{providers}}",
-    "providerScopeAll": "全部 target provider",
-    "providerScopeSome": "provider {{providers}}",
+    "providerScopeAll": "全部 target 分组",
+    "providerScopeSome": "分组 {{providers}}",
     "scopeMissing": "未设置匹配范围",
     "modeOverride": "覆盖",
     "modeFill": "补缺",
@@ -771,7 +803,7 @@
     "newRule": "新建规则",
     "name": "规则名称",
     "alias": "Alias",
-    "providers": "Provider 范围",
+    "providers": "Provider 分组范围",
     "enabled": "保存为启用",
     "override": "覆盖已有值并允许 delete、append、insert",
     "ops": "操作行",
@@ -781,8 +813,8 @@
     "opsHint": "支持的 JSONPath 子集：$、点号名称、括号引用名称、非负数组索引。set/append/insert 的值用 JSON.parse 解析，失败则按字符串保存。",
     "opsFillHint": "补缺模式只允许 set 操作。使用 delete、append 或 insert 前必须开启覆盖。",
     "legacyEditWarning": "后端会跳过旧 set/delete 配置。编辑器从空 ops 开始；请先填入迁移后的 op 行再保存。",
-    "providersHint": "保存为空 provider 范围表示匹配当前 alias 的全部 provider；只选部分时保存明确 provider ID。",
-    "noProviderTargets": "当前 alias 还没有 provider target。请先绑定 target，再缩小规则范围。",
+    "providersHint": "“全选”/空保存范围是显式 wildcard，也会匹配未来新增分组；勾选当前全部 Groups 仍会保存精确 provider/group ID，不会因全选折叠为空。",
+    "noProviderTargets": "当前 alias 还没有 provider 分组 target。请先绑定 target，再缩小规则范围。",
     "selectAllProviders": "全选",
     "clearProviders": "清空全部",
     "statusEditing": "正在编辑规则 {{name}}",

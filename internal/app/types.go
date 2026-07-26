@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/Apale7/opencode-provider-switch/internal/config"
@@ -144,6 +145,7 @@ type RequestTrace struct {
 	ErrorCode             string            `json:"errorCode,omitempty"`
 	Error                 string            `json:"error,omitempty"`
 	FinalProvider         string            `json:"finalProvider,omitempty"`
+	FinalGroup            string            `json:"finalGroup,omitempty"`
 	FinalModel            string            `json:"finalModel,omitempty"`
 	FinalURL              string            `json:"finalUrl,omitempty"`
 	Failover              bool              `json:"failover"`
@@ -202,6 +204,7 @@ type TraceStats struct {
 type TraceAttempt struct {
 	Attempt         int               `json:"attempt"`
 	Provider        string            `json:"provider,omitempty"`
+	Group           string            `json:"group,omitempty"`
 	Model           string            `json:"model,omitempty"`
 	URL             string            `json:"url,omitempty"`
 	APIKeyIndex     int               `json:"apiKeyIndex,omitempty"`
@@ -227,6 +230,10 @@ func requestTraceView(trace proxy.RequestTrace) RequestTrace {
 	for _, attempt := range trace.Attempts {
 		attempts = append(attempts, traceAttemptView(attempt))
 	}
+	finalGroup := ""
+	if strings.TrimSpace(trace.FinalProvider) != "" || strings.TrimSpace(trace.FinalGroup) != "" {
+		finalGroup = proxy.NormalizeTraceGroup(trace.FinalGroup)
+	}
 	return RequestTrace{
 		ID:                    trace.ID,
 		StartedAt:             formatTimestamp(trace.StartedAt),
@@ -247,6 +254,7 @@ func requestTraceView(trace proxy.RequestTrace) RequestTrace {
 		ErrorCode:             trace.ErrorCode,
 		Error:                 trace.Error,
 		FinalProvider:         trace.FinalProvider,
+		FinalGroup:            finalGroup,
 		FinalModel:            trace.FinalModel,
 		FinalURL:              trace.FinalURL,
 		Failover:              trace.Failover,
@@ -283,9 +291,14 @@ func cloneInt64Ptr(in *int64) *int64 {
 }
 
 func traceAttemptView(attempt proxy.TraceAttempt) TraceAttempt {
+	group := ""
+	if strings.TrimSpace(attempt.Provider) != "" || strings.TrimSpace(attempt.Group) != "" {
+		group = proxy.NormalizeTraceGroup(attempt.Group)
+	}
 	return TraceAttempt{
 		Attempt:         attempt.Attempt,
 		Provider:        attempt.Provider,
+		Group:           group,
 		Model:           attempt.Model,
 		URL:             attempt.URL,
 		APIKeyIndex:     attempt.APIKeyIndex,
@@ -340,21 +353,15 @@ func parseOptionalTimestamp(value string) (time.Time, error) {
 }
 
 type ProviderView struct {
-	ID               string            `json:"id"`
-	Name             string            `json:"name,omitempty"`
-	Protocol         string            `json:"protocol"`
-	BaseURL          string            `json:"baseUrl"`
-	BaseURLs         []string          `json:"baseUrls,omitempty"`
-	BaseURLStrategy  string            `json:"baseUrlStrategy"`
-	APIKeySet        bool              `json:"apiKeySet"`
-	APIKeyMasked     string            `json:"apiKeyMasked,omitempty"`
-	APIKeyCount      int               `json:"apiKeyCount"`
-	APIKeysMasked    []string          `json:"apiKeysMasked,omitempty"`
-	Headers          map[string]string `json:"headers,omitempty"`
-	Models           []string          `json:"models,omitempty"`
-	ModelsSource     string            `json:"modelsSource,omitempty"`
-	Disabled         bool              `json:"disabled"`
-	AutoAliasEnabled bool              `json:"autoAliasEnabled"`
+	ID               string              `json:"id"`
+	Name             string              `json:"name,omitempty"`
+	BaseURL          string              `json:"baseUrl"`
+	BaseURLs         []string            `json:"baseUrls,omitempty"`
+	BaseURLStrategy  string              `json:"baseUrlStrategy"`
+	Headers          map[string]string   `json:"headers,omitempty"`
+	Disabled         bool                `json:"disabled"`
+	AutoAliasEnabled bool                `json:"autoAliasEnabled"`
+	Groups           []ProviderGroupView `json:"groups,omitempty"`
 }
 
 type ProviderSaveResult struct {
@@ -363,11 +370,13 @@ type ProviderSaveResult struct {
 }
 
 type ProviderRefreshModelsInput struct {
-	ID string `json:"id"`
+	ID    string `json:"id"`
+	Group string `json:"group,omitempty"` // empty maps only to default; never first/sibling fallback
 }
 
 type ProviderPingInput struct {
 	ID       string            `json:"id,omitempty"`
+	Group    string            `json:"group,omitempty"` // empty maps only to default when loading an existing provider
 	Protocol string            `json:"protocol,omitempty"`
 	BaseURL  string            `json:"baseUrl"`
 	APIKey   string            `json:"apiKey,omitempty"`
@@ -386,6 +395,7 @@ type ProviderPingResult struct {
 
 type AliasTargetView struct {
 	Provider       string   `json:"provider"`
+	Group          string   `json:"group"`
 	Model          string   `json:"model"`
 	Enabled        bool     `json:"enabled"`
 	AutoGenerated  bool     `json:"autoGenerated"`
@@ -681,22 +691,32 @@ type ConfigImportResult struct {
 	Warnings   []string `json:"warnings,omitempty"`
 }
 
+// ProviderUpsertInput is the shared-field write contract for a provider.
+// Group-owned fields (protocol, keys, models) are never top-level: they travel
+// only through nested DefaultGroup (or dedicated Provider Group CRUD).
 type ProviderUpsertInput struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name,omitempty"`
-	Protocol        string            `json:"protocol"`
 	BaseURL         string            `json:"baseUrl"`
 	BaseURLs        []string          `json:"baseUrls,omitempty"`
 	BaseURLStrategy string            `json:"baseUrlStrategy"`
-	APIKey          string            `json:"apiKey,omitempty"`
-	APIKeys         []string          `json:"apiKeys,omitempty"`
-	ClearAPIKeys    bool              `json:"clearApiKeys"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	Disabled        bool              `json:"disabled"`
-	SkipModels      bool              `json:"skipModels"`
 	ClearHeaders    bool              `json:"clearHeaders"`
 	// AutoAliasEnabled: nil on create => true; nil on update => keep existing.
 	AutoAliasEnabled *bool `json:"autoAliasEnabled,omitempty"`
+	// DefaultGroup uses the same ProviderGroupInput contract as Group CRUD
+	// (apiKeysChanged, models). ID must be empty or "default".
+	//
+	// Create: required. Materializes the sole default group.
+	// Update: optional. nil keeps every group untouched (shared fields only).
+	// Non-nil atomically updates the existing default group in the same
+	// ConfigStore mutation as shared fields; siblings are preserved.
+	//
+	// Models == nil triggers /v1/models discovery; non-nil (including empty)
+	// skips discovery and stores the provided catalog. Discovery failures emit
+	// warnings and follow preserve/untrusted semantics (same as create).
+	DefaultGroup *ProviderGroupInput `json:"defaultGroup,omitempty"`
 }
 
 // AutoAliasSettingsInput updates the global auto-alias generation switch.
@@ -742,12 +762,14 @@ type AliasUpsertInput struct {
 type AliasTargetInput struct {
 	Alias    string `json:"alias"`
 	Provider string `json:"provider"`
+	Group    string `json:"group"`
 	Model    string `json:"model"`
 	Disabled bool   `json:"disabled"`
 }
 
 type AliasTargetRefInput struct {
 	Provider string `json:"provider"`
+	Group    string `json:"group"`
 	Model    string `json:"model"`
 }
 
@@ -757,23 +779,23 @@ type AliasTargetReorderInput struct {
 }
 
 type RequestRewriteRuleView struct {
-	Name      string                           `json:"name"`
-	Alias     string                           `json:"alias,omitempty"`
-	Providers []string                         `json:"providers,omitempty"`
-	Enabled   bool                             `json:"enabled"`
-	Override  bool                             `json:"override"`
-	Ops       []config.RequestRewriteOperation `json:"ops,omitempty"`
-	Legacy    bool                             `json:"legacy,omitempty"`
-	Warnings  []string                         `json:"warnings,omitempty"`
+	Name           string                           `json:"name"`
+	Alias          string                           `json:"alias,omitempty"`
+	ProviderGroups []ProviderGroupSelectorView      `json:"providerGroups,omitempty"`
+	Enabled        bool                             `json:"enabled"`
+	Override       bool                             `json:"override"`
+	Ops            []config.RequestRewriteOperation `json:"ops,omitempty"`
+	Legacy         bool                             `json:"legacy,omitempty"`
+	Warnings       []string                         `json:"warnings,omitempty"`
 }
 
 type RequestRewriteRuleInput struct {
-	Name      string                           `json:"name"`
-	Alias     string                           `json:"alias,omitempty"`
-	Providers []string                         `json:"providers,omitempty"`
-	Enabled   bool                             `json:"enabled"`
-	Override  bool                             `json:"override"`
-	Ops       []config.RequestRewriteOperation `json:"ops,omitempty"`
+	Name           string                           `json:"name"`
+	Alias          string                           `json:"alias,omitempty"`
+	ProviderGroups []ProviderGroupSelectorInput     `json:"providerGroups,omitempty"`
+	Enabled        bool                             `json:"enabled"`
+	Override       bool                             `json:"override"`
+	Ops            []config.RequestRewriteOperation `json:"ops,omitempty"`
 }
 
 type RequestRewriteRuleStateInput struct {

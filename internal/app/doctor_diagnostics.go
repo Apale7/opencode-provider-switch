@@ -182,7 +182,12 @@ func aliasTargetView(cfg *config.Config, alias config.Alias, target config.Targe
 		view.AllowedActions = targetActionsForAlias(alias)
 		return view
 	}
-	if !config.ProtocolsMatch(alias.Protocol, provider.Protocol) {
+	groupID := strings.TrimSpace(target.Group)
+	if groupID == "" {
+		groupID = config.DefaultGroupID
+	}
+	group := provider.FindGroup(groupID)
+	if group == nil || !config.ProtocolsMatch(alias.Protocol, group.Protocol) {
 		view.Reason = string(diagnostics.ReasonProtocolMismatch)
 		view.Code = string(diagnostics.CodeAliasTargetProtocolMismatch)
 		view.AllowedActions = targetActionsForAlias(alias)

@@ -1,0 +1,69 @@
+{
+  "id": "vendor-fake-a",
+  "name": "Vendor Fake A",
+  "baseUrl": "https://api.fake-vendor.example/v1",
+  "baseUrls": [
+    "https://api.fake-vendor.example/v1",
+    "https://backup.fake-vendor.example/v1"
+  ],
+  "baseUrlStrategy": "ordered",
+  "headers": {
+    "X-Fake-Org": "org-fake-001"
+  },
+  "disabled": false,
+  "autoAliasEnabled": true,
+  "groups": [
+    {
+      "id": "default",
+      "name": "Default",
+      "protocol": "openai",
+      "apiKeyCount": 1,
+      "apiKeysMasked": [
+        "sk-f…aaaa"
+      ],
+      "models": [
+        "fake-model-a"
+      ],
+      "modelsSource": "manual",
+      "disabled": false
+    },
+    {
+      "id": "premium",
+      "name": "Premium Fake Group",
+      "protocol": "openai",
+      "apiKeyCount": 2,
+      "apiKeysMasked": [
+        "sk-f…aaaa",
+        "sk-f…bbbb"
+      ],
+      "models": [
+        "fake-model-a",
+        "fake-model-b"
+      ],
+      "modelsSource": "discovered",
+      "disabled": false
+    },
+    {
+      "id": "free",
+      "name": "Free Fake Group",
+      "protocol": "anthropic",
+      "apiKeyCount": 0,
+      "models": [
+        "fake-claude-mini"
+      ],
+      "modelsSource": "manual",
+      "disabled": true
+    }
+  ],
+  "assertions": {
+    "groupsType": "[]ProviderGroupView",
+    "groupItemsUseMaskedKeysOnly": true,
+    "providerTopLevelMustNotEchoGroupPlaintextKeys": true,
+    "responseFieldsForbiddenOnGroups": [
+      "apiKey",
+      "apiKeys",
+      "api_key",
+      "api_keys"
+    ]
+  }
+}

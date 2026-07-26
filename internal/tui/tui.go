@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -23,6 +24,7 @@ type screen int
 const (
 	screenOverview screen = iota
 	screenProviders
+	screenGroups
 	screenAliases
 	screenDoctor
 	screenSync
@@ -39,6 +41,9 @@ const (
 	actionAddProvider
 	actionEditProvider
 	actionRemoveProvider
+	actionAddGroup
+	actionEditGroup
+	actionRemoveGroup
 	actionAddAlias
 	actionEditAlias
 	actionRemoveAlias
@@ -73,6 +78,7 @@ type model struct {
 	previous         screen
 	menuIndex        int
 	providerIndex    int
+	groupIndex       int
 	aliasIndex       int
 	targetIndex      int
 	languageIndex    int
@@ -80,6 +86,8 @@ type model struct {
 	confirmAction    action
 	formFields       []field
 	formIndex        int
+	formProviderID   string // provider id for group form / impact subject context
+	formGroupID      string // original group id path for edit (identity may change in form)
 	selectOpen       bool
 	optionIndex      int
 	hoverButton      string
@@ -95,7 +103,7 @@ type model struct {
 	width            int
 	height           int
 
-	// Lifecycle impact preview (provider/alias remove).
+	// Lifecycle impact preview (provider/alias/group remove or group id_change).
 	impactActive     bool
 	impactLoading    bool
 	impactRevision   app.ConfigRevision
@@ -103,10 +111,15 @@ type model struct {
 	impactSubject    string
 	impactPlan       LifecyclePlanPresentation
 	impactRawPlan    app.LifecyclePlanView
-	impactSelections map[string]string // choiceID -> optionID
+	impactSelections map[string]lifecycle.Selection // choiceID -> selection (option + params)
 	impactChoiceIdx  int
 	impactScroll     int
 	impactOutcome    TransportMessage
+
+	// group.id_change: atomic UpdateProviderGroup(rename+fields) instead of execute then patch.
+	pendingGroupUpdate     *app.ProviderGroupInput
+	pendingGroupProviderID string
+	pendingGroupOldID      string
 }
 
 type loadedMsg struct {
@@ -185,6 +198,12 @@ const (
 	fieldKeyAlias           = "alias"
 	fieldKeyAliasName       = "aliasName"
 	fieldKeyAliasDisplay    = "aliasDisplay"
+	fieldKeyGroup           = "group"
+	fieldKeyGroupID         = "groupID"
+	fieldKeyGroupName       = "groupName"
+	fieldKeyModels          = "models"
+	fieldKeyAPIKeysMode     = "apiKeysMode"
+	fieldKeyAPIKeys         = "apiKeys"
 	fieldKeyModel           = "model"
 )
 
@@ -288,6 +307,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = m.transportMessageText(tm)
 			if tm.Kind == "conflict" {
 				m.clearImpact()
+				m.clearPendingGroupUpdate()
 				m.screen = m.previous
 				return m, m.refresh(m.t("impact.revisionConflict"))
 			}
@@ -313,6 +333,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = m.transportMessageText(tm)
 			if tm.Kind == "conflict" {
 				m.clearImpact()
+				m.clearPendingGroupUpdate()
 				m.screen = m.previous
 				return m, m.refresh(m.t("impact.revisionConflict"))
 			}
@@ -320,6 +341,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				summary := PresentLifecycleExecute(msg.result)
 				m.status = m.t("impact.applyFailed", summary.RuntimeState)
 				m.clearImpact()
+				m.clearPendingGroupUpdate()
 				m.screen = m.previous
 				return m, m.refresh(m.status)
 			}
@@ -334,6 +356,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			status = m.t("impact.restartPending")
 		}
 		m.clearImpact()
+		m.clearPendingGroupUpdate()
 		m.screen = m.previous
 		m.err = ""
 		return m, m.refresh(status)
@@ -368,6 +391,8 @@ func (m model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m.clickOverview(event.X, relY)
 	case screenProviders:
 		return m.clickProviders(event.X, relY)
+	case screenGroups:
+		return m.clickGroups(event.X, relY)
 	case screenAliases:
 		return m.clickAliases(event.X, relY)
 	case screenDoctor:
@@ -402,6 +427,8 @@ func (m *model) updateMouseHover(x int, relY int) {
 		m.hoverOverview(x, relY)
 	case screenProviders:
 		m.hoverProviders(x, relY)
+	case screenGroups:
+		m.hoverGroups(x, relY)
 	case screenAliases:
 		m.hoverAliases(x, relY)
 	case screenDoctor:
@@ -562,6 +589,8 @@ func (m model) providerButtonClick(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.openImpactProviderRemove(p.ID)
+	case "groups":
+		m.openGroupsForSelectedProvider()
 	case "refresh":
 		return m, m.refresh("")
 	}
@@ -702,6 +731,7 @@ func (m model) clickForm(relY int) (tea.Model, tea.Cmd) {
 					m.optionIndex = option
 					m.formFields[i].value = field.options[option]
 					m.selectOpen = false
+					m.syncBindTargetGroup()
 					m.validateFormFields()
 					return m, nil
 				}
@@ -755,6 +785,11 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "esc" {
+		if m.screen == screenGroups {
+			m.screen = screenProviders
+			m.hoverButton = ""
+			return m, nil
+		}
 		m.screen = screenOverview
 		m.hoverButton = ""
 		m.menuIndex = m.guideMenuIndex()
@@ -765,6 +800,8 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateOverview(key)
 	case screenProviders:
 		return m.updateProviders(key)
+	case screenGroups:
+		return m.updateGroups(key)
 	case screenAliases:
 		return m.updateAliases(key)
 	case screenDoctor:
@@ -835,6 +872,8 @@ func (m model) updateProviders(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.openImpactProviderRemove(p.ID)
+	case "g":
+		m.openGroupsForSelectedProvider()
 	}
 	return m, nil
 }
@@ -992,6 +1031,7 @@ func (m model) activateFormField() (tea.Model, tea.Cmd) {
 				field.value = field.options[m.optionIndex]
 			}
 			m.selectOpen = false
+			m.syncBindTargetGroup()
 			m.validateFormFields()
 			return m, nil
 		}
@@ -1041,6 +1081,7 @@ func (m model) updateImpact(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "n", "N", "esc":
 		m.clearImpact()
+		m.clearPendingGroupUpdate()
 		m.hoverButton = ""
 		m.screen = m.previous
 		return m, nil
@@ -1108,13 +1149,26 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		in := app.ProviderUpsertInput{
 			ID:              id,
 			Name:            fields[fieldKeyProviderName],
-			Protocol:        defaultString(fields[fieldKeyProtocol], config.ProtocolOpenAIResponses),
 			BaseURL:         baseURL,
 			BaseURLs:        splitList(fields[fieldKeyBaseURLs]),
 			BaseURLStrategy: defaultString(fields[fieldKeyBaseURLStrategy], config.ProviderBaseURLStrategyOrdered),
-			APIKey:          fields[fieldKeyAPIKey],
-			SkipModels:      parseYes(fields[fieldKeySkipModels]),
 			Disabled:        parseYes(fields[fieldKeyDisabled]),
+		}
+		if m.formAction == actionAddProvider {
+			// Create maps group-owned fields into nested defaultGroup.
+			group := app.ProviderGroupInput{
+				ID:       config.DefaultGroupID,
+				Name:     config.DefaultGroupName,
+				Protocol: defaultString(fields[fieldKeyProtocol], config.ProtocolOpenAIResponses),
+			}
+			if key := strings.TrimSpace(fields[fieldKeyAPIKey]); key != "" {
+				group.APIKeysChanged = true
+				group.APIKeys = []string{key}
+			}
+			if parseYes(fields[fieldKeySkipModels]) {
+				group.Models = []string{}
+			}
+			in.DefaultGroup = &group
 		}
 		return m, m.saveProvider(in)
 	case actionAddAlias, actionEditAlias:
@@ -1130,8 +1184,41 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		alias := fields[fieldKeyAlias]
 		provider := fields[fieldKeyProviderID]
 		modelName := fields[fieldKeyModel]
-		in := app.AliasTargetInput{Alias: alias, Provider: provider, Model: modelName, Disabled: parseYes(fields[fieldKeyDisabled])}
+		in := app.AliasTargetInput{Alias: alias, Provider: provider, Group: fields[fieldKeyGroup], Model: modelName, Disabled: parseYes(fields[fieldKeyDisabled])}
 		return m, m.bindTarget(in)
+	case actionAddGroup:
+		providerID := strings.TrimSpace(m.formProviderID)
+		if providerID == "" {
+			m.err = m.t("error.noProvider")
+			return m, nil
+		}
+		in := buildProviderGroupInputFromFields(fields, false)
+		return m, m.saveGroup(providerID, "", in, true)
+	case actionEditGroup:
+		providerID := strings.TrimSpace(m.formProviderID)
+		groupID := strings.TrimSpace(m.formGroupID)
+		if providerID == "" {
+			m.err = m.t("error.noProvider")
+			return m, nil
+		}
+		if groupID == "" {
+			m.err = m.t("error.noGroup")
+			return m, nil
+		}
+		in := buildProviderGroupInputFromFields(fields, true)
+		if _, existingGroup := m.selectedGroup(); existingGroup != nil && existingGroup.ID == groupID && slices.Equal(in.Models, existingGroup.Models) {
+			in.Models = nil
+		}
+		newID := strings.TrimSpace(in.ID)
+		// Identity rename: preview impact, execute via atomic UpdateProviderGroup(rename+fields).
+		if newID != "" && newID != groupID {
+			pending := in
+			m.pendingGroupUpdate = &pending
+			m.pendingGroupProviderID = providerID
+			m.pendingGroupOldID = groupID
+			return m.openImpactGroupIDChange(providerID, groupID, newID)
+		}
+		return m, m.saveGroup(providerID, groupID, in, false)
 	}
 	return m, nil
 }
@@ -1178,6 +1265,8 @@ func (m model) View() string {
 		b.WriteString(m.viewOverview())
 	case screenProviders:
 		b.WriteString(m.viewProviders())
+	case screenGroups:
+		b.WriteString(m.viewGroups())
 	case screenAliases:
 		b.WriteString(m.viewAliases())
 	case screenDoctor:
@@ -1227,21 +1316,17 @@ func (m model) viewProviders() string {
 	if len(m.providers) == 0 {
 		return b.String() + m.t("providers.empty")
 	}
-	t := table.New().Border(lipgloss.NormalBorder()).BorderStyle(ruleStyle).Wrap(false).Headers("", "ID", "State", "Protocol", "Base URL", "API", "Models")
+	t := table.New().Border(lipgloss.NormalBorder()).BorderStyle(ruleStyle).Wrap(false).Headers("", "ID", "State", "Base URL", m.t("provider.groups"))
 	for i, p := range m.providers {
 		state := m.t("provider.state.enabled")
 		if p.Disabled {
 			state = m.t("provider.state.disabled")
 		}
-		apiKey := m.t("provider.api.none")
-		if p.APIKeySet {
-			apiKey = m.t("provider.api.set", p.APIKeyMasked)
-		}
 		marker := ""
 		if i == m.providerIndex {
 			marker = "›"
 		}
-		t.Row(marker, p.ID, state, p.Protocol, p.BaseURL, apiKey, strconv.Itoa(len(p.Models)))
+		t.Row(marker, p.ID, state, p.BaseURL, providerGroupSummary(p.Groups))
 	}
 	t.StyleFunc(func(row int, col int) lipgloss.Style {
 		if row == table.HeaderRow {
@@ -1389,6 +1474,8 @@ func (m model) viewForm() string {
 		value := f.value
 		if f.mask && value != "" {
 			value = strings.Repeat("*", len(value))
+		} else if f.kind == fieldSelect {
+			value = m.fieldOptionDisplay(f, value)
 		}
 		b.WriteString(": ")
 		if i == m.formIndex {
@@ -1443,8 +1530,8 @@ func (m model) viewImpact() string {
 			lines = append(lines, sectionStyle.Render(m.t("impact.choices")))
 			for i, ch := range m.impactPlan.Choices {
 				selected := m.impactSelections[ch.ID]
-				if selected == "" && len(ch.Options) > 0 {
-					selected = ch.Options[0].ID
+				if selected.OptionID == "" && len(ch.Options) > 0 {
+					selected.OptionID = ch.Options[0].ID
 				}
 				marker := "  "
 				if i == m.impactChoiceIdx {
@@ -1453,7 +1540,7 @@ func (m model) viewImpact() string {
 				opts := make([]string, 0, len(ch.Options))
 				for _, opt := range ch.Options {
 					label := opt.ID
-					if opt.ID == selected {
+					if opt.ID == selected.OptionID {
 						label = "[" + opt.ID + "]"
 					}
 					opts = append(opts, label)
@@ -1463,6 +1550,13 @@ func (m model) viewImpact() string {
 					line = selectedStyle.Render(line)
 				}
 				lines = append(lines, line)
+				if selected.OptionID == lifecycle.OptionRebindTarget || selected.OptionID == lifecycle.OptionReplaceProviderGroups {
+					if len(selected.Params) > 0 {
+						lines = append(lines, mutedStyle.Render("    params: "+formatImpactSelectionParams(selected.Params)))
+					} else {
+						lines = append(lines, mutedStyle.Render("    "+m.t("impact.paramsMissing")))
+					}
+				}
 			}
 		}
 		lines = append(lines, m.renderImpactSection(m.t("impact.preserved"), formatImpactIssues(m.impactPlan.Preserved))...)
@@ -1513,6 +1607,33 @@ func formatImpactIssues(items []LifecycleIssueLine) []string {
 		out = append(out, fmt.Sprintf("  - %s @ %s", issue.Code, path))
 	}
 	return out
+}
+
+func formatImpactSelectionParams(params map[string]any) string {
+	if len(params) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	// Stable-ish display without importing sort for a tiny helper: fixed key order preference.
+	preferred := []string{"providerId", "groupId", "model", "providerGroups", "providers"}
+	seen := map[string]bool{}
+	parts := make([]string, 0, len(params))
+	for _, k := range preferred {
+		if v, ok := params[k]; ok {
+			parts = append(parts, fmt.Sprintf("%s=%v", k, v))
+			seen[k] = true
+		}
+	}
+	for _, k := range keys {
+		if seen[k] {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%v", k, params[k]))
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m model) scrollLines(lines []string, offset int) string {
@@ -1573,18 +1694,119 @@ func (m *model) clearImpact() {
 	m.impactOutcome = TransportMessage{}
 }
 
+func (m *model) clearPendingGroupUpdate() {
+	m.pendingGroupUpdate = nil
+	m.pendingGroupProviderID = ""
+	m.pendingGroupOldID = ""
+}
+
 func (m *model) clampImpactIndexes() {
 	if m.impactChoiceIdx >= len(m.impactPlan.Choices) {
 		m.impactChoiceIdx = max(0, len(m.impactPlan.Choices)-1)
 	}
 	if m.impactSelections == nil {
-		m.impactSelections = map[string]string{}
+		m.impactSelections = map[string]lifecycle.Selection{}
 	}
-	for _, ch := range m.impactPlan.Choices {
-		if _, ok := m.impactSelections[ch.ID]; !ok && len(ch.Options) > 0 {
-			m.impactSelections[ch.ID] = ch.Options[0].ID
+	// Prefer raw plan choices (have Params) when available.
+	rawChoices := m.impactRawPlan.Choices
+	for i, ch := range m.impactPlan.Choices {
+		if _, ok := m.impactSelections[ch.ID]; ok || len(ch.Options) == 0 {
+			continue
+		}
+		var raw *lifecycle.Choice
+		if i < len(rawChoices) && rawChoices[i].ID == ch.ID {
+			raw = &rawChoices[i]
+		} else {
+			for j := range rawChoices {
+				if rawChoices[j].ID == ch.ID {
+					raw = &rawChoices[j]
+					break
+				}
+			}
+		}
+		optionID := ch.Options[0].ID
+		m.impactSelections[ch.ID] = m.selectionWithDefaultParams(ch.ID, optionID, raw)
+	}
+}
+
+func (m model) selectionWithDefaultParams(choiceID, optionID string, raw *lifecycle.Choice) lifecycle.Selection {
+	sel := lifecycle.Selection{ChoiceID: choiceID, OptionID: optionID}
+	if raw == nil {
+		// Fall back to presentation-line params when raw is unavailable.
+		for _, ch := range m.impactPlan.Choices {
+			if ch.ID == choiceID {
+				return m.selectionWithParamsMap(choiceID, optionID, ch.Params)
+			}
+		}
+		return sel
+	}
+	return m.selectionWithParamsMap(choiceID, optionID, raw.Params)
+}
+
+func (m model) selectionWithParamsMap(choiceID, optionID string, params map[string]any) lifecycle.Selection {
+	sel := lifecycle.Selection{ChoiceID: choiceID, OptionID: optionID}
+	if params == nil {
+		params = map[string]any{}
+	}
+	switch optionID {
+	case lifecycle.OptionRebindTarget:
+		providerID, _ := params["providerId"].(string)
+		model, _ := params["model"].(string)
+		removingGroup, _ := params["groupId"].(string)
+		groupID := m.firstSurvivingGroupID(providerID, removingGroup)
+		sel.Params = map[string]any{
+			"providerId": strings.TrimSpace(providerID),
+			"groupId":    groupID,
+			"model":      strings.TrimSpace(model),
+		}
+	case lifecycle.OptionReplaceProviderGroups:
+		providerID, _ := params["providerId"].(string)
+		removingGroup, _ := params["groupId"].(string)
+		groupID := m.firstSurvivingGroupID(providerID, removingGroup)
+		if strings.TrimSpace(providerID) != "" && groupID != "" {
+			sel.Params = map[string]any{
+				"providerGroups": []map[string]any{
+					{"provider": strings.TrimSpace(providerID), "group": groupID},
+				},
+			}
+		}
+	case lifecycle.OptionReplaceProviders:
+		// Leave empty unless caller filled; planner will reject incomplete replace.
+	}
+	return sel
+}
+
+func (m model) firstSurvivingGroupID(providerID, removingGroupID string) string {
+	providerID = strings.TrimSpace(providerID)
+	removing := strings.TrimSpace(removingGroupID)
+	if removing == "" {
+		removing = config.DefaultGroupID
+	}
+	for _, p := range m.providers {
+		if p.ID != providerID {
+			continue
+		}
+		for _, g := range p.Groups {
+			gid := strings.TrimSpace(g.ID)
+			if gid == "" {
+				gid = config.DefaultGroupID
+			}
+			if gid == removing || g.Disabled {
+				continue
+			}
+			return gid
+		}
+		for _, g := range p.Groups {
+			gid := strings.TrimSpace(g.ID)
+			if gid == "" {
+				gid = config.DefaultGroupID
+			}
+			if gid != removing {
+				return gid
+			}
 		}
 	}
+	return ""
 }
 
 func (m *model) cycleImpactOption(delta int) {
@@ -1599,7 +1821,7 @@ func (m *model) cycleImpactOption(delta int) {
 	cur := m.impactSelections[ch.ID]
 	idx := 0
 	for i, opt := range ch.Options {
-		if opt.ID == cur {
+		if opt.ID == cur.OptionID {
 			idx = i
 			break
 		}
@@ -1609,9 +1831,16 @@ func (m *model) cycleImpactOption(delta int) {
 		idx += len(ch.Options)
 	}
 	if m.impactSelections == nil {
-		m.impactSelections = map[string]string{}
+		m.impactSelections = map[string]lifecycle.Selection{}
 	}
-	m.impactSelections[ch.ID] = ch.Options[idx].ID
+	var raw *lifecycle.Choice
+	for i := range m.impactRawPlan.Choices {
+		if m.impactRawPlan.Choices[i].ID == ch.ID {
+			raw = &m.impactRawPlan.Choices[i]
+			break
+		}
+	}
+	m.impactSelections[ch.ID] = m.selectionWithDefaultParams(ch.ID, ch.Options[idx].ID, raw)
 }
 
 func (m model) impactSelectionSlice() []lifecycle.Selection {
@@ -1619,11 +1848,14 @@ func (m model) impactSelectionSlice() []lifecycle.Selection {
 		return nil
 	}
 	out := make([]lifecycle.Selection, 0, len(m.impactSelections))
-	for id, opt := range m.impactSelections {
-		if strings.TrimSpace(id) == "" || strings.TrimSpace(opt) == "" {
+	for id, sel := range m.impactSelections {
+		if strings.TrimSpace(id) == "" || strings.TrimSpace(sel.OptionID) == "" {
 			continue
 		}
-		out = append(out, lifecycle.Selection{ChoiceID: id, OptionID: opt})
+		if strings.TrimSpace(sel.ChoiceID) == "" {
+			sel.ChoiceID = id
+		}
+		out = append(out, sel)
 	}
 	return out
 }
@@ -1636,7 +1868,7 @@ func (m model) beginImpact(a action, subject string, op lifecycle.Operation) (mo
 	m.impactLoading = true
 	m.impactSubject = subject
 	m.impactOp = op
-	m.impactSelections = map[string]string{}
+	m.impactSelections = map[string]lifecycle.Selection{}
 	m.impactChoiceIdx = 0
 	m.impactScroll = 0
 	m.impactOutcome = TransportMessage{}
@@ -1683,7 +1915,42 @@ func (m model) loadImpactPreview() tea.Cmd {
 	}
 }
 
+// groupIDChangeUpdateInput builds the atomic rename+fields UpdateProviderGroup payload.
+// Selections from impact preview must be forwarded so plan_not_executable cannot happen after confirm.
+func groupIDChangeUpdateInput(providerID, oldGroupID string, group app.ProviderGroupInput, selections []lifecycle.Selection, expectedRevision app.ConfigRevision) app.ProviderGroupUpdateInput {
+	return app.ProviderGroupUpdateInput{
+		ProviderID:       providerID,
+		GroupID:          oldGroupID,
+		Group:            group,
+		Selections:       selections,
+		ExpectedRevision: expectedRevision,
+	}
+}
+
 func (m model) executeImpact() tea.Cmd {
+	// group.id_change + pending fields: single atomic UpdateProviderGroup (backend plans rename via lifecycle).
+	if m.pendingGroupUpdate != nil &&
+		strings.TrimSpace(m.pendingGroupProviderID) != "" &&
+		strings.TrimSpace(m.pendingGroupOldID) != "" &&
+		m.impactOp.Kind == lifecycle.OpGroupIDChange {
+		providerID := m.pendingGroupProviderID
+		oldID := m.pendingGroupOldID
+		in := *m.pendingGroupUpdate
+		selections := m.impactSelectionSlice()
+		return func() tea.Msg {
+			_, err := m.svc.UpdateProviderGroup(m.ctx, groupIDChangeUpdateInput(providerID, oldID, in, selections, m.impactRevision))
+			if err != nil {
+				return lifecycleExecuteMsg{err: err}
+			}
+			// Synthetic success so the common execute path can refresh.
+			return lifecycleExecuteMsg{result: app.LifecycleExecuteResult{
+				ContractVersion: lifecycle.ContractVersion,
+				Persisted:       true,
+				Changed:         true,
+				RuntimeState:    "applied",
+			}}
+		}
+	}
 	rev := m.impactRevision
 	token := m.impactRawPlan.PlanToken
 	op := m.impactOp
@@ -1703,6 +1970,8 @@ func (m model) screenTitle() string {
 	switch m.screen {
 	case screenProviders:
 		return m.t("screen.providers")
+	case screenGroups:
+		return m.t("screen.groups")
 	case screenAliases:
 		return m.t("screen.aliases")
 	case screenDoctor:
@@ -1841,7 +2110,7 @@ func (m model) renderTargets() string {
 		if !target.Enabled {
 			state = m.t("target.state.disabled")
 		}
-		text := fmt.Sprintf("%d. [%s] %s/%s", i+1, state, target.Provider, target.Model)
+		text := fmt.Sprintf("%d. [%s] %s/%s/%s", i+1, state, target.Provider, defaultString(target.Group, config.DefaultGroupID), target.Model)
 		b.WriteString(rowLabel(i == m.targetIndex, text))
 		b.WriteString("\n")
 	}
@@ -1861,6 +2130,7 @@ func (m model) providerButtons() []tuiButton {
 	return []tuiButton{
 		{key: "add", label: m.t("action.addProvider")},
 		{key: "edit", label: m.t("action.edit")},
+		{key: "groups", label: m.t("action.manageGroups")},
 		{key: "toggle", label: label},
 		{key: "remove", label: m.t("action.remove")},
 		{key: "refresh", label: m.t("action.refresh")},
@@ -1936,15 +2206,23 @@ func rowLabel(selected bool, text string) string {
 	return "  " + text
 }
 
+func (m model) fieldOptionDisplay(field field, option string) string {
+	if field.key == fieldKeyAPIKeysMode {
+		return apiKeysModeLabel(m.lang, option)
+	}
+	return option
+}
+
 func (m model) renderSelectOptions(field field) string {
 	var b strings.Builder
 	for i, option := range field.options {
-		label := "    " + option
+		display := m.fieldOptionDisplay(field, option)
+		label := "    " + display
 		if option == field.value {
 			label += " " + mutedStyle.Render("("+m.t("form.optionMarker")+")")
 		}
 		if i == m.optionIndex {
-			label = selectedStyle.Render("  › " + option)
+			label = selectedStyle.Render("  › " + display)
 		}
 		b.WriteString(label)
 		b.WriteString("\n")
@@ -1999,6 +2277,17 @@ func emptyLabel(value string) string {
 	return value
 }
 
+func providerGroupSummary(groups []app.ProviderGroupView) string {
+	if len(groups) == 0 {
+		return "-"
+	}
+	items := make([]string, 0, len(groups))
+	for _, group := range groups {
+		items = append(items, fmt.Sprintf("%s[%s]:%d", group.ID, group.Protocol, len(group.Models)))
+	}
+	return strings.Join(items, ", ")
+}
+
 func (m *model) openProviderForm(a action, p *app.ProviderView) {
 	m.previous = screenProviders
 	m.screen = screenForm
@@ -2008,25 +2297,46 @@ func (m *model) openProviderForm(a action, p *app.ProviderView) {
 	m.optionIndex = 0
 	id, name, protocol, baseURL, baseURLs, strategy, disabled := "", "", config.ProtocolOpenAIResponses, "", "", config.ProviderBaseURLStrategyOrdered, "no"
 	if p != nil {
-		id, name, protocol, baseURL = p.ID, p.Name, p.Protocol, p.BaseURL
+		id, name, baseURL = p.ID, p.Name, p.BaseURL
+		for _, group := range p.Groups {
+			if group.ID == config.DefaultGroupID {
+				protocol = group.Protocol
+				break
+			}
+		}
 		baseURLs = strings.Join(p.BaseURLs, ",")
 		strategy = p.BaseURLStrategy
 		if p.Disabled {
 			disabled = "yes"
 		}
 	}
-	m.formFields = []field{
+	// Create shows group-owned fields (mapped to nested defaultGroup).
+	// Edit only shows shared connection fields; group management is screenGroups.
+	fields := []field{
 		{key: fieldKeyProviderID, label: m.t("field.providerID"), value: id, kind: fieldText},
 		{key: fieldKeyProviderName, label: m.t("field.providerName"), value: name, kind: fieldText},
-		{key: fieldKeyProtocol, label: m.t("field.protocol"), value: protocol, kind: fieldSelect, options: protocolOptions()},
-		{key: fieldKeyBaseURL, label: m.t("field.baseURL"), value: baseURL, kind: fieldText},
-		{key: fieldKeyBaseURLs, label: m.t("field.baseURLs"), value: baseURLs, kind: fieldText},
-		{key: fieldKeyBaseURLStrategy, label: m.t("field.baseURLStrategy"), value: strategy, kind: fieldSelect, options: strategyOptions()},
-		{key: fieldKeyAPIKey, label: m.t("field.apiKey"), kind: fieldText, mask: true},
-		{key: fieldKeySkipModels, label: m.t("field.skipModels"), value: "yes", kind: fieldSelect, options: yesNoOptions()},
-		{key: fieldKeyDisabled, label: m.t("field.disabled"), value: disabled, kind: fieldSelect, options: yesNoOptions()},
-		{key: "submit", label: m.t("form.submit"), value: m.t("form.submitHint"), kind: fieldSubmit},
 	}
+	if a == actionAddProvider {
+		fields = append(fields,
+			field{key: fieldKeyProtocol, label: m.t("field.protocol"), value: protocol, kind: fieldSelect, options: protocolOptions()},
+		)
+	}
+	fields = append(fields,
+		field{key: fieldKeyBaseURL, label: m.t("field.baseURL"), value: baseURL, kind: fieldText},
+		field{key: fieldKeyBaseURLs, label: m.t("field.baseURLs"), value: baseURLs, kind: fieldText},
+		field{key: fieldKeyBaseURLStrategy, label: m.t("field.baseURLStrategy"), value: strategy, kind: fieldSelect, options: strategyOptions()},
+	)
+	if a == actionAddProvider {
+		fields = append(fields,
+			field{key: fieldKeyAPIKey, label: m.t("field.apiKey"), kind: fieldText, mask: true},
+			field{key: fieldKeySkipModels, label: m.t("field.skipModels"), value: "yes", kind: fieldSelect, options: yesNoOptions()},
+		)
+	}
+	fields = append(fields,
+		field{key: fieldKeyDisabled, label: m.t("field.disabled"), value: disabled, kind: fieldSelect, options: yesNoOptions()},
+		field{key: "submit", label: m.t("form.submit"), value: m.t("form.submitHint"), kind: fieldSubmit},
+	)
+	m.formFields = fields
 	m.validateFormFields()
 }
 
@@ -2068,11 +2378,60 @@ func (m *model) openBindForm(alias *app.AliasView) {
 	m.formFields = []field{
 		{key: fieldKeyAlias, label: m.t("field.alias"), value: alias.Alias, kind: fieldText},
 		{key: fieldKeyProviderID, label: m.t("field.providerID"), value: provider, kind: fieldSelect, options: m.providerOptions()},
+		{key: fieldKeyGroup, label: m.t("field.group"), value: m.defaultGroupOption(provider), kind: fieldSelect, options: m.groupOptions(provider)},
 		{key: fieldKeyModel, label: m.t("field.model"), kind: fieldText},
 		{key: fieldKeyDisabled, label: m.t("field.disabled"), value: "no", kind: fieldSelect, options: yesNoOptions()},
 		{key: "submit", label: m.t("form.submit"), value: m.t("form.submitHint"), kind: fieldSubmit},
 	}
 	m.validateFormFields()
+}
+
+func (m model) groupOptions(providerID string) []string {
+	for _, provider := range m.providers {
+		if provider.ID != providerID {
+			continue
+		}
+		items := make([]string, 0, len(provider.Groups))
+		for _, group := range provider.Groups {
+			items = append(items, group.ID)
+		}
+		return items
+	}
+	return nil
+}
+
+func (m model) defaultGroupOption(providerID string) string {
+	groups := m.groupOptions(providerID)
+	for _, group := range groups {
+		if group == config.DefaultGroupID {
+			return group
+		}
+	}
+	return ""
+}
+
+func (m *model) syncBindTargetGroup() {
+	if m.formAction != actionBindTarget {
+		return
+	}
+	providerID := ""
+	for i := range m.formFields {
+		if m.formFields[i].key == fieldKeyProviderID {
+			providerID = strings.TrimSpace(m.formFields[i].value)
+			break
+		}
+	}
+	for i := range m.formFields {
+		if m.formFields[i].key != fieldKeyGroup {
+			continue
+		}
+		options := m.groupOptions(providerID)
+		m.formFields[i].options = options
+		if !containsOption(options, m.formFields[i].value) {
+			m.formFields[i].value = m.defaultGroupOption(providerID)
+		}
+		return
+	}
 }
 
 func (m *model) openConfirm(a action, text string) {
@@ -2118,6 +2477,8 @@ func (m model) validateField(field field, values map[string]string) string {
 	switch m.formAction {
 	case actionAddProvider, actionEditProvider:
 		return m.validateProviderField(field, values)
+	case actionAddGroup, actionEditGroup:
+		return m.validateGroupField(field, values)
 	case actionAddAlias, actionEditAlias:
 		return m.validateAliasField(field)
 	case actionBindTarget:
@@ -2187,7 +2548,7 @@ func (m model) validateAliasField(field field) string {
 func (m model) validateBindField(field field) string {
 	value := strings.TrimSpace(field.value)
 	switch field.key {
-	case fieldKeyAlias, fieldKeyProviderID, fieldKeyModel:
+	case fieldKeyAlias, fieldKeyProviderID, fieldKeyGroup, fieldKeyModel:
 		if value == "" {
 			return m.t("error.required", field.label)
 		}
@@ -2207,6 +2568,8 @@ func (m model) selectFieldError(field field) string {
 		return m.t("error.invalidStrategy")
 	case fieldKeySkipModels, fieldKeyDisabled:
 		return m.t("error.invalidBoolean")
+	case fieldKeyAPIKeysMode:
+		return m.t("error.invalidAPIKeysMode")
 	default:
 		return m.t("error.required", field.label)
 	}
@@ -2325,7 +2688,7 @@ func (m model) bindTarget(in app.AliasTargetInput) tea.Cmd {
 
 func (m model) toggleTarget(alias app.AliasView, target app.AliasTargetView) tea.Cmd {
 	return func() tea.Msg {
-		_, err := m.svc.SetAliasTargetDisabled(m.ctx, app.AliasTargetInput{Alias: alias.Alias, Provider: target.Provider, Model: target.Model, Disabled: target.Enabled})
+		_, err := m.svc.SetAliasTargetDisabled(m.ctx, app.AliasTargetInput{Alias: alias.Alias, Provider: target.Provider, Group: target.Group, Model: target.Model, Disabled: target.Enabled})
 		if err != nil {
 			return refreshedMsg{err: err}
 		}
@@ -2345,7 +2708,7 @@ func (m model) reorderTarget(delta int) (tea.Model, tea.Cmd) {
 	}
 	refs := make([]app.AliasTargetRefInput, 0, len(a.Targets))
 	for _, target := range a.Targets {
-		refs = append(refs, app.AliasTargetRefInput{Provider: target.Provider, Model: target.Model})
+		refs = append(refs, app.AliasTargetRefInput{Provider: target.Provider, Group: target.Group, Model: target.Model})
 	}
 	refs[m.targetIndex], refs[nextIndex] = refs[nextIndex], refs[m.targetIndex]
 	m.targetIndex = nextIndex
@@ -2360,7 +2723,7 @@ func (m model) reorderTarget(delta int) (tea.Model, tea.Cmd) {
 
 func (m model) unbindTarget(alias string, target app.AliasTargetView) tea.Cmd {
 	return func() tea.Msg {
-		_, err := m.svc.UnbindAliasTarget(m.ctx, app.AliasTargetInput{Alias: alias, Provider: target.Provider, Model: target.Model})
+		_, err := m.svc.UnbindAliasTarget(m.ctx, app.AliasTargetInput{Alias: alias, Provider: target.Provider, Group: target.Group, Model: target.Model})
 		if err != nil {
 			return refreshedMsg{err: err}
 		}
@@ -2447,6 +2810,11 @@ func (m model) selectedTarget() (*app.AliasView, *app.AliasTargetView) {
 
 func (m *model) clampIndexes() {
 	m.providerIndex = clamp(m.providerIndex, 0, len(m.providers)-1)
+	if p := m.selectedProvider(); p != nil {
+		m.groupIndex = clamp(m.groupIndex, 0, len(p.Groups)-1)
+	} else {
+		m.groupIndex = 0
+	}
 	m.aliasIndex = clamp(m.aliasIndex, 0, len(m.aliases)-1)
 	if alias := m.selectedAlias(); alias != nil {
 		m.targetIndex = clamp(m.targetIndex, 0, len(alias.Targets)-1)

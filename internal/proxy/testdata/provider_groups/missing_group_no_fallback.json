@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "api_key": "ocswitch-local",
+    "failover_status_codes": [401, 402, 403, 429]
+  },
+  "providers": [
+    {
+      "id": "vendor-fb",
+      "name": "Vendor Fallback Guards",
+      "base_url": "https://vendor-fb.example.test/v1",
+      "base_url_strategy": "ordered",
+      "disabled": false,
+      "auto_alias_enabled": false,
+      "groups": [
+        {
+          "id": "default",
+          "name": "Default",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-default-fb",
+          "models": ["model-fb"],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "other",
+          "name": "Other",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-other-fb",
+          "models": ["model-fb"],
+          "models_source": "manual",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "missing-group",
+      "display_name": "Missing Group No Fallback",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-fb",
+          "group": "missing-group-id",
+          "model": "model-fb",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

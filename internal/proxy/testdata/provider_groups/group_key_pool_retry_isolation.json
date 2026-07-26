@@ -1,0 +1,71 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "api_key": "ocswitch-local",
+    "failover_status_codes": [401, 402, 403, 429]
+  },
+  "providers": [
+    {
+      "id": "vendor-keys",
+      "name": "Vendor Key Isolation",
+      "base_url": "https://vendor-keys.example.test/v1",
+      "base_urls": [
+        "https://vendor-keys-backup.example.test/v1"
+      ],
+      "base_url_strategy": "ordered",
+      "disabled": false,
+      "auto_alias_enabled": false,
+      "groups": [
+        {
+          "id": "pool-a",
+          "name": "Key Pool A",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-pool-a-1",
+          "api_keys": [
+            "sk-fake-pool-a-2"
+          ],
+          "models": ["model-k"],
+          "models_source": "manual",
+          "disabled": false
+        },
+        {
+          "id": "pool-b",
+          "name": "Key Pool B",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-pool-b-1",
+          "api_keys": [
+            "sk-fake-pool-b-2",
+            "sk-fake-pool-b-3"
+          ],
+          "models": ["model-k"],
+          "models_source": "manual",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "key-pool-iso",
+      "display_name": "Group Key Pool Isolation",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-keys",
+          "group": "pool-a",
+          "model": "model-k",
+          "enabled": true
+        },
+        {
+          "provider": "vendor-keys",
+          "group": "pool-b",
+          "model": "model-k",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

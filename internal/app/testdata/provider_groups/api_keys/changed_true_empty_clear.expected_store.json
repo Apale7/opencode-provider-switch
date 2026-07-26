@@ -1,0 +1,9 @@
+{
+  "behavior": "clear_all_keys",
+  "afterStoredKeys": [],
+  "assertions": {
+    "explicitEmptyArrayClears": true,
+    "responseOmitsApiKeysMaskedWhenEmpty": true,
+    "responseHasNoPlaintextKeys": true
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "behavior": "preserve_stored_keys",
+  "afterStoredKeys": [
+    "sk-fake-primary-aaaa",
+    "sk-fake-backup-bbbb"
+  ],
+  "response": {
+    "id": "premium",
+    "name": "Premium Fake Group",
+    "protocol": "openai",
+    "apiKeyCount": 2,
+    "apiKeysMasked": [
+      "sk-f…aaaa",
+      "sk-f…bbbb"
+    ],
+    "models": [
+      "fake-model-a"
+    ],
+    "modelsSource": "manual",
+    "disabled": false
+  },
+  "assertions": {
+    "apiKeysFieldAbsentOrEmptyOnInput": true,
+    "storedKeysUnchanged": true,
+    "responseHasNoPlaintextKeys": true
+  }
+}

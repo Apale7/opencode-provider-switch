@@ -49,6 +49,30 @@ func (b *Bindings) PingProviderBaseURL(ctx context.Context, in app.ProviderPingI
 	return b.service.PingProviderBaseURL(ctx, in)
 }
 
+func (b *Bindings) ListProviderGroups(ctx context.Context, providerID string) ([]app.ProviderGroupView, error) {
+	return b.service.ListProviderGroups(ctx, providerID)
+}
+
+func (b *Bindings) CreateProviderGroup(ctx context.Context, in app.ProviderGroupCreateInput) (app.ProviderGroupView, error) {
+	return b.service.CreateProviderGroup(ctx, in)
+}
+
+func (b *Bindings) UpdateProviderGroup(ctx context.Context, in app.ProviderGroupUpdateInput) (app.ProviderGroupView, error) {
+	return b.service.UpdateProviderGroup(ctx, in)
+}
+
+func (b *Bindings) DeleteProviderGroup(ctx context.Context, in app.ProviderGroupDeleteInput) error {
+	return b.service.DeleteProviderGroup(ctx, in)
+}
+
+func (b *Bindings) RefreshProviderGroupModels(ctx context.Context, in app.ProviderGroupRefreshModelsInput) (app.ProviderSaveResult, error) {
+	return b.service.RefreshProviderGroupModels(ctx, in)
+}
+
+func (b *Bindings) PingProviderGroupBaseURL(ctx context.Context, in app.ProviderGroupPingInput) (app.ProviderPingResult, error) {
+	return b.service.PingProviderGroupBaseURL(ctx, in)
+}
+
 func (b *Bindings) SetProviderDisabled(ctx context.Context, in app.ProviderStateInput) (app.ProviderView, error) {
 	return b.service.SetProviderDisabled(ctx, in)
 }
@@ -213,6 +237,30 @@ func (b *Bindings) RefreshProviderModelsNow(in app.ProviderRefreshModelsInput) (
 
 func (b *Bindings) PingProviderBaseURLNow(in app.ProviderPingInput) (app.ProviderPingResult, error) {
 	return b.PingProviderBaseURL(context.Background(), in)
+}
+
+func (b *Bindings) ListProviderGroupsNow(providerID string) ([]app.ProviderGroupView, error) {
+	return b.ListProviderGroups(context.Background(), providerID)
+}
+
+func (b *Bindings) CreateProviderGroupNow(in app.ProviderGroupCreateInput) (app.ProviderGroupView, error) {
+	return b.CreateProviderGroup(context.Background(), in)
+}
+
+func (b *Bindings) UpdateProviderGroupNow(in app.ProviderGroupUpdateInput) (app.ProviderGroupView, error) {
+	return b.UpdateProviderGroup(context.Background(), in)
+}
+
+func (b *Bindings) DeleteProviderGroupNow(in app.ProviderGroupDeleteInput) error {
+	return b.DeleteProviderGroup(context.Background(), in)
+}
+
+func (b *Bindings) RefreshProviderGroupModelsNow(in app.ProviderGroupRefreshModelsInput) (app.ProviderSaveResult, error) {
+	return b.RefreshProviderGroupModels(context.Background(), in)
+}
+
+func (b *Bindings) PingProviderGroupBaseURLNow(in app.ProviderGroupPingInput) (app.ProviderPingResult, error) {
+	return b.PingProviderGroupBaseURL(context.Background(), in)
 }
 
 func (b *Bindings) SetProviderState(in app.ProviderStateInput) (app.ProviderView, error) {

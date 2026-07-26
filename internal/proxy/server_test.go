@@ -24,12 +24,58 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// newLegacyTestServer adapts pre-v2 in-memory fixtures. Production v1 migration
+// happens in config decoding; provider-group tests call New directly to verify
+// that unresolved runtime targets fail closed.
+func newLegacyTestServer(cfg *config.Config) *Server {
+	if cfg != nil {
+		for i := range cfg.Aliases {
+			for j := range cfg.Aliases[i].Targets {
+				if strings.TrimSpace(cfg.Aliases[i].Targets[j].Group) == "" {
+					cfg.Aliases[i].Targets[j].Group = config.DefaultGroupID
+				}
+			}
+		}
+	}
+	return New(cfg)
+}
+
+func TestServerRuntimeRejectsUpstreamRedirects(t *testing.T) {
+	t.Parallel()
+	var redirected atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer destination.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	runtime := newServerRuntime(config.Default(), routing.NewMemoryStateStore())
+	req, err := http.NewRequest(http.MethodGet, source.URL, nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set("X-Api-Key", "group-secret")
+	resp, err := runtime.client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound || redirected.Load() != 0 {
+		t.Fatalf("status = %d, redirected requests = %d", resp.StatusCode, redirected.Load())
+	}
+}
+
 func TestHandleResponsesWritesOpenAIErrorForMissingAlias(t *testing.T) {
 	t.Parallel()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 	})
+
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"missing","stream":true}`))
 	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -68,7 +114,8 @@ func TestHandleResponsesLocalFailuresSetTraceStatusAndReasonCodes(t *testing.T) 
 			cfg: &config.Config{
 				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 				Providers: []config.Provider{{
-					ID: "p1", Protocol: config.ProtocolAnthropicMessages, BaseURL: "https://example.com", APIKey: "sk",
+					ID: "p1", BaseURL: "https://example.com",
+					Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolAnthropicMessages, APIKey: "sk"}},
 				}},
 				Aliases: []config.Alias{{
 					Alias: "chat", Protocol: config.ProtocolAnthropicMessages, Enabled: true,
@@ -84,7 +131,8 @@ func TestHandleResponsesLocalFailuresSetTraceStatusAndReasonCodes(t *testing.T) 
 			cfg: &config.Config{
 				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 				Providers: []config.Provider{{
-					ID: "p1", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://example.com/v1", APIKey: "sk",
+					ID: "p1", BaseURL: "https://example.com/v1",
+					Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk"}},
 				}},
 				Aliases: []config.Alias{{
 					Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: false,
@@ -100,7 +148,8 @@ func TestHandleResponsesLocalFailuresSetTraceStatusAndReasonCodes(t *testing.T) 
 			cfg: &config.Config{
 				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 				Providers: []config.Provider{{
-					ID: "p1", Protocol: config.ProtocolOpenAIResponses, BaseURL: "https://example.com/v1", APIKey: "sk", Disabled: true,
+					ID: "p1", BaseURL: "https://example.com/v1", Disabled: true,
+					Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk"}},
 				}},
 				Aliases: []config.Alias{{
 					Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true,
@@ -117,7 +166,7 @@ func TestHandleResponsesLocalFailuresSetTraceStatusAndReasonCodes(t *testing.T) 
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			srv := New(tc.cfg)
+			srv := newLegacyTestServer(tc.cfg)
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"model":%q,"stream":false}`, tc.model)))
 			req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 			req.Header.Set("Content-Type", "application/json")
@@ -158,10 +207,138 @@ func assertLocalTrace(t *testing.T, srv *Server, alias string, wantStatus int, w
 	}
 }
 
+// TestReloadConfigSwitchesRuntimeOnNoAvailableTargets ensures hot-reload uses
+// structural ValidateForPersist: disabling the only group is persistable, so
+// ReloadConfig must swap runtime and fail closed instead of keeping revoked keys.
+func TestReloadConfigSwitchesRuntimeOnNoAvailableTargets(t *testing.T) {
+	t.Parallel()
+
+	var hitCount atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitCount.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","output":[],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer upstream.Close()
+
+	initial := config.Default()
+	initial.Providers = []config.Provider{{
+		ID: "p1", BaseURL: upstream.URL + "/v1",
+		Groups: []config.ProviderGroup{{
+			ID: config.DefaultGroupID, Name: config.DefaultGroupName,
+			Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-live",
+			Models: []string{"m1"},
+		}},
+	}}
+	initial.Aliases = []config.Alias{{
+		Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true,
+		Targets: []config.Target{{
+			Provider: "p1", Group: config.DefaultGroupID, Model: "m1", Enabled: true,
+		}},
+	}}
+	if errs := initial.Validate(); len(errs) > 0 {
+		t.Fatalf("initial Validate() = %v", errs)
+	}
+
+	srv := New(initial)
+
+	// Initially routable: upstream is called.
+	reqOK := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"chat","stream":false}`))
+	reqOK.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	reqOK.Header.Set("Content-Type", "application/json")
+	rrOK := httptest.NewRecorder()
+	srv.handleResponses(rrOK, reqOK)
+	if rrOK.Code != http.StatusOK {
+		t.Fatalf("initial status = %d body=%s", rrOK.Code, rrOK.Body.String())
+	}
+	if hitCount.Load() != 1 {
+		t.Fatalf("initial upstream hits = %d, want 1", hitCount.Load())
+	}
+
+	// Disable the only group (ConfigStore would accept this via ValidateForPersist).
+	disabled := config.Default()
+	disabled.Providers = []config.Provider{{
+		ID: "p1", BaseURL: upstream.URL + "/v1",
+		Groups: []config.ProviderGroup{{
+			ID: config.DefaultGroupID, Name: config.DefaultGroupName,
+			Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-revoked",
+			Models: []string{"m1"}, Disabled: true,
+		}},
+	}}
+	disabled.Aliases = []config.Alias{{
+		Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true,
+		Targets: []config.Target{{
+			Provider: "p1", Group: config.DefaultGroupID, Model: "m1", Enabled: true,
+		}},
+	}}
+	if errs := disabled.ValidateForPersist(); len(errs) > 0 {
+		t.Fatalf("disabled ValidateForPersist() = %v, want none", errs)
+	}
+	if errs := disabled.Validate(); len(errs) == 0 {
+		t.Fatal("disabled Validate() = nil, want no available targets error")
+	}
+
+	if err := srv.ReloadConfig(disabled); err != nil {
+		t.Fatalf("ReloadConfig(disabled group) = %v, want nil", err)
+	}
+
+	// After reload: no upstream, fail closed with no available targets.
+	beforeFail := hitCount.Load()
+	reqFail := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"chat","stream":false}`))
+	reqFail.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	reqFail.Header.Set("Content-Type", "application/json")
+	rrFail := httptest.NewRecorder()
+	srv.handleResponses(rrFail, reqFail)
+	if rrFail.Code != http.StatusNotFound {
+		t.Fatalf("after reload status = %d body=%s", rrFail.Code, rrFail.Body.String())
+	}
+	if hitCount.Load() != beforeFail {
+		t.Fatalf("after reload upstream hits = %d, want %d (no new call)", hitCount.Load(), beforeFail)
+	}
+	assertOpenAIError(t, rrFail.Body.Bytes(), "model_not_found", "invalid_request_error", `alias "chat" has no available targets`)
+	assertLocalTrace(t, srv, "chat", http.StatusNotFound, "no_available_target", `alias "chat" has no available targets`)
+
+	// Structural invalid (provider with empty groups) must still reject reload.
+	// Runtime must keep the disabled-group snapshot (still fail closed, no upstream).
+	emptyGroups := &config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID: "p1", BaseURL: upstream.URL + "/v1",
+			Groups: nil,
+		}},
+		Aliases: []config.Alias{{
+			Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true,
+			Targets: []config.Target{{
+				Provider: "p1", Group: config.DefaultGroupID, Model: "m1", Enabled: true,
+			}},
+		}},
+	}
+	err := srv.ReloadConfig(emptyGroups)
+	if err == nil {
+		t.Fatal("ReloadConfig(empty groups) = nil, want structural error")
+	}
+	if !strings.Contains(err.Error(), "has no groups") {
+		t.Fatalf("ReloadConfig(empty groups) = %v, want has no groups", err)
+	}
+
+	beforeStructural := hitCount.Load()
+	reqStructural := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"chat","stream":false}`))
+	reqStructural.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
+	reqStructural.Header.Set("Content-Type", "application/json")
+	rrStructural := httptest.NewRecorder()
+	srv.handleResponses(rrStructural, reqStructural)
+	if rrStructural.Code != http.StatusNotFound {
+		t.Fatalf("after rejected reload status = %d body=%s", rrStructural.Code, rrStructural.Body.String())
+	}
+	if hitCount.Load() != beforeStructural {
+		t.Fatalf("after rejected reload upstream hits = %d, want %d", hitCount.Load(), beforeStructural)
+	}
+}
+
 func TestProxyAPIKeyAuthRejectsConflictingHeaders(t *testing.T) {
 	t.Parallel()
 
-	srv := New(&config.Config{Server: config.Server{APIKey: "legacy-key"}})
+	srv := newLegacyTestServer(&config.Config{Server: config.Server{APIKey: "legacy-key"}})
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer legacy-key")
 	req.Header.Set("X-Api-Key", "other-key")
@@ -178,9 +355,10 @@ func TestProxyAPIKeyAuthRejectsConflictingHeaders(t *testing.T) {
 func TestHandleMessagesWritesAnthropicErrorForMissingAlias(t *testing.T) {
 	t.Parallel()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 	})
+
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"missing","stream":true}`))
 	req.Header.Set("X-Api-Key", config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -214,9 +392,15 @@ func TestHandleCompletionsProxiesOpenAICompatibleRequest(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
-		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", Protocol: config.ProtocolOpenAICompatible, BaseURL: upstream.URL + "/v1", APIKey: "sk-compat"}},
+	srv := newLegacyTestServer(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID: "p1", BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{
+				ID: config.DefaultGroupID, Name: config.DefaultGroupName,
+				Protocol: config.ProtocolOpenAICompatible, APIKey: "sk-compat",
+			}},
+		}},
 		Aliases: []config.Alias{{
 			Alias:    "compat",
 			Protocol: config.ProtocolOpenAICompatible,
@@ -224,6 +408,7 @@ func TestHandleCompletionsProxiesOpenAICompatibleRequest(t *testing.T) {
 			Targets:  []config.Target{{Provider: "p1", Model: "up-compat", Enabled: true}},
 		}},
 	})
+
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"compat","messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -269,9 +454,9 @@ func TestHandleResponsesAppliesRequestRewriteRules(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}, {ID: "p2", BaseURL: upstream.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}, {ID: "p2", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.5-fast",
 			Enabled: true,
@@ -284,11 +469,11 @@ func TestHandleResponsesAppliesRequestRewriteRules(t *testing.T) {
 				{Op: config.RequestRewriteOpSet, Path: "$.service_tier", Value: "priority", ValueSet: true},
 				{Op: config.RequestRewriteOpSet, Path: "$.store", Value: false, ValueSet: true},
 			}},
-			{Name: "provider-override", Alias: "gpt-5.5-fast", Providers: []string{"p1"}, Enabled: true, Override: true, Ops: []config.RequestRewriteOperation{
+			{Name: "provider-override", Alias: "gpt-5.5-fast", ProviderGroups: []config.ProviderGroupSelector{{Provider: "p1", Group: config.DefaultGroupID}}, Enabled: true, Override: true, Ops: []config.RequestRewriteOperation{
 				{Op: config.RequestRewriteOpSet, Path: "$.reasoningEffort", Value: "high", ValueSet: true},
 				{Op: config.RequestRewriteOpDelete, Path: "$.parallel_tool_calls"},
 			}},
-			{Name: "other-provider", Alias: "gpt-5.5-fast", Providers: []string{"p2"}, Enabled: true, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.other_provider_field", Value: true, ValueSet: true}}},
+			{Name: "other-provider", Alias: "gpt-5.5-fast", ProviderGroups: []config.ProviderGroupSelector{{Provider: "p2", Group: config.DefaultGroupID}}, Enabled: true, Ops: []config.RequestRewriteOperation{{Op: config.RequestRewriteOpSet, Path: "$.other_provider_field", Value: true, ValueSet: true}}},
 		},
 	})
 
@@ -365,13 +550,14 @@ func TestHandleMessagesProxiesAnthropicRequest(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{{
-			ID:       "anthropic",
-			Protocol: config.ProtocolAnthropicMessages,
-			BaseURL:  upstream.URL + "/v1",
-			APIKey:   "sk-ant-upstream",
+			ID:      "anthropic",
+			BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{
+				ID: config.DefaultGroupID, Protocol: config.ProtocolAnthropicMessages, APIKey: "sk-ant-upstream",
+			}},
 		}},
 		Aliases: []config.Alias{{
 			Alias:    "claude",
@@ -441,11 +627,11 @@ func TestHandleMessagesFailsOverOn429(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
-			{ID: "p1", Protocol: config.ProtocolAnthropicMessages, BaseURL: first.URL + "/v1", APIKey: "sk-1"},
-			{ID: "p2", Protocol: config.ProtocolAnthropicMessages, BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolAnthropicMessages, APIKey: "sk-1"}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolAnthropicMessages, APIKey: "sk-2"}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:    "claude",
@@ -503,11 +689,11 @@ func TestHandleResponsesFailsOverOn429(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1", APIKey: "sk-1"},
-			{ID: "p2", BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-1"}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-2"}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -580,7 +766,7 @@ func TestHandleResponsesSkipsOpenCircuitOnNextRequest(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{
 			APIKey: config.DefaultLocalAPIKey,
 			Routing: routing.Config{
@@ -589,8 +775,8 @@ func TestHandleResponsesSkipsOpenCircuitOnNextRequest(t *testing.T) {
 			},
 		},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1", APIKey: "sk-1"},
-			{ID: "p2", BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-1"}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-2"}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -677,7 +863,7 @@ func TestHandleResponsesClearsCircuitWhenAllAliasTargetsAreOpen(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{
 			APIKey: config.DefaultLocalAPIKey,
 			Routing: routing.Config{
@@ -686,8 +872,8 @@ func TestHandleResponsesClearsCircuitWhenAllAliasTargetsAreOpen(t *testing.T) {
 			},
 		},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1", APIKey: "sk-1"},
-			{ID: "p2", BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-1"}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-2"}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -696,8 +882,12 @@ func TestHandleResponsesClearsCircuitWhenAllAliasTargetsAreOpen(t *testing.T) {
 		}},
 	})
 
-	for _, providerID := range []string{"p1", "p2"} {
-		key := routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: providerID}
+	openCandidates := []routing.Candidate{
+		{ProviderID: "p1", GroupID: config.DefaultGroupID, Model: "up-1"},
+		{ProviderID: "p2", GroupID: config.DefaultGroupID, Model: "up-2"},
+	}
+	for _, candidate := range openCandidates {
+		key := routing.StateKeyForCandidate(routing.DefaultStrategy, config.ProtocolOpenAIResponses, candidate)
 		srv.store.Update(key, func(routing.ProviderState) routing.ProviderState {
 			return routing.ProviderState{
 				Status:              "open",
@@ -744,10 +934,12 @@ func TestHandleResponsesClearsCircuitWhenAllAliasTargetsAreOpen(t *testing.T) {
 	if latest.Attempts[2].Provider != "p1" || !latest.Attempts[2].Success {
 		t.Fatalf("latest retry attempt = %#v", latest.Attempts[2])
 	}
-	if state := srv.store.Snapshot(routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p1"}); state.Status == "open" || state.ConsecutiveFailures != 0 || state.LastFailureReason != "" {
+	p1Key := routing.StateKeyForCandidate(routing.DefaultStrategy, config.ProtocolOpenAIResponses, openCandidates[0])
+	if state := srv.store.Snapshot(p1Key); state.Status == "open" || state.ConsecutiveFailures != 0 || state.LastFailureReason != "" {
 		t.Fatalf("p1 circuit state = %#v, want cleared after successful retry", state)
 	}
-	if state := srv.store.Snapshot(routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p2"}); state != (routing.ProviderState{}) {
+	p2Key := routing.StateKeyForCandidate(routing.DefaultStrategy, config.ProtocolOpenAIResponses, openCandidates[1])
+	if state := srv.store.Snapshot(p2Key); state != (routing.ProviderState{}) {
 		t.Fatalf("p2 circuit state = %#v, want cleared", state)
 	}
 }
@@ -769,7 +961,7 @@ func TestHandleResponsesClientCancelStopsFailoverAndLeavesCircuitNeutral(t *test
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{
 			APIKey: config.DefaultLocalAPIKey,
 			Routing: routing.Config{
@@ -777,7 +969,7 @@ func TestHandleResponsesClientCancelStopsFailoverAndLeavesCircuitNeutral(t *test
 				Params:   json.RawMessage(`{"failureThreshold":1,"baseCooldownMs":60000,"maxCooldownMs":60000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":true,"rateLimitCooldownMs":60000}`),
 			},
 		},
-		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1", BaseURLs: []string{second.URL + "/v1"}, APIKey: "sk-1", APIKeys: []string{"sk-2"}}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1", BaseURLs: []string{second.URL + "/v1"}, Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-1", APIKeys: []string{"sk-2"}}}}},
 		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}}},
 	})
 
@@ -810,7 +1002,9 @@ func TestHandleResponsesClientCancelStopsFailoverAndLeavesCircuitNeutral(t *test
 	if len(traces[0].Attempts) != 1 || traces[0].Attempts[0].Result != TraceResultClientCanceled {
 		t.Fatalf("trace attempts = %#v, want client canceled", traces[0].Attempts)
 	}
-	state := srv.store.Snapshot(routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p1"})
+	state := srv.store.Snapshot(routing.StateKeyForCandidate(routing.DefaultStrategy, config.ProtocolOpenAIResponses, routing.Candidate{
+		ProviderID: "p1", GroupID: config.DefaultGroupID, Model: "up-1",
+	}))
 	if state != (routing.ProviderState{}) {
 		t.Fatalf("circuit state = %#v, want neutral", state)
 	}
@@ -819,12 +1013,15 @@ func TestHandleResponsesClientCancelStopsFailoverAndLeavesCircuitNeutral(t *test
 func TestHandleResponsesClientCancelLeavesHalfOpenStateNeutral(t *testing.T) {
 	t.Parallel()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}}},
 	})
-	key := routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p1"}
+
+	key := routing.StateKeyForCandidate(routing.DefaultStrategy, config.ProtocolOpenAIResponses, routing.Candidate{
+		ProviderID: "p1", GroupID: config.DefaultGroupID, Model: "up-1",
+	})
 	srv.store.Update(key, func(state routing.ProviderState) routing.ProviderState {
 		return routing.ProviderState{Status: "half-open", ConsecutiveFailures: 2, LastFailureReason: string(routing.FailureRateLimited), OpenCount: 3, CooldownMs: 60000}
 	})
@@ -856,9 +1053,15 @@ func TestHandleResponsesRotatesProviderAPIKeys(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
-		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", APIKey: "sk-first", APIKeys: []string{"sk-second"}}},
+	srv := newLegacyTestServer(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID: "p1", BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{
+				ID: config.DefaultGroupID, Name: config.DefaultGroupName,
+				Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-first", APIKeys: []string{"sk-second"},
+			}},
+		}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
@@ -910,15 +1113,22 @@ func TestHandleResponsesRetriesNextAPIKeyForSameProvider(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
-		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", APIKey: "sk-first", APIKeys: []string{"sk-second"}}},
+	srv := newLegacyTestServer(&config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID: "p1", BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{
+				ID: config.DefaultGroupID, Name: config.DefaultGroupName,
+				Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-first", APIKeys: []string{"sk-second"},
+			}},
+		}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
 			Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}},
 		}},
 	})
+
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ocswitch/gpt-5.4","stream":true}`))
 	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -988,9 +1198,9 @@ func TestHandleResponsesCapturesFinalOpenAIUsageFromCompletedEvent(t *testing.T)
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
@@ -1616,9 +1826,9 @@ func TestHandleResponsesIgnoresEarlierZeroUsageAndUsesFinalCompletedUsage(t *tes
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
@@ -1669,13 +1879,14 @@ func TestHandleMessagesMergesAnthropicStreamingUsage(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{{
-			ID:       "anthropic",
-			Protocol: config.ProtocolAnthropicMessages,
-			BaseURL:  upstream.URL + "/v1",
-			APIKey:   "sk-ant-upstream",
+			ID:      "anthropic",
+			BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{
+				ID: config.DefaultGroupID, Protocol: config.ProtocolAnthropicMessages, APIKey: "sk-ant-upstream",
+			}},
 		}},
 		Aliases: []config.Alias{{
 			Alias:    "claude",
@@ -1727,11 +1938,11 @@ func TestHandleResponsesFailsOverOnEmptySSE200(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1"},
-			{ID: "p2", BaseURL: second.URL + "/v1"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -1775,9 +1986,9 @@ func TestHandleResponsesSSEIdleTimeoutEmitsProtocolError(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 30},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
@@ -1832,9 +2043,9 @@ func TestHandleResponsesTerminalMarkerSuccessDespiteUpstreamHang(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 30},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
@@ -1890,11 +2101,11 @@ func TestHandleResponsesPrecommitMetadataOnlyFailsOver(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 200, StreamPrecommitBufferMs: 30},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1"},
-			{ID: "p2", BaseURL: second.URL + "/v1"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -1954,11 +2165,11 @@ func TestHandleResponsesPrecommitOutputItemCommits(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 200, StreamPrecommitBufferMs: 30},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1"},
-			{ID: "p2", BaseURL: second.URL + "/v1"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -2024,11 +2235,11 @@ func TestHandleMessagesPrecommitContentBlockStartCommits(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 200, StreamPrecommitBufferMs: 30},
 		Providers: []config.Provider{
-			{ID: "p1", Protocol: config.ProtocolAnthropicMessages, BaseURL: first.URL + "/v1", APIKey: "sk-1"},
-			{ID: "p2", Protocol: config.ProtocolAnthropicMessages, BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolAnthropicMessages, APIKey: "sk-1"}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolAnthropicMessages, APIKey: "sk-2"}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:    "claude",
@@ -2085,11 +2296,11 @@ func TestHandleCompletionsPrecommitFakeToolCallFailsOver(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 200, StreamPrecommitBufferMs: 30},
 		Providers: []config.Provider{
-			{ID: "p1", Protocol: config.ProtocolOpenAICompatible, BaseURL: first.URL + "/v1", APIKey: "sk-1"},
-			{ID: "p2", Protocol: config.ProtocolOpenAICompatible, BaseURL: second.URL + "/v1", APIKey: "sk-2"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAICompatible, APIKey: "sk-1"}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAICompatible, APIKey: "sk-2"}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:    "chat",
@@ -2156,9 +2367,9 @@ func TestHandleResponsesPrecommitContinuousMetadataExpires(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 80, StreamPrecommitBufferMs: 30},
-		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1"}, {ID: "p2", BaseURL: second.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}, {ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}}}},
 	})
 
@@ -2198,9 +2409,9 @@ func TestHandleResponsesPrecommitUnknownNonEmptyDataCommits(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey, StreamIdleTimeoutMs: 80, StreamPrecommitBufferMs: 50},
-		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1"}, {ID: "p2", BaseURL: second.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}, {ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}, {Provider: "p2", Model: "up-2", Enabled: true}}}},
 	})
 
@@ -2307,7 +2518,7 @@ func TestSSEStreamErrorEventShapes(t *testing.T) {
 
 func TestSSEPrecommitBufferCapForcesCommit(t *testing.T) {
 	firstChunk := []byte(strings.Repeat(": keepalive\n\n", (ssePrecommitBufferCapBytes/12)+2))
-	srv := New(&config.Config{Server: config.Server{APIKey: config.DefaultLocalAPIKey}})
+	srv := newLegacyTestServer(&config.Config{Server: config.Server{APIKey: config.DefaultLocalAPIKey}})
 	result, err := srv.runSSEPrecommitBuffer(ssePrecommitInput{
 		body:            bytes.NewReader(nil),
 		firstChunk:      firstChunk,
@@ -2346,9 +2557,9 @@ func TestHandleResponsesMarksBrokenStreamAsFailure(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:    config.Server{APIKey: config.DefaultLocalAPIKey},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
 			Enabled: true,
@@ -2410,7 +2621,7 @@ func TestHandleResponsesMarksDownstreamDisconnectAsClientCanceled(t *testing.T) 
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{
 			APIKey: config.DefaultLocalAPIKey,
 			Routing: routing.Config{
@@ -2418,9 +2629,10 @@ func TestHandleResponsesMarksDownstreamDisconnectAsClientCanceled(t *testing.T) 
 				Params:   json.RawMessage(`{"failureThreshold":1,"baseCooldownMs":60000,"maxCooldownMs":60000,"backoffMultiplier":2,"halfOpenMaxRequests":1,"closeAfterSuccesses":1,"countPostCommitErrors":true,"rateLimitCooldownMs":60000}`),
 			},
 		},
-		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1"}},
+		Providers: []config.Provider{{ID: "p1", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}}},
 		Aliases:   []config.Alias{{Alias: "gpt-5.4", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}}},
 	})
+
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","stream":true}`))
 	req.Header.Set("Authorization", "Bearer "+config.DefaultLocalAPIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -2439,7 +2651,9 @@ func TestHandleResponsesMarksDownstreamDisconnectAsClientCanceled(t *testing.T) 
 	if got := traces[0].Attempts[0].Result; got != TraceResultDownstreamCanceled {
 		t.Fatalf("attempt result = %q, want downstream canceled", got)
 	}
-	state := srv.store.Snapshot(routing.StateKey{Strategy: routing.DefaultStrategy, Protocol: config.ProtocolOpenAIResponses, ProviderID: "p1"})
+	state := srv.store.Snapshot(routing.StateKeyForCandidate(routing.DefaultStrategy, config.ProtocolOpenAIResponses, routing.Candidate{
+		ProviderID: "p1", GroupID: config.DefaultGroupID, Model: "up-1",
+	}))
 	if state != (routing.ProviderState{}) {
 		t.Fatalf("circuit state = %#v, want neutral", state)
 	}
@@ -2471,13 +2685,14 @@ func TestHandleMessagesMarksBrokenStreamUsageAsPartial(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{{
-			ID:       "anthropic",
-			Protocol: config.ProtocolAnthropicMessages,
-			BaseURL:  upstream.URL + "/v1",
-			APIKey:   "sk-ant-upstream",
+			ID:      "anthropic",
+			BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{
+				ID: config.DefaultGroupID, Protocol: config.ProtocolAnthropicMessages, APIKey: "sk-ant-upstream",
+			}},
 		}},
 		Aliases: []config.Alias{{
 			Alias:    "claude",
@@ -2528,7 +2743,7 @@ func TestHandleMessagesMarksBrokenStreamUsageAsPartial(t *testing.T) {
 func TestNewUsesConfiguredTimeouts(t *testing.T) {
 	t.Parallel()
 
-	srv := New(&config.Config{Server: config.Server{
+	srv := newLegacyTestServer(&config.Config{Server: config.Server{
 		ConnectTimeoutMs:        12000,
 		ResponseHeaderTimeoutMs: 21000,
 		FirstByteTimeoutMs:      22000,
@@ -2562,11 +2777,11 @@ func TestHandleResponsesDoesNotFailOverOn400(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1"},
-			{ID: "p2", BaseURL: second.URL + "/v1"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -2618,11 +2833,11 @@ func TestHandleResponsesFailsOverOnDefaultConfigured4xx(t *testing.T) {
 			}))
 			defer second.Close()
 
-			srv := New(&config.Config{
+			srv := newLegacyTestServer(&config.Config{
 				Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 				Providers: []config.Provider{
-					{ID: "p1", BaseURL: first.URL + "/v1"},
-					{ID: "p2", BaseURL: second.URL + "/v1"},
+					{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+					{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 				},
 				Aliases: []config.Alias{{
 					Alias:   "gpt-5.4",
@@ -2668,11 +2883,11 @@ func TestHandleResponsesRespectsCustomFailoverStatusCodes(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey, FailoverStatusCodes: []int{http.StatusBadRequest}},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1"},
-			{ID: "p2", BaseURL: second.URL + "/v1"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -2712,11 +2927,11 @@ func TestHandleResponsesCanDisableConfigured4xxFailover(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey, FailoverStatusCodes: []int{}},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1"},
-			{ID: "p2", BaseURL: second.URL + "/v1"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -2757,11 +2972,11 @@ func TestHandleResponsesAlwaysFailsOverOn5xx(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey, FailoverStatusCodes: []int{}},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1"},
-			{ID: "p2", BaseURL: second.URL + "/v1"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -2802,11 +3017,11 @@ func TestHandleResponsesReturnsLastRetryableFailure(t *testing.T) {
 	}))
 	defer second.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: first.URL + "/v1"},
-			{ID: "p2", BaseURL: second.URL + "/v1"},
+			{ID: "p1", BaseURL: first.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: second.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -2913,11 +3128,11 @@ func TestHandleResponsesSkipsDisabledProviders(t *testing.T) {
 	}))
 	defer enabled.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: disabled.URL + "/v1", Disabled: true},
-			{ID: "p2", BaseURL: enabled.URL + "/v1"},
+			{ID: "p1", BaseURL: disabled.URL + "/v1", Disabled: true, Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: enabled.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:   "gpt-5.4",
@@ -2960,11 +3175,11 @@ func TestHandleResponsesSkipsDisabledProviders(t *testing.T) {
 func TestHandleModelsSkipsAliasesWithoutAvailableTargets(t *testing.T) {
 	t.Parallel()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
 		Providers: []config.Provider{
-			{ID: "p1", BaseURL: "https://p1.example.com/v1"},
-			{ID: "p2", BaseURL: "https://p2.example.com/v1", Disabled: true},
+			{ID: "p1", BaseURL: "https://p1.example.com/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
+			{ID: "p2", BaseURL: "https://p2.example.com/v1", Disabled: true, Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses}}},
 		},
 		Aliases: []config.Alias{
 			{Alias: "ok", Enabled: true, Targets: []config.Target{{Provider: "p1", Model: "up-1", Enabled: true}}},
@@ -3079,12 +3294,12 @@ func TestHandleRequest_AutoAliasFallback(t *testing.T) {
 	}))
 	defer wrong.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:           config.Server{APIKey: config.DefaultLocalAPIKey},
 		AutoAliasEnabled: true,
 		Providers: []config.Provider{
-			{ID: "p-wrong", BaseURL: wrong.URL + "/v1", APIKey: "sk-wrong", Models: []string{"other"}},
-			{ID: "p-auto", BaseURL: upstream.URL + "/v1", APIKey: "sk-auto", Models: []string{"auto-model"}},
+			{ID: "p-wrong", BaseURL: wrong.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-wrong", Models: []string{"other"}}}},
+			{ID: "p-auto", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-auto", Models: []string{"auto-model"}}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:         "auto-model",
@@ -3130,38 +3345,22 @@ func TestHandleRequest_AutoAliasFallback(t *testing.T) {
 	}
 }
 
-func TestHandleRequest_DirectProviderFallback(t *testing.T) {
+func TestHandleRequest_DirectProviderFallbackForbidden(t *testing.T) {
 	t.Parallel()
 
-	var seenAuth string
-	var seenModel string
 	var hitCount atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
 		hitCount.Add(1)
-		seenAuth = r.Header.Get("Authorization")
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode payload: %v", err)
-		}
-		seenModel, _ = payload["model"].(string)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp-direct","output":[]}`))
+		t.Fatal("direct provider/group catalog routing is forbidden")
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
 
-	unused := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("provider without matching model must not be called")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer unused.Close()
-
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:           config.Server{APIKey: config.DefaultLocalAPIKey},
 		AutoAliasEnabled: true,
 		Providers: []config.Provider{
-			{ID: "p-other", BaseURL: unused.URL + "/v1", APIKey: "sk-other", Models: []string{"other-model"}},
-			{ID: "p-direct", BaseURL: upstream.URL + "/v1", APIKey: "sk-direct", Models: []string{"direct-model"}},
+			{ID: "p-direct", BaseURL: upstream.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-direct", Models: []string{"direct-model"}}}},
 		},
 	})
 
@@ -3172,24 +3371,14 @@ func TestHandleRequest_DirectProviderFallback(t *testing.T) {
 
 	srv.handleResponses(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
-	if hitCount.Load() != 1 {
-		t.Fatalf("upstream hits = %d, want 1", hitCount.Load())
+	if hitCount.Load() != 0 {
+		t.Fatalf("upstream hits = %d, want 0", hitCount.Load())
 	}
-	if seenAuth != "Bearer sk-direct" {
-		t.Fatalf("authorization = %q, want Bearer sk-direct", seenAuth)
-	}
-	if seenModel != "direct-model" {
-		t.Fatalf("model = %q, want direct-model", seenModel)
-	}
-	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p-direct" {
-		t.Fatalf("X-OCSWITCH-Provider = %q, want p-direct", got)
-	}
-	if got := rr.Header().Get("X-OCSWITCH-Remote-Model"); got != "direct-model" {
-		t.Fatalf("X-OCSWITCH-Remote-Model = %q, want direct-model", got)
-	}
+	assertOpenAIError(t, rr.Body.Bytes(), "model_not_found", "invalid_request_error", `alias "direct-model" not found`)
+	assertLocalTrace(t, srv, "direct-model", http.StatusNotFound, "alias_missing", `alias "direct-model" not found`)
 }
 
 func TestHandleRequest_ManualAliasPriority(t *testing.T) {
@@ -3218,12 +3407,12 @@ func TestHandleRequest_ManualAliasPriority(t *testing.T) {
 	}))
 	defer autoUp.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:           config.Server{APIKey: config.DefaultLocalAPIKey},
 		AutoAliasEnabled: true,
 		Providers: []config.Provider{
-			{ID: "p-manual", BaseURL: manualUp.URL + "/v1", APIKey: "sk-manual", Models: []string{"shared-model"}},
-			{ID: "p-auto", BaseURL: autoUp.URL + "/v1", APIKey: "sk-auto", Models: []string{"shared-model"}},
+			{ID: "p-manual", BaseURL: manualUp.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-manual", Models: []string{"shared-model"}}}},
+			{ID: "p-auto", BaseURL: autoUp.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-auto", Models: []string{"shared-model"}}}},
 		},
 		Aliases: []config.Alias{
 			{
@@ -3278,37 +3467,27 @@ func TestHandleRequest_ManualAliasPriority(t *testing.T) {
 func TestHandleRequest_AutoAliasDisabled(t *testing.T) {
 	t.Parallel()
 
-	var seenAuth string
-	var seenModel string
 	var hitCount atomic.Int32
-	directUp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		hitCount.Add(1)
-		seenAuth = r.Header.Get("Authorization")
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode payload: %v", err)
-		}
-		seenModel, _ = payload["model"].(string)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp-disabled-auto","output":[]}`))
-	}))
-	defer directUp.Close()
-
 	autoOnly := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitCount.Add(1)
 		t.Fatal("auto alias must be ignored when AutoAliasEnabled=false")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer autoOnly.Close()
 
-	srv := New(&config.Config{
+	directUp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitCount.Add(1)
+		t.Fatal("direct provider fallback is forbidden")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer directUp.Close()
+
+	srv := newLegacyTestServer(&config.Config{
 		Server:           config.Server{APIKey: config.DefaultLocalAPIKey},
 		AutoAliasEnabled: false,
 		Providers: []config.Provider{
-			// Auto alias points here with a rewritten remote model; must be ignored.
-			{ID: "p-auto-only", BaseURL: autoOnly.URL + "/v1", APIKey: "sk-auto-only", Models: []string{"other"}},
-			// Direct provider fallback should select this provider via Models.
-			{ID: "p-direct", BaseURL: directUp.URL + "/v1", APIKey: "sk-direct", Models: []string{"disabled-auto-model"}},
+			{ID: "p-auto-only", BaseURL: autoOnly.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-auto-only", Models: []string{"other"}}}},
+			{ID: "p-direct", BaseURL: directUp.URL + "/v1", Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-direct", Models: []string{"disabled-auto-model"}}}},
 		},
 		Aliases: []config.Alias{{
 			Alias:         "disabled-auto-model",
@@ -3331,74 +3510,40 @@ func TestHandleRequest_AutoAliasDisabled(t *testing.T) {
 
 	srv.handleResponses(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
-	if hitCount.Load() != 1 {
-		t.Fatalf("upstream hits = %d, want 1", hitCount.Load())
+	if hitCount.Load() != 0 {
+		t.Fatalf("upstream hits = %d, want 0", hitCount.Load())
 	}
-	if seenAuth != "Bearer sk-direct" {
-		t.Fatalf("authorization = %q, want Bearer sk-direct", seenAuth)
-	}
-	// Direct fallback keeps the request model name (no auto-alias rewrite).
-	if seenModel != "disabled-auto-model" {
-		t.Fatalf("model = %q, want disabled-auto-model", seenModel)
-	}
-	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p-direct" {
-		t.Fatalf("X-OCSWITCH-Provider = %q, want p-direct", got)
-	}
-	if got := rr.Header().Get("X-OCSWITCH-Remote-Model"); got != "disabled-auto-model" {
-		t.Fatalf("X-OCSWITCH-Remote-Model = %q, want disabled-auto-model", got)
-	}
+	assertOpenAIError(t, rr.Body.Bytes(), "model_not_found", "invalid_request_error", `alias "disabled-auto-model" not found`)
+	assertLocalTrace(t, srv, "disabled-auto-model", http.StatusNotFound, "alias_missing", `alias "disabled-auto-model" not found`)
 }
 
-func TestHandleRequest_DirectProviderFallbackExcludesProtocolMismatch(t *testing.T) {
+func TestHandleRequest_NoDirectFallbackFromGroupCatalog(t *testing.T) {
 	t.Parallel()
 
-	var seenAuth string
-	var seenModel string
 	var hitCount atomic.Int32
-	matched := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hitCount.Add(1)
-		seenAuth = r.Header.Get("Authorization")
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode payload: %v", err)
-		}
-		seenModel, _ = payload["model"].(string)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp-proto","output":[]}`))
-	}))
-	defer matched.Close()
-
-	mismatched := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("protocol-mismatched provider must be excluded from direct fallback")
+		t.Fatal("group model catalog must not generate direct candidates")
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer mismatched.Close()
+	defer upstream.Close()
 
-	srv := New(&config.Config{
+	srv := newLegacyTestServer(&config.Config{
 		Server:           config.Server{APIKey: config.DefaultLocalAPIKey},
 		AutoAliasEnabled: true,
-		// Prefer the mismatched provider first so exclusion is meaningful.
-		ProviderPriority: []string{"p-anthropic", "p-openai"},
-		Providers: []config.Provider{
-			{
-				ID:       "p-anthropic",
-				Protocol: config.ProtocolAnthropicMessages,
-				BaseURL:  mismatched.URL,
-				APIKey:   "sk-anthropic",
-				Models:   []string{"proto-model"},
-			},
-			{
-				ID:       "p-openai",
+		Providers: []config.Provider{{
+			ID:      "p-openai",
+			BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{
+				ID:       "default",
 				Protocol: config.ProtocolOpenAIResponses,
-				BaseURL:  matched.URL + "/v1",
 				APIKey:   "sk-openai",
 				Models:   []string{"proto-model"},
-			},
-		},
+			}},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"proto-model","stream":false}`))
@@ -3408,21 +3553,13 @@ func TestHandleRequest_DirectProviderFallbackExcludesProtocolMismatch(t *testing
 
 	srv.handleResponses(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
-	if hitCount.Load() != 1 {
-		t.Fatalf("upstream hits = %d, want 1", hitCount.Load())
+	if hitCount.Load() != 0 {
+		t.Fatalf("upstream hits = %d, want 0", hitCount.Load())
 	}
-	if seenAuth != "Bearer sk-openai" {
-		t.Fatalf("authorization = %q, want Bearer sk-openai", seenAuth)
-	}
-	if seenModel != "proto-model" {
-		t.Fatalf("model = %q, want proto-model", seenModel)
-	}
-	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p-openai" {
-		t.Fatalf("X-OCSWITCH-Provider = %q, want p-openai", got)
-	}
+	assertOpenAIError(t, rr.Body.Bytes(), "model_not_found", "invalid_request_error", `alias "proto-model" not found`)
 }
 
 type blockingReader struct{}

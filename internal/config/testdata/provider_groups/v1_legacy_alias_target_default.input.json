@@ -1,0 +1,53 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9982,
+    "api_key": "ocswitch-local"
+  },
+  "providers": [
+    {
+      "id": "vendor-a",
+      "name": "Vendor A",
+      "protocol": "openai-responses",
+      "base_url": "https://api.example.com/v1",
+      "api_key": "sk-primary",
+      "models": ["model-a", "model-b"]
+    },
+    {
+      "id": "vendor-b",
+      "name": "Vendor B",
+      "protocol": "anthropic-messages",
+      "base_url": "https://anthropic.example.com/v1",
+      "api_key": "sk-anthropic",
+      "models": ["claude-test"],
+      "disabled": true
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "legacy-target",
+      "display_name": "Legacy Target Alias",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-a",
+          "model": "model-a",
+          "enabled": true
+        },
+        {
+          "provider": "vendor-a",
+          "model": "model-b",
+          "enabled": false
+        },
+        {
+          "provider": "vendor-b",
+          "model": "claude-test",
+          "enabled": true,
+          "auto_generated": true
+        }
+      ]
+    }
+  ],
+  "auto_alias_enabled": true
+}

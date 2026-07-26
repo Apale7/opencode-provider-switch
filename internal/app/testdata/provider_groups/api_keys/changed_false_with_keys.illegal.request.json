@@ -1,0 +1,17 @@
+{
+  "providerId": "vendor-fake-a",
+  "groupId": "premium",
+  "group": {
+    "id": "premium",
+    "name": "Premium Fake Group",
+    "protocol": "openai",
+    "apiKeysChanged": false,
+    "apiKeys": [
+      "sk-fake-should-not-apply-eeee"
+    ],
+    "models": [
+      "fake-model-a"
+    ],
+    "disabled": false
+  }
+}

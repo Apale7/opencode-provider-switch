@@ -1,0 +1,23 @@
+{
+  "providerId": "vendor-fake-a",
+  "groupId": "premium",
+  "beforeStoredKeys": [
+    "sk-fake-primary-aaaa",
+    "sk-fake-backup-bbbb"
+  ],
+  "group": {
+    "id": "premium",
+    "name": "Premium Fake Group",
+    "protocol": "openai",
+    "apiKeysChanged": true,
+    "apiKeys": [
+      "sk-fake-new-key-cccc",
+      "sk-fake-rotate-dddd"
+    ],
+    "models": [
+      "fake-model-a",
+      "fake-model-b"
+    ],
+    "disabled": false
+  }
+}

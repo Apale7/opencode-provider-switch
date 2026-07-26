@@ -131,7 +131,11 @@ This command does not modify config and does not contact upstream providers.`,
 					case p.Disabled:
 						note = " (provider disabled)"
 					}
-					fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %d. %s/%s%s\n", mark, i+1, t.Provider, t.Model, note)
+					groupID := t.Group
+					if strings.TrimSpace(groupID) == "" {
+						groupID = config.DefaultGroupID
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %d. %s/%s/%s%s\n", mark, i+1, t.Provider, groupID, t.Model, note)
 				}
 			}
 			return nil
@@ -140,114 +144,123 @@ This command does not modify config and does not contact upstream providers.`,
 }
 
 func newAliasBindCmd() *cobra.Command {
-	var alias, provider, model string
+	var alias, provider, group, model string
 	var disabled bool
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "bind",
-		Short: "Append a target (provider/model) to an alias in failover order",
-		Long: `alias bind appends one provider/model target to an alias's ordered failover
+		Short: "Append a target (provider/group/model) to an alias in failover order",
+		Long: `alias bind appends one provider/group/model target to an alias's ordered failover
 chain in local ocswitch config via Service.
 
 The provider must already exist. If the alias does not exist yet, this command
-auto-creates an enabled alias for convenience. You can pass the target either as
---provider <id> --model <name> or in the more natural combined form --model
-<provider>/<model> when --provider is omitted; the combined form is recommended
-and the explicit --provider flag remains as fallback compatibility. If the
-provider has a stored model catalog discovered from /v1/models, bind validates
-the model name against that discovered list.
+auto-creates an enabled alias for convenience. For the default group you can pass the target either as --provider <id>
+--model <name> or in the combined form --model <provider>/<model> when
+--provider is omitted; the combined form is recommended for simple model ids.
+Models whose ids contain slashes require an explicit
+--provider so the combined form is not ambiguous.
+
+Non-default --group values require fully independent flags: --provider,
+--group, and --model (model is never parsed as provider/model). This avoids
+ambiguous provider/group/model vs provider/model splits.
+
+If the selected group has a stored model catalog discovered from /v1/models,
+bind validates the model name against that discovered list.
 
 Order matters: the first bound target is tried first, the second is fallback,
 and so on. Auto aliases must be upgraded before bind. Typical next step: inspect
 with alias list, then run doctor.`,
 		Example: `  ocswitch alias bind --alias gpt-5.4 --model su8/gpt-5.4
   ocswitch alias bind --alias gpt-5.4 --model codex/GPT-5.4
-  ocswitch alias bind --alias gpt-5.4 --provider relay --model gpt-5.4 --disabled`,
+  ocswitch alias bind --alias gpt-5.4 --provider relay --model gpt-5.4 --disabled
+  ocswitch alias bind --alias gpt-5.4 --provider su8 --group premium --model gpt-5.4
+  ocswitch alias bind --alias gemini --provider relay --group premium --model openrouter/google/gemini-2.5-pro`,
+
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if alias == "" || model == "" {
 				return fmt.Errorf("--alias and --model are required")
 			}
-			combinedProvider, combinedModel, combined := parseProviderModelRef(model)
-			if provider == "" {
-				if !combined {
-					return fmt.Errorf("--model must use <provider>/<model> when --provider is omitted")
-				}
-				provider = combinedProvider
-				model = combinedModel
+			resolvedProvider, resolvedModel, resolvedGroup, err := resolveAliasTargetFlags(provider, group, model)
+			if err != nil {
+				return err
 			}
+			provider, model, group = resolvedProvider, resolvedModel, resolvedGroup
 			if dryRun {
-				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would bind %s → %s/%s via Service/ConfigStore\n", alias, provider, model)
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would bind %s → %s/%s/%s via Service/ConfigStore\n", alias, provider, group, model)
 				return nil
 			}
 			view, err := appService().BindAliasTarget(cmd.Context(), app.AliasTargetInput{
 				Alias:    alias,
 				Provider: provider,
+				Group:    group,
 				Model:    model,
 				Disabled: disabled,
 			})
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "bound %s [%s] → %s/%s\n", view.Alias, view.Protocol, provider, model)
+			fmt.Fprintf(cmd.OutOrStdout(), "bound %s [%s] → %s/%s/%s\n", view.Alias, view.Protocol, provider, group, model)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&alias, "alias", "", "alias name (required)")
-	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (fallback; prefer --model provider/model)")
-	cmd.Flags().StringVar(&model, "model", "", "upstream target model, or provider/model when --provider is omitted (required)")
+	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (required for non-default --group; else optional with --model provider/model)")
+	cmd.Flags().StringVar(&group, "group", "", "provider group id (default: default; non-default requires --provider and literal --model)")
+	cmd.Flags().StringVar(&model, "model", "", "upstream target model, or provider/model when --provider is omitted on default group (required)")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "add target in disabled state")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
 	return cmd
 }
 
 func newAliasUnbindCmd() *cobra.Command {
-	var alias, provider, model string
+	var alias, provider, group, model string
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "unbind",
 		Short: "Remove a target from an alias",
-		Long: `alias unbind removes one concrete provider/model target tuple from an alias in
+		Long: `alias unbind removes one concrete provider/group/model target tuple from an alias in
 local ocswitch config via Service.
 
 It does not delete the alias itself. Removing a target can leave the alias with
 no routable targets, which doctor and opencode sync will then treat as invalid
 or unavailable.
 
-You can identify the target either as --provider <id> --model <name> or in the
-recommended combined form --model <provider>/<model> when --provider is omitted.`,
+For the default group you can identify the target as --provider <id>
+--model <name> or combined --model <provider>/<model> when --provider is
+omitted. Non-default --group requires independent --provider, --group, and
+literal --model (no provider/model parsing).`,
 		Example: `  ocswitch alias unbind --alias gpt-5.4 --model codex/GPT-5.4
-  ocswitch alias unbind --alias gpt-5.4 --provider codex --model GPT-5.4
+  ocswitch alias unbind --alias gpt-5.4 --provider codex --model GPT-5.4 --group premium
   ocswitch doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if alias == "" || model == "" {
 				return fmt.Errorf("--alias and --model are required")
 			}
-			combinedProvider, combinedModel, combined := parseProviderModelRef(model)
-			if provider == "" {
-				if !combined {
-					return fmt.Errorf("--model must use <provider>/<model> when --provider is omitted")
-				}
-				provider = combinedProvider
-				model = combinedModel
+			resolvedProvider, resolvedModel, resolvedGroup, err := resolveAliasTargetFlags(provider, group, model)
+			if err != nil {
+				return err
 			}
+			provider, model, group = resolvedProvider, resolvedModel, resolvedGroup
 			if dryRun {
-				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would unbind %s → %s/%s via Service/ConfigStore\n", alias, provider, model)
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: would unbind %s → %s/%s/%s via Service/ConfigStore\n", alias, provider, group, model)
 				return nil
 			}
 			if _, err := appService().UnbindAliasTarget(cmd.Context(), app.AliasTargetInput{
 				Alias:    alias,
 				Provider: provider,
+				Group:    group,
 				Model:    model,
 			}); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "unbound %s → %s/%s\n", alias, provider, model)
+			fmt.Fprintf(cmd.OutOrStdout(), "unbound %s → %s/%s/%s\n", alias, provider, group, model)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&alias, "alias", "", "alias name (required)")
-	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (fallback; prefer --model provider/model)")
-	cmd.Flags().StringVar(&model, "model", "", "upstream target model, or provider/model when --provider is omitted (required)")
+	cmd.Flags().StringVar(&provider, "provider", "", "upstream provider id (required for non-default --group; else optional with --model provider/model)")
+	cmd.Flags().StringVar(&group, "group", "", "provider group id (default: default; non-default requires --provider and literal --model)")
+	cmd.Flags().StringVar(&model, "model", "", "upstream target model, or provider/model when --provider is omitted on default group (required)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print action without persisting")
 	return cmd
 }
@@ -325,4 +338,42 @@ shells require --yes to execute. Use --json for a single envelope on stdout.`,
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview impact plan without persisting")
 	cmd.Flags().BoolVar(&yes, "yes", false, "execute without interactive confirmation")
 	return cmd
+}
+
+// resolveCLIGroupID maps an omitted/blank group flag only to the default group.
+// It never expands to a sibling group under the provider.
+func resolveCLIGroupID(group string) string {
+	group = strings.TrimSpace(group)
+	if group == "" {
+		return config.DefaultGroupID
+	}
+	return group
+}
+
+// resolveAliasTargetFlags resolves CLI provider/group/model flags for bind/unbind.
+// Default-group legacy UX keeps --model provider/model when --provider is omitted.
+// Non-default groups require explicit independent --provider and a literal --model
+// so slash-containing model ids are never ambiguous with provider/model refs.
+func resolveAliasTargetFlags(provider, group, model string) (string, string, string, error) {
+	provider = strings.TrimSpace(provider)
+	rawGroup := strings.TrimSpace(group)
+	model = strings.TrimSpace(model)
+	if rawGroup != "" && rawGroup != config.DefaultGroupID {
+		if provider == "" {
+			return "", "", "", fmt.Errorf("--provider is required when --group is not %q (non-default groups require independent --provider/--group/--model)", config.DefaultGroupID)
+		}
+		if model == "" {
+			return "", "", "", fmt.Errorf("--model is required")
+		}
+		return provider, model, rawGroup, nil
+	}
+	combinedProvider, combinedModel, combined := parseProviderModelRef(model)
+	if provider == "" {
+		if !combined {
+			return "", "", "", fmt.Errorf("--model must use <provider>/<model> when --provider is omitted")
+		}
+		provider = combinedProvider
+		model = combinedModel
+	}
+	return provider, model, resolveCLIGroupID(group), nil
 }

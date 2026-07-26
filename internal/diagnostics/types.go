@@ -38,6 +38,7 @@ const (
 	ActionUpgradeAlias        Action = "upgrade_alias"
 	ActionEnableAlias         Action = "enable_alias"
 	ActionEnableProvider      Action = "enable_provider"
+	ActionEnableGroup         Action = "enable_group"
 	ActionEnableTarget        Action = "enable_target"
 	ActionRebindTarget        Action = "rebind_target"
 	ActionAlignProtocol       Action = "align_protocol"
@@ -61,19 +62,26 @@ const (
 
 const (
 	CodeProviderIdentityAmbiguous       Code = "provider_identity_ambiguous"
+	CodeProviderGroupIdentityAmbiguous  Code = "provider_group_identity_ambiguous"
 	CodeAliasIdentityAmbiguous          Code = "alias_identity_ambiguous"
 	CodeAliasTargetIdentityAmbiguous    Code = "alias_target_identity_ambiguous"
 	CodeRewriteIdentityAmbiguous        Code = "rewrite_rule_identity_ambiguous"
+	CodeProviderGroupsEmpty             Code = "provider_groups_empty"
+	CodeProviderGroupIDEmpty            Code = "provider_group_id_empty"
+	CodeProviderGroupProtocolUnknown    Code = "provider_group_protocol_unknown"
 	CodeAliasTargetProviderMissing      Code = "alias_target_provider_missing"
+	CodeAliasTargetGroupMissing         Code = "alias_target_group_missing"
 	CodeAliasDisabled                   Code = "alias_disabled"
 	CodeAliasTargetDisabled             Code = "alias_target_disabled"
 	CodeAliasTargetProviderDisabled     Code = "alias_target_provider_disabled"
+	CodeAliasTargetGroupDisabled        Code = "alias_target_group_disabled"
 	CodeAliasTargetProtocolMismatch     Code = "alias_target_protocol_mismatch"
 	CodeProviderCatalogStale            Code = "provider_model_catalog_stale"
 	CodeAliasTargetModelUnconfirmed     Code = "alias_target_model_unconfirmed"
 	CodeAliasNoAvailableTarget          Code = "alias_no_available_target"
 	CodeRewriteAliasUnresolved          Code = "rewrite_alias_selector_unresolved"
 	CodeRewriteProviderMissing          Code = "rewrite_provider_selector_missing"
+	CodeRewriteProviderGroupMissing     Code = "rewrite_provider_group_selector_missing"
 	CodePriorityProviderMissing         Code = "provider_priority_entry_missing"
 	CodeOpenCodeDefaultUnroutable       Code = "opencode_default_model_unroutable"
 	CodeOpenCodeSmallUnroutable         Code = "opencode_small_model_unroutable"
@@ -120,7 +128,7 @@ type Issue struct {
 }
 
 var actionOrder = []Action{
-	ActionUpgradeAlias, ActionEnableAlias, ActionEnableProvider, ActionEnableTarget,
+	ActionUpgradeAlias, ActionEnableAlias, ActionEnableProvider, ActionEnableGroup, ActionEnableTarget,
 	ActionRebindTarget, ActionAlignProtocol, ActionRefreshCatalog,
 	ActionRetryRuntime, ActionReloadRuntime, ActionRestartRuntime,
 	ActionSelectRoutableAlias, ActionResyncOpenCode, ActionMigrateRewriteRule,
@@ -137,19 +145,26 @@ type codeSpec struct {
 
 var codeSpecs = map[Code]codeSpec{
 	CodeProviderIdentityAmbiguous:       {SeverityError, ReasonAmbiguous, []string{"providerId", "occurrenceCount", "occurrencePaths"}},
+	CodeProviderGroupIdentityAmbiguous:  {SeverityError, ReasonAmbiguous, []string{"providerId", "groupId", "occurrenceCount", "occurrencePaths"}},
 	CodeAliasIdentityAmbiguous:          {SeverityError, ReasonAmbiguous, []string{"alias", "occurrenceCount", "occurrencePaths"}},
-	CodeAliasTargetIdentityAmbiguous:    {SeverityError, ReasonAmbiguous, []string{"alias", "providerId", "model", "occurrenceCount", "occurrencePaths"}},
+	CodeAliasTargetIdentityAmbiguous:    {SeverityError, ReasonAmbiguous, []string{"alias", "providerId", "groupId", "model", "occurrenceCount", "occurrencePaths"}},
 	CodeRewriteIdentityAmbiguous:        {SeverityError, ReasonAmbiguous, []string{"ruleName", "occurrenceCount", "occurrencePaths"}},
-	CodeAliasTargetProviderMissing:      {SeverityError, ReasonMissing, []string{"alias", "targetIndex", "providerId", "model"}},
+	CodeProviderGroupsEmpty:             {SeverityError, ReasonInvalid, []string{"providerId"}},
+	CodeProviderGroupIDEmpty:            {SeverityError, ReasonInvalid, []string{"providerId", "groupIndex"}},
+	CodeProviderGroupProtocolUnknown:    {SeverityError, ReasonInvalid, []string{"providerId", "groupId", "groupIndex", "protocol"}},
+	CodeAliasTargetProviderMissing:      {SeverityError, ReasonMissing, []string{"alias", "targetIndex", "providerId", "groupId", "model"}},
+	CodeAliasTargetGroupMissing:         {SeverityError, ReasonMissing, []string{"alias", "targetIndex", "providerId", "groupId", "model"}},
 	CodeAliasDisabled:                   {SeverityInfo, ReasonDisabled, []string{"alias"}},
-	CodeAliasTargetDisabled:             {SeverityInfo, ReasonDisabled, []string{"alias", "targetIndex", "providerId", "model"}},
-	CodeAliasTargetProviderDisabled:     {SeverityWarning, ReasonDisabled, []string{"alias", "targetIndex", "providerId", "model"}},
-	CodeAliasTargetProtocolMismatch:     {SeverityError, ReasonProtocolMismatch, []string{"alias", "targetIndex", "providerId", "model", "aliasProtocol", "providerProtocol"}},
-	CodeProviderCatalogStale:            {SeverityWarning, ReasonCatalogStale, []string{"providerId", "catalogState"}},
-	CodeAliasTargetModelUnconfirmed:     {SeverityInfo, ReasonCatalogStale, []string{"alias", "targetIndex", "providerId", "model", "catalogState"}},
-		CodeAliasNoAvailableTarget:          {SeverityWarning, ReasonNoAvailableTarget, []string{"alias", "targetCount", "missingCount", "disabledCount", "protocolMismatchCount", "ambiguousCount"}},
+	CodeAliasTargetDisabled:             {SeverityInfo, ReasonDisabled, []string{"alias", "targetIndex", "providerId", "groupId", "model"}},
+	CodeAliasTargetProviderDisabled:     {SeverityWarning, ReasonDisabled, []string{"alias", "targetIndex", "providerId", "groupId", "model"}},
+	CodeAliasTargetGroupDisabled:        {SeverityWarning, ReasonDisabled, []string{"alias", "targetIndex", "providerId", "groupId", "model"}},
+	CodeAliasTargetProtocolMismatch:     {SeverityError, ReasonProtocolMismatch, []string{"alias", "targetIndex", "providerId", "groupId", "model", "aliasProtocol", "groupProtocol"}},
+	CodeProviderCatalogStale:            {SeverityWarning, ReasonCatalogStale, []string{"providerId", "groupId", "catalogState"}},
+	CodeAliasTargetModelUnconfirmed:     {SeverityInfo, ReasonCatalogStale, []string{"alias", "targetIndex", "providerId", "groupId", "model", "catalogState"}},
+	CodeAliasNoAvailableTarget:          {SeverityWarning, ReasonNoAvailableTarget, []string{"alias", "targetCount", "missingCount", "disabledCount", "protocolMismatchCount", "ambiguousCount"}},
 	CodeRewriteAliasUnresolved:          {SeverityInfo, ReasonMissing, []string{"ruleName", "ruleIndex", "alias", "directFallbackPossible"}},
 	CodeRewriteProviderMissing:          {SeverityWarning, ReasonMissing, []string{"ruleName", "ruleIndex", "providerId", "selectorIndex", "selectorCount", "wildcardIfEmpty"}},
+	CodeRewriteProviderGroupMissing:     {SeverityWarning, ReasonMissing, []string{"ruleName", "ruleIndex", "providerId", "groupId", "selectorIndex", "selectorCount", "wildcardIfEmpty"}},
 	CodePriorityProviderMissing:         {SeverityInfo, ReasonMissing, []string{"providerId", "priorityIndex"}},
 	CodeOpenCodeDefaultUnroutable:       {SeverityWarning, ReasonMissing, nil},
 	CodeOpenCodeSmallUnroutable:         {SeverityWarning, ReasonMissing, nil},
@@ -172,7 +187,7 @@ var codeSpecs = map[Code]codeSpec{
 }
 
 var validEntityKinds = map[EntityKind]bool{
-	"config": true, "provider": true, "alias": true, "alias_target": true,
+	"config": true, "provider": true, "provider_group": true, "alias": true, "alias_target": true,
 	"rewrite_rule": true, "priority_entry": true, "model_catalog": true,
 	"model_symbol": true, "external_config_field": true, "runtime": true,
 	"request": true,

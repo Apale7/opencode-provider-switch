@@ -1,0 +1,8 @@
+{
+  "error_code": "mixed_schema_format",
+  "message_contains": [
+    "mixed",
+    "groups"
+  ],
+  "notes": "schema_version 1 (or missing) must decode as legacy wire model; any Provider.groups field presence is rejected at load boundary"
+}

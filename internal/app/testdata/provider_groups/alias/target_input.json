@@ -1,0 +1,7 @@
+{
+  "alias": "fake-chat",
+  "provider": "vendor-fake-a",
+  "group": "premium",
+  "model": "fake-model-a",
+  "disabled": false
+}

@@ -1,0 +1,8 @@
+{
+  "error_code": "mixed_schema_format",
+  "message_contains": [
+    "mixed",
+    "groups"
+  ],
+  "notes": "missing schema_version is treated as legacy v1; Provider.groups empty array is still field presence and must reject mixed format"
+}

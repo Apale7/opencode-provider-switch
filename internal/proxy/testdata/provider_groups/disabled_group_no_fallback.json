@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 0,
+    "api_key": "ocswitch-local",
+    "failover_status_codes": [401, 402, 403, 429]
+  },
+  "providers": [
+    {
+      "id": "vendor-fb",
+      "name": "Vendor Disabled Group Guard",
+      "base_url": "https://vendor-fb-disabled.example.test/v1",
+      "base_url_strategy": "ordered",
+      "disabled": false,
+      "auto_alias_enabled": false,
+      "groups": [
+        {
+          "id": "paused",
+          "name": "Paused Target",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-paused-fb",
+          "models": ["model-fb"],
+          "models_source": "manual",
+          "disabled": true
+        },
+        {
+          "id": "active",
+          "name": "Active Sibling",
+          "protocol": "openai-responses",
+          "api_key": "sk-fake-active-fb",
+          "models": ["model-fb"],
+          "models_source": "manual",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "disabled-group",
+      "display_name": "Disabled Group No Fallback",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-fb",
+          "group": "paused",
+          "model": "model-fb",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

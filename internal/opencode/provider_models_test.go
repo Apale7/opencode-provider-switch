@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -136,6 +137,132 @@ func TestFetchProviderModels(t *testing.T) {
 			t.Fatalf("models = %#v, want %#v", models, want)
 		}
 	})
+}
+
+func TestNormalizeProviderGroupModelsInputDoesNotInventGroupID(t *testing.T) {
+	t.Parallel()
+
+	got := NormalizeProviderGroupModelsInput(ProviderGroupModelsInput{
+		ProviderID: " vendor-a ",
+		Protocol:   "openai-responses",
+		BaseURLs:   []string{" https://a.example/v1 ", "", "https://b.example/v1"},
+		APIKeys:    []string{"sk-a"},
+	})
+	if got.ProviderID != "vendor-a" {
+		t.Fatalf("ProviderID = %q", got.ProviderID)
+	}
+	if got.GroupID != "" {
+		t.Fatalf("GroupID = %q, want empty", got.GroupID)
+	}
+	if !reflect.DeepEqual(got.BaseURLs, []string{"https://a.example/v1", "https://b.example/v1"}) {
+		t.Fatalf("BaseURLs = %#v", got.BaseURLs)
+	}
+	target := got.ProbeTarget()
+	if target.GroupID != "" || target.ProviderID != "vendor-a" {
+		t.Fatalf("ProbeTarget() = %#v", target)
+	}
+}
+
+func TestFetchProviderGroupModelsUsesOnlyGroupKeys(t *testing.T) {
+	t.Parallel()
+
+	var auths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths = append(auths, r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") != "Bearer sk-premium" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"error":"wrong key"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[{"id":"premium-model"}]}`)
+	}))
+	defer srv.Close()
+
+	models, probe, err := FetchProviderGroupModels(context.Background(), ProviderGroupModelsInput{
+		ProviderID: "vendor-a",
+		GroupID:    "premium",
+		Protocol:   "openai-responses",
+		BaseURLs:   []string{srv.URL + "/v1"},
+		// Sibling "default" key must not be tried even if listed as unused context.
+		APIKeys: []string{"sk-premium"},
+	})
+	if err != nil {
+		t.Fatalf("FetchProviderGroupModels() error = %v", err)
+	}
+	if probe == nil || !probe.Reachable {
+		t.Fatalf("probe = %#v", probe)
+	}
+	if !reflect.DeepEqual(models, []string{"premium-model"}) {
+		t.Fatalf("models = %#v", models)
+	}
+	if len(auths) != 1 || auths[0] != "Bearer sk-premium" {
+		t.Fatalf("auths = %#v, want only premium key", auths)
+	}
+}
+
+func TestFetchProviderGroupModelsDoesNotFallBackToSiblingKey(t *testing.T) {
+	t.Parallel()
+
+	var auths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths = append(auths, r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"bad key"}`)
+	}))
+	defer srv.Close()
+
+	_, _, err := FetchProviderGroupModels(context.Background(), ProviderGroupModelsInput{
+		ProviderID: "vendor-a",
+		GroupID:    "premium",
+		Protocol:   "openai-responses",
+		BaseURLs:   []string{srv.URL + "/v1"},
+		// Only the failing premium key is supplied; sibling sk-default is intentionally omitted.
+		APIKeys: []string{"sk-premium-bad"},
+	})
+	if err == nil {
+		t.Fatal("expected error without sibling key fallback")
+	}
+	if len(auths) != 1 || auths[0] != "Bearer sk-premium-bad" {
+		t.Fatalf("auths = %#v, want only the provided group key", auths)
+	}
+}
+
+func TestProbeProviderGroupBaseURLUsesGroupProtocol(t *testing.T) {
+	t.Parallel()
+
+	var path string
+	var apiKey string
+	var version string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		apiKey = r.Header.Get("X-Api-Key")
+		version = r.Header.Get("Anthropic-Version")
+		_, _ = io.WriteString(w, `{"data":[{"id":"claude-3-7-sonnet"}]}`)
+	}))
+	defer srv.Close()
+
+	probe, err := ProbeProviderGroupBaseURL(context.Background(), ProviderGroupModelsInput{
+		ProviderID: "vendor-a",
+		GroupID:    "anthropic-group",
+		Protocol:   config.ProtocolAnthropicMessages,
+		APIKeys:    []string{"sk-ant-group"},
+		Headers:    map[string]string{"X-Shared": "1"},
+	}, srv.URL+"/v1")
+	if err != nil {
+		t.Fatalf("ProbeProviderGroupBaseURL() error = %v", err)
+	}
+	if probe == nil || !probe.Reachable {
+		t.Fatalf("probe = %#v", probe)
+	}
+	if path != "/v1/models" {
+		t.Fatalf("path = %q", path)
+	}
+	if apiKey != "sk-ant-group" {
+		t.Fatalf("X-Api-Key = %q", apiKey)
+	}
+	if version != "2023-06-01" {
+		t.Fatalf("Anthropic-Version = %q", version)
+	}
 }
 
 func TestFetchProviderModelsWithFallback(t *testing.T) {

@@ -91,9 +91,19 @@
     "runtime": "Runtime impact: providerRemoved={{providerRemoved}}, aliasRemoved={{aliasRemoved}}, routingChanged={{routingChanged}}",
     "refresh": "Refresh preview",
     "execute": "Execute delete",
+    "executeRename": "Apply rename",
     "executed": "Lifecycle applied ({{state}})",
     "restartPending": "Config saved; restart required for full runtime apply",
     "applyFailed": "Saved, but runtime apply failed ({{state}})",
+    "params": {
+      "providerId": "Provider ID",
+      "groupId": "Group ID",
+      "model": "Model",
+      "providerGroups": "Provider groups",
+      "providerGroupsPlaceholder": "provider/group, provider/group",
+      "providers": "Providers",
+      "providersPlaceholder": "provider-a, provider-b"
+    },
     "option": {
       "rebind_target": "Rebind target",
       "remove_target": "Remove target",
@@ -102,7 +112,8 @@
       "disable_rule": "Disable rule",
       "delete_rule": "Delete rule",
       "keep_rule": "Keep rule",
-      "replace_providers": "Replace providers"
+      "replace_providers": "Replace providers",
+      "replace_provider_groups": "Replace provider groups"
     }
   },
   "transport": {
@@ -326,7 +337,28 @@
     "priority": "Priority",
     "priorityDragHint": "Drag to reorder provider priority",
     "autoAliasEnabled": "Auto-generate aliases",
-    "autoAliasDisabledWarning": "Disabling auto-alias requires manual alias configuration."
+    "autoAliasDisabledWarning": "Disabling auto-alias requires manual alias configuration.",
+    "groups": {
+      "layoutLabel": "Provider groups", "listRegionLabel": "Provider group list", "detailRegionLabel": "Provider group details",
+      "listTitle": "Provider groups", "listSubtitle": "Keep credentials, protocol, and models isolated per group.", "listEmpty": "No groups configured.",
+      "formCreateTitle": "Create group", "formEditTitle": "Edit group", "actionAdd": "Add group", "actionSave": "Save group", "actionDelete": "Delete group", "actionRefreshModels": "Refresh models", "actionPing": "Ping",
+      "fieldId": "Group id", "fieldName": "Group name", "fieldProtocol": "Protocol", "fieldModels": "Models", "fieldDisabled": "Disable group", "placeholderId": "group-id", "placeholderName": "Display name", "placeholderModel": "model-id",
+      "badgeEnabled": "Enabled", "badgeDisabled": "Disabled", "modelsCount": "{{count}} models", "upstreamKeysLabel": "Upstream keys", "upstreamKeysCount": "{{count}} saved keys", "upstreamKeysNotSet": "No saved keys", "upstreamKeysMaskHint": "Saved upstream keys are masked and never shown in plaintext.", "upstreamKeysReplace": "Replace saved keys", "upstreamKeysKeepHint": "Leave replacement disabled to keep the saved keys.", "placeholderUpstreamKey": "Paste one upstream key per line",
+      "statusCreating": "Creating group...", "statusCreated": "Group created", "statusSaving": "Saving group...", "statusSaved": "Group saved", "statusDeleting": "Deleting group...", "statusDeleted": "Group deleted", "statusRefreshingModels": "Refreshing group models...", "statusRefreshedModels": "Group models refreshed", "statusPinging": "Pinging group...", "statusPingOk": "Ping succeeded ({{latency}} ms)", "statusPingFail": "Ping failed",
+      "errorRequiredId": "A group id is required", "errorSave": "Could not save group", "errorDelete": "Could not delete group", "errorRefreshModels": "Could not refresh models", "errorPing": "Could not ping group",
+       "aliasSelectorGroup": "Group", "aliasSelectorModel": "Model", "aliasSelectorGroupPlaceholder": "Select a compatible group", "aliasSelectorSubtitle": "Select an explicit group before choosing a model.", "aliasSelectorNoCompatibleGroups": "No compatible enabled groups are available.",
+       "sharedSettingsTitle": "Shared provider settings", "sharedSettingsSubtitle": "Connection settings shared by every group.", "sharedSettingsHint": "Credentials, protocol, and models are configured on each group.", "sharedBaseUrl": "Base URL", "sharedBaseUrls": "Base URLs", "sharedBaseUrlStrategy": "Base URL strategy", "sharedHeaders": "Headers", "sharedAutoAlias": "Auto-generate aliases", "sharedProviderDisabled": "Disable provider", "sharedProviderDisabledHint": "A disabled provider prevents every group from routing.",
+       "listCount": "{{count}} groups", "listEmptyHint": "Create a group to configure an upstream protocol and credentials.", "listLoading": "Loading groups...", "listError": "Could not load groups.", "listNoMatches": "No groups match.", "listNoMatchesHint": "Change the filter or create a new group.", "listSelectHint": "Select a group to edit its isolated settings.", "listCardId": "ID", "listCardName": "Name", "listCardProtocol": "Protocol", "listCardModels": "Models", "listCardUpstreamKeys": "Upstream keys", "listCardStatus": "Status", "listCardDefaultBadge": "Default", "providerGroupCount": "{{count}} groups", "providerGroupAvailableCount": "{{count}} available",
+       "detailTitle": "Group details", "detailSubtitle": "Settings apply only to this group.", "detailEmpty": "Select a group", "detailEmptyHint": "Choose a group from the list or create one.", "fieldIdHint": "Use a stable identifier for routes and rules.", "fieldNameHint": "Optional label shown in management views.", "fieldDisabledHint": "Disabled groups are excluded from routing.", "fieldModelsSource": "Model source", "placeholderProtocol": "Select protocol",
+       "actionCreate": "Create group", "actionReset": "Reset", "actionCancel": "Cancel", "actionEnable": "Enable", "actionDisable": "Disable", "actionEdit": "Edit group",
+       "statusLoading": "Loading groups...", "statusEnabling": "Enabling group...", "statusDisabling": "Disabling group...", "statusEnabled": "Group enabled", "statusDisabled": "Group disabled", "statusPingIdle": "Ping has not run", "statusUnsaved": "Unsaved changes",
+       "modelsNone": "No models", "modelsSourceLabel": "Source", "modelsSourceDiscovered": "Discovered", "modelsSourceConfigured": "Configured", "modelsSourceEmpty": "Not set", "modelsRefreshHint": "Refresh models only for this group.",
+       "upstreamKeysHint": "Keys authenticate requests from ocswitch to this upstream group.", "upstreamKeysCurrent": "Current keys", "upstreamKeysSummaryItem": "Masked key", "upstreamKeysDraftCount": "{{count}} replacement keys", "upstreamKeysSavedMode": "Keep saved keys", "upstreamKeysPendingMode": "Replace saved keys", "upstreamKeysClearMode": "Clear saved keys", "upstreamKeysReplaceHint": "Replacement overwrites every saved upstream key.", "upstreamKeysPendingReplace": "Replacement keys will be saved.", "upstreamKeysPendingClear": "Saved upstream keys will be cleared.", "upstreamKeysKeep": "Keep saved keys", "upstreamKeysEmptyHint": "Leave empty only when this upstream does not require a key.", "upstreamKeysAdd": "Add key", "upstreamKeysClear": "Clear keys", "upstreamKeysCancelEdit": "Cancel key edit", "placeholderUpstreamKeyAdditional": "Additional upstream key", "errorMaskedKeyRejected": "Masked key values cannot be saved.",
+       "groupDisabledHint": "This group is disabled and will not receive traffic.", "providerAndGroupDisabledHint": "The provider or this group is disabled.", "disabledBlocksRouting": "Disabled groups are not routable.",
+       "aliasSelectorTitle": "Target group", "aliasSelectorProvider": "Provider", "aliasSelectorProviderPlaceholder": "Select a compatible provider", "aliasSelectorModelPlaceholder": "Select a model", "aliasSelectorNoProviders": "No compatible providers are available.", "aliasSelectorNoGroups": "Select a provider first.", "aliasSelectorNoModels": "No models are available for this group.", "aliasSelectorProtocolMismatch": "This group does not match the alias protocol.", "aliasSelectorGroupDisabled": "This group is disabled.", "aliasSelectorProviderDisabled": "This provider is disabled.", "aliasTargetSummary": "{{provider}} / {{group}} / {{model}}", "aliasTargetUnavailable": "This target is unavailable.",
+       "lifecycleDeleteTitle": "Delete group references", "lifecycleDeleteHint": "Review references before deleting this group.", "lifecycleRenameTitle": "Rename group references", "lifecycleRenameHint": "Review route and rewrite updates before changing the group ID.", "lifecycleIdChangeTitle": "Change group ID", "lifecycleIdChangeHint": "The new ID is applied atomically to supported references.", "lifecycleLoading": "Preparing reference plan...", "lifecycleReady": "Reference plan ready", "lifecycleNotExecutable": "This change needs a valid reference plan.", "lifecycleBlockers": "Blockers", "lifecycleChoices": "Required choices", "lifecycleAutomatic": "Automatic", "lifecyclePreserved": "Preserved", "lifecycleExecute": "Apply change", "lifecycleCancel": "Cancel", "lifecycleRefresh": "Refresh plan", "lifecycleExecuted": "Reference plan applied", "lifecycleApplyFailed": "Could not apply reference plan.", "lifecycleRestartPending": "Restart pending", "lifecycleDanglingTarget": "Dangling alias target", "lifecycleReferencedByAliases": "Referenced by aliases", "lifecycleReferencedByRewrite": "Referenced by rewrite rules",
+       "errorLoad": "Could not load groups", "errorValidation": "Check the group values and try again.", "errorDuplicateId": "A group with this ID already exists", "errorRequiredProtocol": "A protocol is required", "emptyStateTitle": "No provider groups", "emptyStateHint": "Create a group to begin routing through this provider.", "loadingStateTitle": "Loading provider groups", "loadingStateHint": "Fetching isolated group settings.", "sharedRegionLabel": "Shared provider settings", "aliasSelectorRegionLabel": "Alias target selector", "narrowStackHint": "On narrow screens, group settings are shown in one column."
+    }
   },
   "aliases": {
     "title": "Aliases",
@@ -740,9 +772,9 @@
   },
   "rewriteRules": {
     "title": "Request rewrite rules",
-    "subtitle": "Manage JSONPath request rewrite operations by alias and selected providers.",
+    "subtitle": "Manage JSONPath request rewrite operations by alias and selected provider groups.",
     "aliasTitle": "Request rewrite",
-    "aliasSubtitle": "Rules scoped to this alias run before the request reaches the selected provider target.",
+    "aliasSubtitle": "Rules scoped to this alias run before the request reaches the selected provider group target.",
     "count": "{{count}} rule(s)",
     "semantics": "Rules run in list order. Use op lines with JSONPath targets. Default mode only fills missing set paths; override mode allows replace, delete, append, and insert.",
     "empty": "No request rewrite rules yet.",
@@ -753,8 +785,8 @@
     "saveAliasFirstHint": "Rewrite rules attach to a saved alias name. Save this alias, then return here to add rules.",
     "aliasLockedHint": "Alias is locked to the current alias detail and will be enforced on save.",
     "scopeAliasProviders": "alias {{alias}} / {{providers}}",
-    "providerScopeAll": "all target providers",
-    "providerScopeSome": "providers {{providers}}",
+    "providerScopeAll": "all target provider groups",
+    "providerScopeSome": "groups {{providers}}",
     "scopeMissing": "scope missing",
     "modeOverride": "Override",
     "modeFill": "Fill",
@@ -771,7 +803,7 @@
     "newRule": "New rule",
     "name": "Rule name",
     "alias": "Alias",
-    "providers": "Providers",
+    "providers": "Provider groups",
     "enabled": "Save enabled",
     "override": "Override existing values and allow delete, append, insert",
     "ops": "Operations",
@@ -781,8 +813,8 @@
     "opsHint": "Supported JSONPath subset: $, dot names, bracket quoted names, and non-negative array indexes. Values use JSON.parse, falling back to string for set/append/insert.",
     "opsFillHint": "Fill mode only allows set operations. Enable override before using delete, append, or insert.",
     "legacyEditWarning": "Legacy set/delete config is skipped by backend. This editor starts with empty ops; save only after adding migrated op lines.",
-    "providersHint": "Empty saved provider scope means all current providers on this alias. Partial selection saves provider IDs explicitly.",
-    "noProviderTargets": "This alias has no provider targets yet. Bind targets before narrowing this rule.",
+    "providersHint": "Select all / empty saved scope is an explicit wildcard that also matches future groups. Checking every current group still saves precise provider/group IDs and does not collapse to wildcard.",
+    "noProviderTargets": "This alias has no provider group targets yet. Bind targets before narrowing this rule.",
     "selectAllProviders": "Select all",
     "clearProviders": "Clear all",
     "statusEditing": "Editing rule {{name}}",

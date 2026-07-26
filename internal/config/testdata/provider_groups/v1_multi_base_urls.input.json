@@ -1,0 +1,45 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9982,
+    "api_key": "ocswitch-local"
+  },
+  "providers": [
+    {
+      "id": "vendor-urls",
+      "name": "Vendor Multi URLs",
+      "protocol": "openai-responses",
+      "base_url": "https://primary.example.com/v1",
+      "base_urls": [
+        "https://primary.example.com/v1",
+        "https://backup.example.com/v1",
+        "https://edge.example.com/v1"
+      ],
+      "base_url_strategy": "ordered",
+      "api_key": "sk-url",
+      "api_keys": ["sk-url-backup"],
+      "headers": {
+        "X-Tenant": "shared"
+      },
+      "models": ["model-url"],
+      "models_source": "manual",
+      "disabled": false
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "url-chat",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-urls",
+          "model": "model-url",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "provider_priority": ["vendor-urls"],
+  "auto_alias_enabled": true
+}

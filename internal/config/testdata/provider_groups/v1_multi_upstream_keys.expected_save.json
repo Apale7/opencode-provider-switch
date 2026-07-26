@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9982,
+    "api_key": "ocswitch-local"
+  },
+  "providers": [
+    {
+      "id": "vendor-keys",
+      "name": "Vendor Multi Keys",
+      "base_url": "https://keys.example.com/v1",
+      "groups": [
+        {
+          "id": "default",
+          "name": "Default",
+          "protocol": "openai-compatible",
+          "api_key": "sk-primary",
+          "api_keys": ["sk-backup-1", "sk-backup-2"],
+          "models": ["model-a", "model-b"],
+          "models_source": "discovered"
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "multi-key-chat",
+      "protocol": "openai-compatible",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-keys",
+          "group": "default",
+          "model": "model-a",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "auto_alias_enabled": true
+}

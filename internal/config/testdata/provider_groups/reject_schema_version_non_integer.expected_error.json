@@ -1,0 +1,7 @@
+{
+  "error_code": "unsupported_schema_version",
+  "message_contains": [
+    "unsupported schema version"
+  ],
+  "notes": "schema_version must be an integer; string \"2\" is rejected even if it looks numeric"
+}

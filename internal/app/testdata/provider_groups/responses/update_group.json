@@ -1,0 +1,51 @@
+{
+  "providerId": "vendor-fake-a",
+  "groupId": "premium",
+  "request": {
+    "id": "premium",
+    "name": "Premium Fake Group Updated",
+    "protocol": "openai",
+    "apiKeysChanged": true,
+    "apiKeys": [
+      "sk-fake-new-key-cccc"
+    ],
+    "models": [
+      "fake-model-a",
+      "fake-model-c"
+    ],
+    "disabled": false
+  },
+  "response": {
+    "id": "premium",
+    "name": "Premium Fake Group Updated",
+    "protocol": "openai",
+    "apiKeyCount": 1,
+    "apiKeysMasked": [
+      "sk-f…cccc"
+    ],
+    "models": [
+      "fake-model-a",
+      "fake-model-c"
+    ],
+    "modelsSource": "manual",
+    "disabled": false
+  },
+  "assertions": {
+    "responseHasApiKeyCount": true,
+    "responseHasApiKeysMasked": true,
+    "responseHasNoPlaintextKeys": true,
+    "responseFieldsForbidden": [
+      "apiKey",
+      "apiKeys",
+      "api_key",
+      "api_keys",
+      "key",
+      "secret",
+      "plaintext"
+    ],
+    "mustNotContainSubstrings": [
+      "sk-fake-new-key-cccc",
+      "sk-fake-primary-aaaa"
+    ]
+  }
+}

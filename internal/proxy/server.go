@@ -110,37 +110,42 @@ func newServerRuntime(cfg *config.Config, store routing.StateStore) *serverRunti
 		cfg:       cfg,
 		transport: transport,
 		client: &http.Client{
-			Transport: transport,
-			Timeout:   0,
+			Transport:     transport,
+			Timeout:       0,
+			CheckRedirect: rejectUpstreamRedirect,
 		},
 		policy: routing.MustBuild(cfg.Server.Routing, routing.Dependencies{Store: store}),
 	}
 }
 
-func providerBaseURLCacheKey(providerID, baseURL string) string {
-	return providerID + "\n" + strings.TrimSpace(baseURL)
+func rejectUpstreamRedirect(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
-func (c *providerBaseURLLatencyCache) get(providerID, baseURL string) (providerBaseURLLatencySample, bool) {
+func providerBaseURLCacheKey(providerID, groupID, baseURL string) string {
+	return providerID + "\n" + strings.TrimSpace(groupID) + "\n" + strings.TrimSpace(baseURL)
+}
+
+func (c *providerBaseURLLatencyCache) get(providerID, groupID, baseURL string) (providerBaseURLLatencySample, bool) {
 	if c == nil {
 		return providerBaseURLLatencySample{}, false
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	sample, ok := c.items[providerBaseURLCacheKey(providerID, baseURL)]
+	sample, ok := c.items[providerBaseURLCacheKey(providerID, groupID, baseURL)]
 	if !ok || time.Since(sample.measuredAt) > c.ttl {
 		return providerBaseURLLatencySample{}, false
 	}
 	return sample, true
 }
 
-func (c *providerBaseURLLatencyCache) put(providerID, baseURL string, probe *opencode.ProviderBaseURLProbe) {
+func (c *providerBaseURLLatencyCache) put(providerID, groupID, baseURL string, probe *opencode.ProviderBaseURLProbe) {
 	if c == nil || probe == nil || strings.TrimSpace(baseURL) == "" {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.items[providerBaseURLCacheKey(providerID, baseURL)] = providerBaseURLLatencySample{
+	c.items[providerBaseURLCacheKey(providerID, groupID, baseURL)] = providerBaseURLLatencySample{
 		latencyMs:  probe.LatencyMs,
 		measuredAt: time.Now(),
 		reachable:  probe.Reachable,
@@ -169,11 +174,16 @@ func New(cfg *config.Config, stores ...RequestTraceStore) *Server {
 
 // ReloadConfig applies hot-reloadable proxy settings to new requests. Existing
 // in-flight requests continue using the runtime snapshot captured at request start.
+//
+// Validation uses ValidateForPersist (structural only): ConfigStore may already
+// have persisted configs with no routable targets (e.g. the only group disabled).
+// Reload must still swap runtime so new requests fail closed instead of continuing
+// to use revoked keys. StartProxy keeps strict Validate and is unaffected.
 func (s *Server) ReloadConfig(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is required")
 	}
-	if errs := cfg.Validate(); len(errs) > 0 {
+	if errs := cfg.ValidateForPersist(); len(errs) > 0 {
 		return errs[0]
 	}
 	next := newServerRuntime(cfg, s.store)
@@ -192,7 +202,7 @@ func (s *Server) currentRuntime() *serverRuntime {
 	return state
 }
 
-func (s *Server) orderedProviderBaseURLs(ctx context.Context, provider *config.Provider) []string {
+func (s *Server) orderedProviderBaseURLs(ctx context.Context, provider *config.Provider, group *config.ProviderGroup) []string {
 	if provider == nil {
 		return nil
 	}
@@ -205,18 +215,33 @@ func (s *Server) orderedProviderBaseURLs(ctx context.Context, provider *config.P
 		latency int64
 		ok      bool
 	}
+	groupID := ""
+	if group != nil {
+		groupID = group.ID
+	}
 	scored := make([]scoredBaseURL, 0, len(baseURLs))
 	missing := make([]string, 0, len(baseURLs))
 	for _, baseURL := range baseURLs {
-		if sample, ok := s.baseURLLatencyCache.get(provider.ID, baseURL); ok && sample.reachable {
+		if sample, ok := s.baseURLLatencyCache.get(provider.ID, groupID, baseURL); ok && sample.reachable {
 			scored = append(scored, scoredBaseURL{baseURL: baseURL, latency: sample.latencyMs, ok: true})
 			continue
 		}
 		missing = append(missing, baseURL)
 	}
 	for _, baseURL := range missing {
-		probe, _ := opencode.ProbeProviderBaseURL(ctx, provider.Protocol, baseURL, firstProviderAPIKey(provider), provider.Headers)
-		s.baseURLLatencyCache.put(provider.ID, baseURL, probe)
+		protocol := config.DefaultProviderProtocol()
+		if group != nil {
+			protocol = group.Protocol
+		}
+		apiKey := ""
+		if group != nil {
+			keys := group.EffectiveAPIKeys()
+			if len(keys) > 0 {
+				apiKey = keys[0]
+			}
+		}
+		probe, _ := opencode.ProbeProviderBaseURL(ctx, protocol, baseURL, apiKey, provider.Headers)
+		s.baseURLLatencyCache.put(provider.ID, groupID, baseURL, probe)
 		if probe != nil && probe.Reachable {
 			scored = append(scored, scoredBaseURL{baseURL: baseURL, latency: probe.LatencyMs, ok: true})
 		}
@@ -422,7 +447,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		RawModel:       rawModel,
 		Alias:          aliasName,
 		RequestHeaders: sanitizeHeaderMap(r.Header),
-		RequestParams:  sanitizeJSONValue("", payload),
+		RequestParams:  sanitizeJSONValue("", payload, nil),
 	}
 	if stream, ok := payload["stream"].(bool); ok {
 		trace.Stream = stream
@@ -453,8 +478,8 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		}
 	}()
 	s.logger.Printf("req=%d incoming model=%q alias=%q stream=%v", reqID, rawModel, aliasName, payload["stream"])
-	// Three-layer alias resolution:
-	// 1) manual FindAlias  2) auto FindAutoAlias (if enabled)  3) direct provider fallback
+	// Alias-only resolution: 1) manual FindAlias  2) auto FindAutoAlias (if enabled).
+	// Direct provider/group model candidates are forbidden; unmatched names are model-not-found.
 	aliasSource := "manual"
 	alias := state.cfg.FindAlias(aliasName)
 	if alias == nil {
@@ -464,27 +489,6 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 				aliasSource = "auto"
 				s.logger.Printf("req=%d alias=%q resolved via auto alias fallback=true source=auto", reqID, aliasName)
 			}
-		}
-	}
-	if alias == nil {
-		if providers := state.cfg.FindProvidersByModel(aliasName); len(providers) > 0 {
-			// Virtual alias: Protocol=request protocol so AvailableTargets drops protocol mismatches.
-			virtual := config.Alias{
-				Alias:    aliasName,
-				Protocol: protocol,
-				Enabled:  true,
-				Targets:  make([]config.Target, 0, len(providers)),
-			}
-			for _, p := range providers {
-				virtual.Targets = append(virtual.Targets, config.Target{
-					Provider: p.ID,
-					Model:    aliasName,
-					Enabled:  true,
-				})
-			}
-			alias = &virtual
-			aliasSource = "provider_fallback"
-			s.logger.Printf("req=%d alias=%q resolved via direct provider fallback=true source=provider_fallback providers=%d", reqID, aliasName, len(providers))
 		}
 	}
 	if alias == nil {
@@ -525,12 +529,26 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 	var lastRetryable *upstreamFailure
 	candidates := make([]routing.Candidate, 0, len(targets))
 	for index, t := range targets {
-		provider := state.cfg.FindProvider(t.Provider)
+		groupID := resolveTargetGroupID(t.Group)
+		provider, group := state.cfg.FindProviderGroup(t.Provider, groupID)
 		baseURL := ""
+		groupProtocol := protocol
 		if provider != nil {
 			baseURL = provider.BaseURL
 		}
-		candidates = append(candidates, routing.Candidate{Index: index, ProviderID: t.Provider, Provider: t.Provider, Protocol: protocol, Model: t.Model, BaseURL: baseURL})
+		if group != nil {
+			groupProtocol = config.NormalizeProviderProtocol(group.Protocol)
+		}
+		candidates = append(candidates, routing.Candidate{
+			Index:      index,
+			ProviderID: t.Provider,
+			GroupID:    groupID,
+			Provider:   t.Provider,
+			Protocol:   groupProtocol,
+			Model:      t.Model,
+			BaseURL:    baseURL,
+			Tags:       map[string]string{"group": groupID},
+		})
 	}
 	attempt := 0
 	resetCircuitTried := false
@@ -539,17 +557,19 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		attemptedTarget := false
 		circuitOpenSkips := 0
 		otherSkips := 0
-		circuitSkippedProviders := map[string]bool{}
+		circuitSkippedCandidates := map[string]routing.Candidate{}
 		for {
 			decision, ok := session.Next()
 			if !ok {
 				break
 			}
 			attempt++
-			t := config.Target{Provider: decision.Candidate.ProviderID, Model: decision.Candidate.Model, Enabled: true}
+			groupID := resolveTargetGroupID(candidateGroupID(decision.Candidate))
+			t := config.Target{Provider: decision.Candidate.ProviderID, Group: groupID, Model: decision.Candidate.Model, Enabled: true}
 			attemptTrace := TraceAttempt{
 				Attempt:   attempt,
 				Provider:  t.Provider,
+				Group:     groupID,
 				Model:     t.Model,
 				StartedAt: time.Now(),
 				Result:    "pending",
@@ -557,7 +577,8 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 			if decision.Skip {
 				if decision.SkipReason == "circuit_open" {
 					circuitOpenSkips++
-					circuitSkippedProviders[decision.Candidate.ProviderID] = true
+					id := decision.Candidate.StableIdentity()
+					circuitSkippedCandidates[id.ProviderID+"\n"+id.GroupID+"\n"+id.Model] = decision.Candidate
 				} else {
 					otherSkips++
 				}
@@ -570,13 +591,14 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 				failoverCount++
 				continue
 			}
-			p := state.cfg.FindProvider(t.Provider)
-			if p == nil || !p.IsEnabled() || !config.ProtocolsMatch(protocol, p.Protocol) {
+			// Fail closed: missing group, disabled provider/group, or protocol mismatch never falls back to default/sibling groups.
+			p, group := state.cfg.FindProviderGroup(t.Provider, groupID)
+			if p == nil || !p.IsEnabled() || group == nil || !group.IsEnabled() || !config.ProtocolsMatch(protocol, group.Protocol) {
 				otherSkips++
-				s.logger.Printf("req=%d alias=%s attempt=%d target provider %q unavailable, skipping", reqID, aliasName, attempt, t.Provider)
+				s.logger.Printf("req=%d alias=%s attempt=%d target provider=%q group=%q unavailable, skipping", reqID, aliasName, attempt, t.Provider, groupID)
 				attemptTrace.Skipped = true
 				attemptTrace.Result = "skipped"
-				attemptTrace.Error = fmt.Sprintf("provider %q unavailable", t.Provider)
+				attemptTrace.Error = fmt.Sprintf("provider %q group %q unavailable", t.Provider, groupID)
 				attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 				trace.Attempts = append(trace.Attempts, attemptTrace)
 				reason := routing.FailureProviderMissing
@@ -588,11 +610,12 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 				continue
 			}
 			attemptedTarget = true
-			s.logger.Printf("req=%d alias=%s attempt=%d provider=%s remote_model=%s failovers=%d", reqID, aliasName, attempt, p.ID, t.Model, failoverCount)
+			groupProtocol := config.NormalizeProviderProtocol(group.Protocol)
+			s.logger.Printf("req=%d alias=%s attempt=%d provider=%s group=%s remote_model=%s failovers=%d", reqID, aliasName, attempt, p.ID, group.ID, t.Model, failoverCount)
 			cloned := cloneMap(payload)
 			cloned["model"] = t.Model
-			state.cfg.ApplyRequestRewriteRules(aliasName, t.Provider, t.Model, cloned)
-			attemptTrace.RequestParams = sanitizeJSONValue("", cloned)
+			state.cfg.ApplyRequestRewriteRulesForGroup(aliasName, t.Provider, group.ID, t.Model, cloned)
+			attemptTrace.RequestParams = sanitizeJSONValue("", cloned, nil)
 			newBody, err := json.Marshal(cloned)
 			if err != nil {
 				s.logger.Printf("req=%d marshal error: %v", reqID, err)
@@ -606,11 +629,14 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 				return
 			}
 
-			handled, success, retryable, upstreamErr, failure := s.tryProviderBaseURLs(state, r.Context(), protocol, w, r, p, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
+			handled, success, retryable, upstreamErr, failure := s.tryProviderBaseURLs(state, r.Context(), groupProtocol, w, r, p, group, t, newBody, aliasName, attempt, failoverCount, &attemptTrace, &trace)
 			attemptTrace.DurationMs = time.Since(attemptTrace.StartedAt).Milliseconds()
 			attemptTrace.Attempt = len(trace.Attempts) + 1
+			// Persist the resolved candidate group for this actual attempt (not a guessed default).
+			attemptTrace.Group = groupID
 			trace.Attempts = append(trace.Attempts, attemptTrace)
 			trace.FinalProvider = p.ID
+			trace.FinalGroup = groupID
 			trace.FinalModel = t.Model
 			trace.FinalURL = attemptTrace.URL
 			trace.StatusCode = attemptTrace.StatusCode
@@ -670,7 +696,7 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 		if !attemptedTarget && !resetCircuitTried && len(candidates) > 0 && circuitOpenSkips == len(candidates) && otherSkips == 0 {
 			resetCircuitTried = true
 			s.logger.Printf("req=%d alias=%s all targets circuit-open; clearing circuit state and retrying once", reqID, aliasName)
-			s.resetCircuitBreakerStates(state, protocol, circuitSkippedProviders)
+			s.resetCircuitBreakerStates(state, protocol, circuitSkippedCandidates)
 			continue
 		}
 		break
@@ -692,16 +718,19 @@ func (s *Server) handleProtocolRequest(protocol string, w http.ResponseWriter, r
 	writeProtocolError(w, http.StatusBadGateway, "server_error", fmt.Sprintf("all upstream targets failed for alias %q", aliasName))
 }
 
-func (s *Server) resetCircuitBreakerStates(state *serverRuntime, protocol string, providerIDs map[string]bool) {
+// resetCircuitBreakerStates clears open circuits for the exact skipped candidates
+// (provider + group + model). Provider-only keys are intentionally not used.
+func (s *Server) resetCircuitBreakerStates(state *serverRuntime, protocol string, candidates map[string]routing.Candidate) {
 	if s == nil || state == nil || s.store == nil {
 		return
 	}
 	strategy := state.policy.Name()
-	for providerID := range providerIDs {
-		if providerID == "" {
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.ProviderID) == "" {
 			continue
 		}
-		s.store.Update(routing.StateKey{Strategy: strategy, Protocol: protocol, ProviderID: providerID}, func(routing.ProviderState) routing.ProviderState {
+		key := routing.StateKeyForCandidate(strategy, protocol, candidate)
+		s.store.Update(key, func(routing.ProviderState) routing.ProviderState {
 			return routing.ProviderState{}
 		})
 	}
@@ -714,6 +743,7 @@ func (s *Server) tryProviderBaseURLs(
 	w http.ResponseWriter,
 	clientReq *http.Request,
 	provider *config.Provider,
+	group *config.ProviderGroup,
 	target config.Target,
 	body []byte,
 	aliasName string,
@@ -727,11 +757,16 @@ func (s *Server) tryProviderBaseURLs(
 		markAttemptClientCanceled(attemptTrace, TraceResultClientCanceled, cancelErr)
 		return false, false, false, cancelErr, nil
 	}
-	baseURLs := s.orderedProviderBaseURLs(ctx, provider)
+	// Base URLs stay provider-shared; protocol, auth headers, and keys come from the target group.
+	baseURLs := s.orderedProviderBaseURLs(ctx, provider, group)
 	if len(baseURLs) == 0 {
 		return false, false, false, fmt.Errorf("provider %q has no base URLs", provider.ID), nil
 	}
-	apiKeys := providerAPIKeyOptions(provider, traceID(trace))
+	groupProtocol := config.NormalizeProviderProtocol(protocol)
+	if group != nil {
+		groupProtocol = config.NormalizeProviderProtocol(group.Protocol)
+	}
+	apiKeys := providerAPIKeyOptions(group, traceID(trace))
 	var lastRetryable *upstreamFailure
 	var lastErr error
 	for baseURLIndex, baseURL := range baseURLs {
@@ -753,10 +788,8 @@ func (s *Server) tryProviderBaseURLs(
 			}
 			providerCopy := *provider
 			providerCopy.BaseURL = baseURL
-			providerCopy.APIKey = apiKey.Value
-			providerCopy.APIKeys = nil
 			if attemptTrace != nil {
-				attemptTrace.URL = strings.TrimRight(baseURL, "/") + config.ProtocolUpstreamRequestPath(protocol)
+				attemptTrace.URL = strings.TrimRight(baseURL, "/") + config.ProtocolUpstreamRequestPath(groupProtocol)
 				attemptTrace.APIKeyIndex = 0
 				attemptTrace.APIKeyMasked = ""
 				if apiKey.Value != "" {
@@ -764,13 +797,17 @@ func (s *Server) tryProviderBaseURLs(
 					attemptTrace.APIKeyMasked = maskSensitiveValue(apiKey.Value)
 				}
 			}
-			handled, success, retryable, err, failure = s.tryOnce(state, ctx, protocol, w, clientReq, &providerCopy, target, body, aliasName, currentAttempt, failoverCount, attemptTrace, trace)
+			handled, success, retryable, err, failure = s.tryOnce(state, ctx, groupProtocol, w, clientReq, &providerCopy, apiKey.Value, target, body, aliasName, currentAttempt, failoverCount, attemptTrace, trace)
 			if errors.Is(err, errClientCanceled) {
 				return handled, success, false, err, nil
 			}
 			if handled || success || !retryable {
 				if success {
-					s.baseURLLatencyCache.put(provider.ID, baseURL, &opencode.ProviderBaseURLProbe{BaseURL: baseURL, Reachable: true, LatencyMs: attemptTrace.FirstByteMs, StatusCode: attemptTrace.StatusCode})
+					groupID := ""
+					if group != nil {
+						groupID = group.ID
+					}
+					s.baseURLLatencyCache.put(provider.ID, groupID, baseURL, &opencode.ProviderBaseURLProbe{BaseURL: baseURL, Reachable: true, LatencyMs: attemptTrace.FirstByteMs, StatusCode: attemptTrace.StatusCode})
 				}
 				return handled, success, retryable, err, failure
 			}
@@ -819,11 +856,13 @@ type providerAPIKeyOption struct {
 	Value string
 }
 
-func providerAPIKeyOptions(provider *config.Provider, requestID uint64) []providerAPIKeyOption {
-	if provider == nil {
+// providerAPIKeyOptions returns the target group's key pool with optional
+// request-id rotation. Keys never cross group boundaries.
+func providerAPIKeyOptions(group *config.ProviderGroup, requestID uint64) []providerAPIKeyOption {
+	if group == nil {
 		return []providerAPIKeyOption{{}}
 	}
-	keys := provider.EffectiveAPIKeys()
+	keys := group.EffectiveAPIKeys()
 	if len(keys) == 0 {
 		return []providerAPIKeyOption{{}}
 	}
@@ -838,12 +877,20 @@ func providerAPIKeyOptions(provider *config.Provider, requestID uint64) []provid
 	return append(items[offset:], items[:offset]...)
 }
 
-func firstProviderAPIKey(provider *config.Provider) string {
-	options := providerAPIKeyOptions(provider, 0)
-	if len(options) == 0 {
+// resolveTargetGroupID trims the runtime target group. Empty values fail closed
+// (no fallback to default) so missing groups never route or probe upstream.
+func resolveTargetGroupID(group string) string {
+	return strings.TrimSpace(group)
+}
+
+func candidateGroupID(c routing.Candidate) string {
+	if g := strings.TrimSpace(c.GroupID); g != "" {
+		return g
+	}
+	if c.Tags == nil {
 		return ""
 	}
-	return options[0].Value
+	return c.Tags["group"]
 }
 
 func traceID(trace *RequestTrace) uint64 {
@@ -863,6 +910,7 @@ func (s *Server) tryOnce(
 	w http.ResponseWriter,
 	clientReq *http.Request,
 	provider *config.Provider,
+	apiKey string,
 	target config.Target,
 	body []byte,
 	aliasName string,
@@ -882,14 +930,18 @@ func (s *Server) tryOnce(
 	copyForwardHeaders(upReq.Header, clientReq.Header)
 	upReq.Header.Set("Content-Type", "application/json")
 	upReq.Header.Set("Accept", clientReq.Header.Get("Accept"))
-	config.ApplyProtocolAuthHeaders(upReq.Header, protocol, provider.APIKey)
+	config.ApplyProtocolAuthHeaders(upReq.Header, protocol, apiKey)
 	config.ApplyProtocolDefaultHeaders(upReq.Header, protocol)
 	for k, v := range provider.Headers {
 		upReq.Header.Set(k, v)
 	}
 	upReq.ContentLength = int64(len(body))
+	providerHeaderSecrets := make([]string, 0, len(provider.Headers))
+	for _, value := range provider.Headers {
+		providerHeaderSecrets = append(providerHeaderSecrets, value)
+	}
 	if attemptTrace != nil {
-		attemptTrace.RequestHeaders = sanitizeHeaderMap(upReq.Header)
+		attemptTrace.RequestHeaders = sanitizeHeaderMap(upReq.Header, providerHeaderSecrets...)
 	}
 
 	startedAt := time.Now()
@@ -911,12 +963,12 @@ func (s *Server) tryOnce(
 	defer resp.Body.Close()
 	if attemptTrace != nil {
 		attemptTrace.StatusCode = resp.StatusCode
-		attemptTrace.ResponseHeaders = sanitizeHeaderMap(resp.Header)
+		attemptTrace.ResponseHeaders = sanitizeHeaderMap(resp.Header, append(providerHeaderSecrets, apiKey)...)
 	}
 
 	if isRetryableStatusCode(resp.StatusCode, state.cfg.Server.FailoverStatusCodes) {
 		failure = captureRetryableFailure(resp)
-		sanitizedBody := sanitizeResponseBody(resp.Header.Get("Content-Type"), failure.body)
+		sanitizedBody := sanitizeResponseBody(resp.Header.Get("Content-Type"), failure.body, append(providerHeaderSecrets, apiKey)...)
 		if attemptTrace != nil {
 			attemptTrace.Retryable = true
 			attemptTrace.Result = "retryable_failure"
@@ -930,12 +982,12 @@ func (s *Server) tryOnce(
 		if attemptTrace != nil {
 			attemptTrace.Result = "final_failure"
 		}
-		s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
+		s.writeDebugHeaders(w, aliasName, provider.ID, target.Group, target.Model, attempt, failoverCount)
 		copyResponseHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		if attemptTrace != nil {
-			attemptTrace.ResponseBody = sanitizeResponseBody(resp.Header.Get("Content-Type"), bodyBytes)
+			attemptTrace.ResponseBody = sanitizeResponseBody(resp.Header.Get("Content-Type"), bodyBytes, append(providerHeaderSecrets, apiKey)...)
 		}
 		_, _ = w.Write(bodyBytes)
 		return true, false, false, fmt.Errorf("upstream %d", resp.StatusCode), nil
@@ -1047,7 +1099,7 @@ func (s *Server) tryOnce(
 		firstChunkClassified = true
 		if precommit.terminal {
 			s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
-			s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
+			s.writeDebugHeaders(w, aliasName, provider.ID, target.Group, target.Model, attempt, failoverCount)
 			copyResponseHeaders(w.Header(), resp.Header)
 			w.WriteHeader(resp.StatusCode)
 			flusher, _ := w.(http.Flusher)
@@ -1071,7 +1123,7 @@ func (s *Server) tryOnce(
 	}
 
 	s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
-	s.writeDebugHeaders(w, aliasName, provider.ID, target.Model, attempt, failoverCount)
+	s.writeDebugHeaders(w, aliasName, provider.ID, target.Group, target.Model, attempt, failoverCount)
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	flusher, _ := w.(http.Flusher)
@@ -1648,10 +1700,12 @@ func normalizeAliasName(model string) string {
 }
 
 // writeDebugHeaders sets the X-OCSWITCH-* debug headers before WriteHeader.
-func (s *Server) writeDebugHeaders(w http.ResponseWriter, alias, provider, remoteModel string, attempt, failoverCount int) {
+// Group is the resolved candidate group for the attempt that produced the response.
+func (s *Server) writeDebugHeaders(w http.ResponseWriter, alias, provider, group, remoteModel string, attempt, failoverCount int) {
 	h := w.Header()
 	h.Set("X-OCSWITCH-Alias", alias)
 	h.Set("X-OCSWITCH-Provider", provider)
+	h.Set("X-OCSWITCH-Group", resolveTargetGroupID(group))
 	h.Set("X-OCSWITCH-Remote-Model", remoteModel)
 	h.Set("X-OCSWITCH-Attempt", fmt.Sprintf("%d", attempt))
 	h.Set("X-OCSWITCH-Failover-Count", fmt.Sprintf("%d", failoverCount))

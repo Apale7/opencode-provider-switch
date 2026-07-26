@@ -1,0 +1,11 @@
+{
+  "accepted": false,
+  "errorCode": "provider_group_masked_api_key_rejected",
+  "errorMessage": "apiKeys must not contain masked placeholders",
+  "assertions": {
+    "anyMaskedPlaceholderRejected": true,
+    "mixedListRejected": true,
+    "mustNotPersistMaskedValues": true,
+    "storedKeysUnchanged": true
+  }
+}

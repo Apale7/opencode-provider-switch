@@ -1,0 +1,17 @@
+{
+  "id": "premium",
+  "name": "Premium Fake Group Updated",
+  "protocol": "openai",
+  "apiKeyCount": 2,
+  "apiKeysMasked": [
+    "sk-f…aaaa",
+    "sk-f…bbbb"
+  ],
+  "models": [
+    "fake-model-a",
+    "fake-model-b",
+    "fake-model-c"
+  ],
+  "modelsSource": "manual",
+  "disabled": false
+}

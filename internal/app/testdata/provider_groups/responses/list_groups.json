@@ -1,0 +1,73 @@
+{
+  "providerId": "vendor-fake-a",
+  "groups": [
+    {
+      "id": "default",
+      "name": "Default",
+      "protocol": "openai",
+      "apiKeyCount": 1,
+      "apiKeysMasked": [
+        "sk-f…aaaa"
+      ],
+      "models": [
+        "fake-model-a"
+      ],
+      "modelsSource": "manual",
+      "disabled": false
+    },
+    {
+      "id": "premium",
+      "name": "Premium Fake Group",
+      "protocol": "openai",
+      "apiKeyCount": 2,
+      "apiKeysMasked": [
+        "sk-f…aaaa",
+        "sk-f…bbbb"
+      ],
+      "models": [
+        "fake-model-a",
+        "fake-model-b"
+      ],
+      "modelsSource": "discovered",
+      "disabled": false
+    },
+    {
+      "id": "free",
+      "name": "Free Fake Group",
+      "protocol": "anthropic",
+      "apiKeyCount": 0,
+      "models": [
+        "fake-claude-mini"
+      ],
+      "modelsSource": "manual",
+      "disabled": true
+    }
+  ],
+  "assertions": {
+    "responseFieldsAllowed": [
+      "id",
+      "name",
+      "protocol",
+      "apiKeyCount",
+      "apiKeysMasked",
+      "models",
+      "modelsSource",
+      "disabled"
+    ],
+    "responseFieldsForbidden": [
+      "apiKey",
+      "apiKeys",
+      "api_key",
+      "api_keys",
+      "key",
+      "secret",
+      "plaintext"
+    ],
+    "mustNotContainSubstrings": [
+      "sk-fake-primary-aaaa",
+      "sk-fake-backup-bbbb",
+      "sk-fake-new-key-cccc",
+      "sk-fake-rotate-dddd"
+    ]
+  }
+}

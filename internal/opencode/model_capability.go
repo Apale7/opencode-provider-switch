@@ -33,9 +33,12 @@ var safeDefaultModalities = []string{"text"}
 //go:embed known_models.json
 var knownModelsFS embed.FS
 
-// ProviderModelProbeTarget is the minimal provider shape needed to probe one model.
+// ProviderModelProbeTarget is the minimal provider-group shape needed to probe one model.
+// GroupID is required identity and is never inferred.
+// BaseURLs/Headers come from the Provider; Protocol/APIKeys come from the Group.
 type ProviderModelProbeTarget struct {
 	ProviderID string
+	GroupID    string
 	Protocol   string
 	BaseURLs   []string
 	APIKeys    []string
@@ -46,6 +49,7 @@ type ProviderModelProbeTarget struct {
 type ModelCapabilityProbe struct {
 	ModelID           string   `json:"modelId"`
 	ProviderID        string   `json:"providerId,omitempty"`
+	GroupID           string   `json:"groupId,omitempty"`
 	Protocol          string   `json:"protocol"`
 	ContextLimit      int64    `json:"contextLimit"`
 	OutputLimit       int64    `json:"outputLimit"`
@@ -83,14 +87,28 @@ var knownModelCapabilityCache struct {
 }
 
 // ProbeModelCapability resolves one model's capabilities through upstream, known DB, then protocol defaults.
+// Only the supplied group's protocol and API keys are used; sibling group keys are never tried.
 func ProbeModelCapability(ctx context.Context, provider ProviderModelProbeTarget, modelID string) ModelCapabilityProbe {
 	modelID = strings.TrimSpace(modelID)
-	protocol := config.NormalizeProviderProtocol(strings.TrimSpace(provider.Protocol))
+	protocol := strings.TrimSpace(provider.Protocol)
+	groupID := strings.TrimSpace(provider.GroupID)
+	if protocol != "" {
+		protocol = config.NormalizeProviderProtocol(protocol)
+	}
 	probe := ProtocolDefaultModelCapability(protocol)
 	probe.ProviderID = strings.TrimSpace(provider.ProviderID)
+	probe.GroupID = groupID
 	probe.ModelID = modelID
 	probe.Protocol = protocol
 
+	if groupID == "" {
+		probe.ProbeError = "missing groupID"
+		return probe
+	}
+	if protocol == "" {
+		probe.ProbeError = "missing protocol"
+		return probe
+	}
 	if modelID == "" {
 		probe.ProbeError = "missing modelID"
 		return probe
@@ -105,6 +123,7 @@ func ProbeModelCapability(ctx context.Context, provider ProviderModelProbeTarget
 	}
 
 	upstreamErr := ""
+	// Use only this group's keys — never merge or fall back to sibling groups.
 	for _, baseURL := range normalizedProbeBaseURLs(provider.BaseURLs) {
 		for _, apiKey := range normalizeAPIKeys(provider.APIKeys) {
 			models, _, err := FetchProviderModelsDetailed(ctx, protocol, baseURL, apiKey, provider.Headers)

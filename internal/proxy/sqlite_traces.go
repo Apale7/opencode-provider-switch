@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS request_traces (
 	status_code INTEGER NOT NULL DEFAULT 0,
 	error TEXT NOT NULL DEFAULT '',
 	final_provider TEXT NOT NULL DEFAULT '',
+	final_group TEXT NOT NULL DEFAULT '',
 	final_model TEXT NOT NULL DEFAULT '',
 	final_url TEXT NOT NULL DEFAULT '',
 	failover INTEGER NOT NULL DEFAULT 0,
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS request_trace_attempts (
 	attempt_index INTEGER NOT NULL,
 	attempt INTEGER NOT NULL DEFAULT 0,
 	provider TEXT NOT NULL DEFAULT '',
+	group_id TEXT NOT NULL DEFAULT '',
 	model TEXT NOT NULL DEFAULT '',
 	duration_ms INTEGER NOT NULL DEFAULT 0,
 	first_byte_ms INTEGER NOT NULL DEFAULT 0,
@@ -131,8 +133,17 @@ CREATE INDEX IF NOT EXISTS idx_request_trace_attempts_provider ON request_trace_
 	if err := ensureSQLiteTraceColumn(ctx, db, "request_traces", "generated_output_tokens", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	if err := ensureSQLiteTraceColumn(ctx, db, "request_traces", "final_group", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := ensureSQLiteTraceColumn(ctx, db, "request_trace_attempts", "first_token_ms", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
+	}
+	if err := ensureSQLiteTraceColumn(ctx, db, "request_trace_attempts", "group_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_request_trace_attempts_provider_group ON request_trace_attempts(provider, group_id)"); err != nil {
+		return fmt.Errorf("create provider group trace index: %w", err)
 	}
 	if err := backfillSQLiteTraceAttempts(ctx, db, 0); err != nil {
 		return err
@@ -160,10 +171,10 @@ func (s *SQLiteTraceStore) Add(ctx context.Context, trace RequestTrace) error {
 		_, err = tx.ExecContext(ctx, `
 		INSERT INTO request_traces (
 		id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
-		protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+		protocol, raw_model, alias, stream, success, status_code, error, final_provider, final_group,
 		final_model, final_url, failover, attempt_count, request_headers_json,
 		request_params_json, usage_json, attempts_json
-	 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	finished_at=excluded.finished_at,
 	duration_ms=excluded.duration_ms,
@@ -180,6 +191,7 @@ ON CONFLICT(id) DO UPDATE SET
 	status_code=excluded.status_code,
 	error=excluded.error,
 	final_provider=excluded.final_provider,
+	final_group=excluded.final_group,
 	final_model=excluded.final_model,
 	final_url=excluded.final_url,
 	failover=excluded.failover,
@@ -206,6 +218,7 @@ ON CONFLICT(id) DO UPDATE SET
 			row.Trace.StatusCode,
 			row.Trace.Error,
 			row.Trace.FinalProvider,
+			row.Trace.FinalGroup,
 			row.Trace.FinalModel,
 			row.Trace.FinalURL,
 			boolToInt(row.Trace.Failover),
@@ -236,7 +249,7 @@ func (s *SQLiteTraceStore) List(ctx context.Context, limit int) ([]RequestTrace,
 	err := s.withDB(ctx, func(db *sql.DB) error {
 		rows, err := db.QueryContext(ctx, `
 SELECT id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
-	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+	protocol, raw_model, alias, stream, success, status_code, error, final_provider, final_group,
 	final_model, final_url, failover, attempt_count, request_headers_json,
 	request_params_json, usage_json, attempts_json
 FROM request_traces ORDER BY started_at DESC, id DESC LIMIT ?`, limit)
@@ -283,7 +296,7 @@ func (s *SQLiteTraceStore) Query(ctx context.Context, query TraceQuery) (TraceQu
 		offset := (query.Page - 1) * query.PageSize
 		listSQL := `
 SELECT id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
-	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+	protocol, raw_model, alias, stream, success, status_code, error, final_provider, final_group,
 	final_model, final_url, failover, attempt_count, usage_json
 FROM request_traces`
 		if where != "" {
@@ -344,12 +357,13 @@ SELECT request_traces.id, request_traces.started_at, request_traces.finished_at,
 	request_traces.input_tokens, request_traces.output_tokens, request_traces.generated_output_tokens,
 	request_traces.protocol, request_traces.raw_model, request_traces.alias,
 	request_traces.stream, request_traces.success, request_traces.status_code,
-	request_traces.error, request_traces.final_provider, request_traces.final_model,
+	request_traces.error, request_traces.final_provider, request_traces.final_group, request_traces.final_model,
 	request_traces.final_url, request_traces.failover, request_traces.attempt_count,
 	json_extract(CASE WHEN trim(request_traces.usage_json) = '' THEN '{}' ELSE request_traces.usage_json END, '$.cacheReadTokens') AS cache_read_tokens,
 	request_trace_attempts.attempt_index,
 	request_trace_attempts.attempt,
 	request_trace_attempts.provider,
+	request_trace_attempts.group_id,
 	request_trace_attempts.model,
 	request_trace_attempts.duration_ms,
 	request_trace_attempts.first_byte_ms,
@@ -406,7 +420,7 @@ func (s *SQLiteTraceStore) QueryAll(ctx context.Context, query TraceQuery) ([]Re
 		where, args := buildSQLiteTraceWhere(query)
 		listSQL := `
 SELECT id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
-	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+	protocol, raw_model, alias, stream, success, status_code, error, final_provider, final_group,
 	final_model, final_url, failover, attempt_count, request_headers_json,
 	request_params_json, usage_json, attempts_json
 FROM request_traces`
@@ -446,7 +460,7 @@ func (s *SQLiteTraceStore) Get(ctx context.Context, id uint64) (RequestTrace, bo
 	err := s.withDB(ctx, func(db *sql.DB) error {
 		row := db.QueryRowContext(ctx, `
 SELECT id, started_at, finished_at, duration_ms, first_byte_ms, first_token_ms, input_tokens, output_tokens, generated_output_tokens,
-	protocol, raw_model, alias, stream, success, status_code, error, final_provider,
+	protocol, raw_model, alias, stream, success, status_code, error, final_provider, final_group,
 	final_model, final_url, failover, attempt_count, request_headers_json,
 	request_params_json, usage_json, attempts_json
 FROM request_traces WHERE id = ?`, id)
@@ -831,9 +845,9 @@ func replaceSQLiteTraceAttempts(ctx context.Context, db sqliteTraceAttemptWriter
 	}
 	stmt, err := db.PrepareContext(ctx, `
 	INSERT INTO request_trace_attempts (
-	trace_id, attempt_index, attempt, provider, model, duration_ms, first_byte_ms, first_token_ms,
+	trace_id, attempt_index, attempt, provider, group_id, model, duration_ms, first_byte_ms, first_token_ms,
 	status_code, success, retryable, skipped, result
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare trace attempts insert: %w", err)
 	}
@@ -844,6 +858,7 @@ func replaceSQLiteTraceAttempts(ctx context.Context, db sqliteTraceAttemptWriter
 			index,
 			attempt.Attempt,
 			attempt.Provider,
+			attempt.Group,
 			attempt.Model,
 			attempt.DurationMs,
 			attempt.FirstByteMs,
@@ -922,6 +937,7 @@ func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace
 		&trace.StatusCode,
 		&trace.Error,
 		&trace.FinalProvider,
+		&trace.FinalGroup,
 		&trace.FinalModel,
 		&trace.FinalURL,
 		&failover,
@@ -962,6 +978,7 @@ func scanSQLiteTrace(scanner interface{ Scan(dest ...any) error }) (RequestTrace
 	if trace.Attempts == nil {
 		trace.Attempts = []TraceAttempt{}
 	}
+	normalizeRequestTraceGroups(&trace)
 	return trace, nil
 }
 
@@ -993,6 +1010,7 @@ func scanSQLiteTraceSummary(scanner interface{ Scan(dest ...any) error }) (Reque
 		&trace.StatusCode,
 		&trace.Error,
 		&trace.FinalProvider,
+		&trace.FinalGroup,
 		&trace.FinalModel,
 		&trace.FinalURL,
 		&failover,
@@ -1013,6 +1031,7 @@ func scanSQLiteTraceSummary(scanner interface{ Scan(dest ...any) error }) (Reque
 		}
 	}
 	trace.Attempts = []TraceAttempt{}
+	normalizeRequestTraceGroups(&trace)
 	return trace, nil
 }
 
@@ -1045,6 +1064,7 @@ func scanSQLiteTraceHealth(scanner interface{ Scan(dest ...any) error }) (Reques
 		&trace.StatusCode,
 		&trace.Error,
 		&trace.FinalProvider,
+		&trace.FinalGroup,
 		&trace.FinalModel,
 		&trace.FinalURL,
 		&failover,
@@ -1079,6 +1099,7 @@ func scanSQLiteTraceHealth(scanner interface{ Scan(dest ...any) error }) (Reques
 	if trace.Attempts == nil {
 		trace.Attempts = []TraceAttempt{}
 	}
+	normalizeRequestTraceGroups(&trace)
 	return trace, nil
 }
 
@@ -1100,6 +1121,7 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 		attemptKey      sql.NullInt64
 		attempt         sql.NullInt64
 		provider        sql.NullString
+		groupID         sql.NullString
 		model           sql.NullString
 		durationMs      sql.NullInt64
 		firstByteMs     sql.NullInt64
@@ -1128,6 +1150,7 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 		&row.Trace.StatusCode,
 		&row.Trace.Error,
 		&row.Trace.FinalProvider,
+		&row.Trace.FinalGroup,
 		&row.Trace.FinalModel,
 		&row.Trace.FinalURL,
 		&failover,
@@ -1136,6 +1159,7 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 		&attemptKey,
 		&attempt,
 		&provider,
+		&groupID,
 		&model,
 		&durationMs,
 		&firstByteMs,
@@ -1155,6 +1179,7 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 	row.Trace.Success = success == 1
 	row.Trace.Failover = failover == 1
 	row.Trace.Attempts = []TraceAttempt{}
+	normalizeRequestTraceGroups(&row.Trace)
 	if cacheReadTokens.Valid {
 		value := cacheReadTokens.Int64
 		row.Trace.Usage.CacheReadTokens = &value
@@ -1169,6 +1194,10 @@ func scanSQLiteTraceHealthAttempt(scanner interface{ Scan(dest ...any) error }) 
 	if provider.Valid {
 		row.Attempt.Provider = provider.String
 	}
+	if groupID.Valid {
+		row.Attempt.Group = groupID.String
+	}
+	row.Attempt.Group = NormalizeTraceGroup(row.Attempt.Group)
 	if model.Valid {
 		row.Attempt.Model = model.String
 	}
@@ -1203,6 +1232,7 @@ func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {
 	var rows []struct {
 		Attempt      int    `json:"attempt"`
 		Provider     string `json:"provider,omitempty"`
+		Group        string `json:"group,omitempty"`
 		Model        string `json:"model,omitempty"`
 		APIKeyIndex  int    `json:"apiKeyIndex,omitempty"`
 		DurationMs   int64  `json:"durationMs"`
@@ -1222,6 +1252,7 @@ func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {
 		out = append(out, TraceAttempt{
 			Attempt:      row.Attempt,
 			Provider:     row.Provider,
+			Group:        NormalizeTraceGroup(row.Group),
 			Model:        row.Model,
 			APIKeyIndex:  row.APIKeyIndex,
 			DurationMs:   row.DurationMs,
@@ -1235,6 +1266,24 @@ func decodeSQLiteTraceHealthAttempts(value string) ([]TraceAttempt, error) {
 		})
 	}
 	return out, nil
+}
+
+func normalizeRequestTraceGroups(trace *RequestTrace) {
+	if trace == nil {
+		return
+	}
+	// Historical rows may omit FinalGroup; surface as default when a final provider exists.
+	if strings.TrimSpace(trace.FinalGroup) == "" && strings.TrimSpace(trace.FinalProvider) != "" {
+		trace.FinalGroup = DefaultTraceGroupID
+	} else if strings.TrimSpace(trace.FinalGroup) != "" {
+		trace.FinalGroup = NormalizeTraceGroup(trace.FinalGroup)
+	}
+	for index := range trace.Attempts {
+		if strings.TrimSpace(trace.Attempts[index].Provider) == "" {
+			continue
+		}
+		trace.Attempts[index].Group = NormalizeTraceGroup(trace.Attempts[index].Group)
+	}
 }
 
 func formatSQLiteTime(value time.Time) string {

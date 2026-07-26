@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9982,
+    "api_key": "ocswitch-local"
+  },
+  "providers": [
+    {
+      "id": "vendor-a",
+      "name": "Vendor A",
+      "protocol": "openai-responses",
+      "base_url": "https://api.example.com/v1",
+      "api_key": "sk-primary",
+      "models": ["model-a"]
+    },
+    {
+      "id": "vendor-b",
+      "name": "Vendor B",
+      "protocol": "openai-responses",
+      "base_url": "https://b.example.com/v1",
+      "api_key": "sk-b",
+      "models": ["model-a"]
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "rewrite-chat",
+      "protocol": "openai-responses",
+      "enabled": true,
+      "targets": [
+        {
+          "provider": "vendor-a",
+          "model": "model-a",
+          "enabled": true
+        },
+        {
+          "provider": "vendor-b",
+          "model": "model-a",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "request_rewrite_rules": [
+    {
+      "name": "provider-scoped",
+      "alias": "rewrite-chat",
+      "providers": ["vendor-a", "vendor-b", "vendor-a"],
+      "enabled": true,
+      "override": true,
+      "ops": [
+        {
+          "op": "set",
+          "path": "$.service_tier",
+          "value": "priority"
+        }
+      ]
+    }
+  ],
+  "auto_alias_enabled": true
+}

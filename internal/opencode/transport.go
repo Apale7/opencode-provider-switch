@@ -55,6 +55,11 @@ func DoJSON(ctx context.Context, req *http.Request, opts TransportOptions) (*htt
 	if client == nil {
 		client = &http.Client{}
 	}
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	client = &clientCopy
 	if opts.RequestTimeout <= 0 {
 		opts.RequestTimeout = defaultModelDiscoveryTimeout
 	}

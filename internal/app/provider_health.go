@@ -55,6 +55,7 @@ type ProviderHealthSummary struct {
 
 type ProviderHealthView struct {
 	Provider             string                `json:"provider"`
+	Group                string                `json:"group,omitempty"`
 	Name                 string                `json:"name,omitempty"`
 	Protocol             string                `json:"protocol,omitempty"`
 	Role                 string                `json:"role"`
@@ -91,6 +92,7 @@ type ProviderHealthView struct {
 	ObservedSuccessRate  float64               `json:"observedSuccessRate"`
 	RetryableFailureRate float64               `json:"retryableFailureRate"`
 	Aliases              []ProviderHealthAlias `json:"aliases,omitempty"`
+	Groups               []ProviderHealthView  `json:"groups,omitempty"`
 }
 
 type ProviderHealthAlias struct {
@@ -144,12 +146,12 @@ func (s *Service) QueryProviderHealth(ctx context.Context, in ProviderHealthInpu
 	aliases := cfg.AvailableAliasNames()
 	sort.Strings(aliases)
 	providers := providerIDs(cfg)
-	accums := initializeProviderHealthAccums(cfg)
+	accums, groupAccums := initializeProviderHealthAccums(cfg)
 	targets := providerTargetLookup(cfg)
 	for _, trace := range traces {
-		aggregateTraceHealth(accums, targets, trace)
+		aggregateTraceHealth(accums, groupAccums, targets, trace)
 	}
-	items := providerHealthViews(accums, providerFilter)
+	items := providerHealthViews(accums, groupAccums, providerFilter)
 	summary := summarizeProviderHealth(items, traces, accums, providerFilter)
 	warnings := []string{
 		"Observed from routed traffic only. Backup providers can have low sample counts because aliases try earlier targets first.",
@@ -177,15 +179,20 @@ func queryProviderHealthTraces(ctx context.Context, store proxy.RequestTraceStor
 	return store.QueryAll(ctx, query)
 }
 
-func initializeProviderHealthAccums(cfg *config.Config) map[string]*providerHealthAccum {
+func initializeProviderHealthAccums(cfg *config.Config) (map[string]*providerHealthAccum, map[string]*providerHealthAccum) {
 	out := map[string]*providerHealthAccum{}
+	groups := map[string]*providerHealthAccum{}
 	for _, provider := range cfg.Providers {
 		role := providerConfiguredRole(cfg, provider.ID)
+		protocol := ""
+		if len(provider.Groups) > 0 {
+			protocol = config.NormalizeProviderProtocol(provider.Groups[0].Protocol)
+		}
 		out[provider.ID] = &providerHealthAccum{
 			view: ProviderHealthView{
 				Provider:    provider.ID,
 				Name:        provider.Name,
-				Protocol:    config.NormalizeProviderProtocol(provider.Protocol),
+				Protocol:    protocol,
 				Role:        role,
 				Configured:  true,
 				Disabled:    provider.Disabled,
@@ -195,8 +202,44 @@ func initializeProviderHealthAccums(cfg *config.Config) map[string]*providerHeal
 			failoverIDs: map[uint64]bool{},
 			aliasStats:  map[string]*ProviderHealthAlias{},
 		}
+		for _, group := range provider.Groups {
+			groupID := proxy.NormalizeTraceGroup(group.ID)
+			groups[providerHealthGroupKey(provider.ID, groupID)] = &providerHealthAccum{
+				view: ProviderHealthView{
+					Provider:    provider.ID,
+					Group:       groupID,
+					Name:        group.Name,
+					Protocol:    config.NormalizeProviderProtocol(group.Protocol),
+					Role:        providerGroupConfiguredRole(cfg, provider.ID, groupID),
+					Configured:  true,
+					Disabled:    provider.Disabled || group.Disabled,
+					SampleLevel: "none",
+				},
+				requestIDs:  map[uint64]bool{},
+				failoverIDs: map[uint64]bool{},
+				aliasStats:  map[string]*ProviderHealthAlias{},
+			}
+		}
 	}
-	return out
+	return out, groups
+}
+
+func providerGroupConfiguredRole(cfg *config.Config, providerID, groupID string) string {
+	hasPrimary := false
+	hasBackup := false
+	for _, alias := range cfg.Aliases {
+		for index, target := range alias.Targets {
+			if target.Provider != providerID || proxy.NormalizeTraceGroup(target.Group) != groupID {
+				continue
+			}
+			if index == 0 {
+				hasPrimary = true
+			} else {
+				hasBackup = true
+			}
+		}
+	}
+	return configuredHealthRole(hasPrimary, hasBackup)
 }
 
 func providerConfiguredRole(cfg *config.Config, providerID string) string {
@@ -214,6 +257,10 @@ func providerConfiguredRole(cfg *config.Config, providerID string) string {
 			}
 		}
 	}
+	return configuredHealthRole(hasPrimary, hasBackup)
+}
+
+func configuredHealthRole(hasPrimary, hasBackup bool) string {
 	switch {
 	case hasPrimary && hasBackup:
 		return "mixed"
@@ -230,15 +277,16 @@ func providerTargetLookup(cfg *config.Config) map[string]providerTargetInfo {
 	out := map[string]providerTargetInfo{}
 	for _, alias := range cfg.Aliases {
 		for index, target := range alias.Targets {
-			key := providerTargetKey(alias.Alias, target.Provider, target.Model)
+			key := providerTargetKey(alias.Alias, target.Provider, proxy.NormalizeTraceGroup(target.Group), target.Model)
 			out[key] = providerTargetInfo{alias: alias.Alias, model: target.Model, index: index}
 		}
 	}
 	return out
 }
 
-func aggregateTraceHealth(accums map[string]*providerHealthAccum, targets map[string]providerTargetInfo, trace proxy.RequestTrace) {
+func aggregateTraceHealth(accums, groupAccums map[string]*providerHealthAccum, targets map[string]providerTargetInfo, trace proxy.RequestTrace) {
 	seenProviders := map[string]bool{}
+	seenGroups := map[string]bool{}
 	traceFailover := healthTraceFailover(trace)
 	for _, attempt := range trace.Attempts {
 		if attemptIsClientCanceled(attempt) {
@@ -248,98 +296,121 @@ func aggregateTraceHealth(accums map[string]*providerHealthAccum, targets map[st
 		if providerID == "" {
 			continue
 		}
+		groupID := proxy.NormalizeTraceGroup(attempt.Group)
 		accum := ensureProviderHealthAccum(accums, providerID)
-		accum.view.AttemptCount++
+		groupAccum := ensureProviderGroupHealthAccum(groupAccums, providerID, groupID)
 		seenProviders[providerID] = true
-		if traceFailover {
-			accum.failoverIDs[trace.ID] = true
-		}
-		info, hasTarget := targets[providerTargetKey(trace.Alias, providerID, attempt.Model)]
-		role := "unknown"
-		if hasTarget {
-			role = roleFromTargetIndex(info.index)
-			aliasKey := fmt.Sprintf("%s\x00%d\x00%s", info.alias, info.index, info.model)
-			aliasStat := accum.aliasStats[aliasKey]
-			if aliasStat == nil {
-				aliasStat = &ProviderHealthAlias{Alias: info.alias, Model: info.model, Role: role, TargetIndex: info.index}
-				accum.aliasStats[aliasKey] = aliasStat
-			}
-			aliasStat.Attempts++
-			if attempt.Success {
-				aliasStat.Success++
-			}
-		}
-		if role == "primary" || (!hasTarget && attempt.Attempt == 1) {
-			accum.view.PrimaryAttempts++
-			accum.roleHasPrimary = true
-		} else if role == "backup" || (!hasTarget && attempt.Attempt > 1) {
-			accum.view.BackupAttempts++
-			accum.roleHasBackup = true
-		}
-		if attempt.DurationMs > 0 {
-			accum.durationMs = append(accum.durationMs, attempt.DurationMs)
-		}
-		if attempt.FirstByteMs > 0 {
-			accum.firstByteMs = append(accum.firstByteMs, attempt.FirstByteMs)
-		}
-		if attempt.Success {
-			accum.view.Success++
-			continue
-		}
-		if attempt.Skipped {
-			accum.view.Skipped++
-			continue
-		}
-		if attempt.Retryable {
-			accum.view.RetryableFailures++
-		} else {
-			accum.view.TerminalFailures++
-		}
-		switch providerHealthFailureKind(attempt) {
-		case "rate_limited":
-			accum.view.RateLimited++
-		case "upstream_5xx":
-			accum.view.Upstream5xx++
-		case "upstream_4xx":
-			accum.view.Upstream4xx++
-		case "timeout":
-			accum.view.Timeouts++
-		case "transport_error":
-			accum.view.TransportErrors++
-		case "stream_error":
-			accum.view.StreamErrors++
-		case "empty_response":
-			accum.view.EmptyResponses++
-		default:
-			accum.view.OtherFailures++
-		}
+		seenGroups[providerHealthGroupKey(providerID, groupID)] = true
+		info, hasTarget := targets[providerTargetKey(trace.Alias, providerID, groupID, attempt.Model)]
+		aggregateHealthAttempt(accum, info, hasTarget, trace.ID, traceFailover, attempt)
+		aggregateHealthAttempt(groupAccum, info, hasTarget, trace.ID, traceFailover, attempt)
 	}
 	for providerID := range seenProviders {
 		accums[providerID].requestIDs[trace.ID] = true
 	}
+	for key := range seenGroups {
+		groupAccums[key].requestIDs[trace.ID] = true
+	}
 	if trace.FinalProvider != "" {
+		groupID := proxy.NormalizeTraceGroup(trace.FinalGroup)
 		if accum := accums[trace.FinalProvider]; accum != nil && trace.Success {
+			groupAccum := ensureProviderGroupHealthAccum(groupAccums, trace.FinalProvider, groupID)
 			if len(trace.Attempts) == 0 && !seenProviders[trace.FinalProvider] {
-				accum.view.AttemptCount++
-				accum.view.Success++
-				accum.view.PrimaryAttempts++
-				accum.roleHasPrimary = true
-				accum.requestIDs[trace.ID] = true
-				if trace.FirstByteMs > 0 {
-					accum.firstByteMs = append(accum.firstByteMs, trace.FirstByteMs)
-				}
-				if trace.DurationMs > 0 {
-					accum.durationMs = append(accum.durationMs, trace.DurationMs)
-				}
+				aggregateHistoricalFinalSuccess(accum, trace)
+				aggregateHistoricalFinalSuccess(groupAccum, trace)
 			}
-			accum.view.FinalSuccess++
-			accum.view.InputTokens += trace.InputTokens
-			accum.view.OutputTokens += trace.OutputTokens
-			accum.view.TotalTokens += trace.InputTokens + trace.OutputTokens
-			if trace.Usage.CacheReadTokens != nil {
-				accum.view.CacheReadTokens += *trace.Usage.CacheReadTokens
-			}
+			aggregateFinalSuccess(accum, trace)
+			aggregateFinalSuccess(groupAccum, trace)
 		}
+	}
+}
+
+func aggregateHealthAttempt(accum *providerHealthAccum, info providerTargetInfo, hasTarget bool, traceID uint64, traceFailover bool, attempt proxy.TraceAttempt) {
+	accum.view.AttemptCount++
+	if traceFailover {
+		accum.failoverIDs[traceID] = true
+	}
+	role := "unknown"
+	if hasTarget {
+		role = roleFromTargetIndex(info.index)
+		aliasKey := fmt.Sprintf("%s\x00%d\x00%s", info.alias, info.index, info.model)
+		aliasStat := accum.aliasStats[aliasKey]
+		if aliasStat == nil {
+			aliasStat = &ProviderHealthAlias{Alias: info.alias, Model: info.model, Role: role, TargetIndex: info.index}
+			accum.aliasStats[aliasKey] = aliasStat
+		}
+		aliasStat.Attempts++
+		if attempt.Success {
+			aliasStat.Success++
+		}
+	}
+	if role == "primary" || (!hasTarget && attempt.Attempt == 1) {
+		accum.view.PrimaryAttempts++
+		accum.roleHasPrimary = true
+	} else if role == "backup" || (!hasTarget && attempt.Attempt > 1) {
+		accum.view.BackupAttempts++
+		accum.roleHasBackup = true
+	}
+	if attempt.DurationMs > 0 {
+		accum.durationMs = append(accum.durationMs, attempt.DurationMs)
+	}
+	if attempt.FirstByteMs > 0 {
+		accum.firstByteMs = append(accum.firstByteMs, attempt.FirstByteMs)
+	}
+	if attempt.Success {
+		accum.view.Success++
+		return
+	}
+	if attempt.Skipped {
+		accum.view.Skipped++
+		return
+	}
+	if attempt.Retryable {
+		accum.view.RetryableFailures++
+	} else {
+		accum.view.TerminalFailures++
+	}
+	switch providerHealthFailureKind(attempt) {
+	case "rate_limited":
+		accum.view.RateLimited++
+	case "upstream_5xx":
+		accum.view.Upstream5xx++
+	case "upstream_4xx":
+		accum.view.Upstream4xx++
+	case "timeout":
+		accum.view.Timeouts++
+	case "transport_error":
+		accum.view.TransportErrors++
+	case "stream_error":
+		accum.view.StreamErrors++
+	case "empty_response":
+		accum.view.EmptyResponses++
+	default:
+		accum.view.OtherFailures++
+	}
+}
+
+func aggregateHistoricalFinalSuccess(accum *providerHealthAccum, trace proxy.RequestTrace) {
+	accum.view.AttemptCount++
+	accum.view.Success++
+	accum.view.PrimaryAttempts++
+	accum.roleHasPrimary = true
+	accum.requestIDs[trace.ID] = true
+	if trace.FirstByteMs > 0 {
+		accum.firstByteMs = append(accum.firstByteMs, trace.FirstByteMs)
+	}
+	if trace.DurationMs > 0 {
+		accum.durationMs = append(accum.durationMs, trace.DurationMs)
+	}
+}
+
+func aggregateFinalSuccess(accum *providerHealthAccum, trace proxy.RequestTrace) {
+	accum.view.FinalSuccess++
+	accum.view.InputTokens += trace.InputTokens
+	accum.view.OutputTokens += trace.OutputTokens
+	accum.view.TotalTokens += trace.InputTokens + trace.OutputTokens
+	if trace.Usage.CacheReadTokens != nil {
+		accum.view.CacheReadTokens += *trace.Usage.CacheReadTokens
 	}
 }
 
@@ -361,27 +432,37 @@ func ensureProviderHealthAccum(accums map[string]*providerHealthAccum, providerI
 	return accum
 }
 
-func providerHealthViews(accums map[string]*providerHealthAccum, providerFilter map[string]bool) []ProviderHealthView {
+func ensureProviderGroupHealthAccum(accums map[string]*providerHealthAccum, providerID, groupID string) *providerHealthAccum {
+	key := providerHealthGroupKey(providerID, groupID)
+	if accum := accums[key]; accum != nil {
+		return accum
+	}
+	accum := &providerHealthAccum{
+		view:       ProviderHealthView{Provider: providerID, Group: groupID, Role: "unknown", SampleLevel: "none"},
+		requestIDs: map[uint64]bool{}, failoverIDs: map[uint64]bool{}, aliasStats: map[string]*ProviderHealthAlias{},
+	}
+	accums[key] = accum
+	return accum
+}
+
+func providerHealthViews(accums, groupAccums map[string]*providerHealthAccum, providerFilter map[string]bool) []ProviderHealthView {
+	groupsByProvider := map[string][]ProviderHealthView{}
+	for _, accum := range groupAccums {
+		view := finalizeProviderHealthAccum(accum)
+		groupsByProvider[view.Provider] = append(groupsByProvider[view.Provider], view)
+	}
+	for providerID := range groupsByProvider {
+		sort.Slice(groupsByProvider[providerID], func(i, j int) bool {
+			return groupsByProvider[providerID][i].Group < groupsByProvider[providerID][j].Group
+		})
+	}
 	items := make([]ProviderHealthView, 0, len(accums))
 	for providerID, accum := range accums {
 		if len(providerFilter) > 0 && !providerFilter[providerID] {
 			continue
 		}
-		view := accum.view
-		view.RequestCount = len(accum.requestIDs)
-		view.FailoverInvolved = len(accum.failoverIDs)
-		view.FirstByteP50Ms = percentileInt64(accum.firstByteMs, 50)
-		view.FirstByteP95Ms = percentileInt64(accum.firstByteMs, 95)
-		view.DurationP50Ms = percentileInt64(accum.durationMs, 50)
-		view.DurationP95Ms = percentileInt64(accum.durationMs, 95)
-		view.ObservedSuccessRate = ratio(view.Success, view.AttemptCount)
-		view.RetryableFailureRate = ratio(view.RetryableFailures, view.AttemptCount)
-		view.CacheHitRate = cacheHitRate(view.CacheReadTokens, view.InputTokens)
-		view.SampleLevel = providerSampleLevel(view.AttemptCount)
-		if !view.Configured {
-			view.Role = observedProviderRole(accum)
-		}
-		view.Aliases = providerHealthAliasViews(accum.aliasStats)
+		view := finalizeProviderHealthAccum(accum)
+		view.Groups = groupsByProvider[providerID]
 		items = append(items, view)
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -391,6 +472,25 @@ func providerHealthViews(accums map[string]*providerHealthAccum, providerFilter 
 		return items[i].Provider < items[j].Provider
 	})
 	return items
+}
+
+func finalizeProviderHealthAccum(accum *providerHealthAccum) ProviderHealthView {
+	view := accum.view
+	view.RequestCount = len(accum.requestIDs)
+	view.FailoverInvolved = len(accum.failoverIDs)
+	view.FirstByteP50Ms = percentileInt64(accum.firstByteMs, 50)
+	view.FirstByteP95Ms = percentileInt64(accum.firstByteMs, 95)
+	view.DurationP50Ms = percentileInt64(accum.durationMs, 50)
+	view.DurationP95Ms = percentileInt64(accum.durationMs, 95)
+	view.ObservedSuccessRate = ratio(view.Success, view.AttemptCount)
+	view.RetryableFailureRate = ratio(view.RetryableFailures, view.AttemptCount)
+	view.CacheHitRate = cacheHitRate(view.CacheReadTokens, view.InputTokens)
+	view.SampleLevel = providerSampleLevel(view.AttemptCount)
+	if !view.Configured {
+		view.Role = observedProviderRole(accum)
+	}
+	view.Aliases = providerHealthAliasViews(accum.aliasStats)
+	return view
 }
 
 func providerHealthAliasViews(in map[string]*ProviderHealthAlias) []ProviderHealthAlias {
@@ -564,8 +664,12 @@ func normalizeStringSet(values []string) map[string]bool {
 	return out
 }
 
-func providerTargetKey(alias, provider, model string) string {
-	return alias + "\x00" + provider + "\x00" + model
+func providerTargetKey(alias, provider, group, model string) string {
+	return alias + "\x00" + provider + "\x00" + group + "\x00" + model
+}
+
+func providerHealthGroupKey(provider, group string) string {
+	return provider + "\x00" + proxy.NormalizeTraceGroup(group)
 }
 
 func roleFromTargetIndex(index int) string {

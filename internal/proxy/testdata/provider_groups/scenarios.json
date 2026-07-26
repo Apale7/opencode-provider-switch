@@ -1,0 +1,362 @@
+{
+  "description": "Proxy integration fixtures for Provider Group routing isolation (Step 3). Base URLs are stable placeholders; tests may rewrite them to httptest addresses. All api_key/api_keys values are fake.",
+  "schema_version": 2,
+  "scenarios": [
+    {
+      "id": "alias_dual_group_order",
+      "file": "alias_dual_group_order.json",
+      "covers": [
+        "Alias 明确双 Group 顺序"
+      ],
+      "request": {
+        "model": "ocswitch/dual-order",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "candidate_order": [
+          {
+            "provider": "vendor-a",
+            "group": "premium",
+            "model": "model-shared"
+          },
+          {
+            "provider": "vendor-a",
+            "group": "standard",
+            "model": "model-shared"
+          }
+        ],
+        "notes": "Target order is premium then standard, independent of groups array order (standard listed first on provider)."
+      }
+    },
+    {
+      "id": "same_model_alias_targets_only",
+      "file": "same_model_alias_targets_only.json",
+      "covers": [
+        "同 Provider 同模型歧义但只按 Alias targets",
+        "未列兄弟 Group 禁止尝试"
+      ],
+      "request": {
+        "model": "ocswitch/shared-only-targets",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "candidate_order": [
+          {
+            "provider": "vendor-a",
+            "group": "beta",
+            "model": "shared-model"
+          },
+          {
+            "provider": "vendor-a",
+            "group": "alpha",
+            "model": "shared-model"
+          }
+        ],
+        "must_not_attempt": [
+          {
+            "provider": "vendor-a",
+            "group": "gamma",
+            "model": "shared-model",
+            "reason": "sibling group not listed in alias targets"
+          }
+        ]
+      }
+    },
+    {
+      "id": "protocol_auth_headers",
+      "file": "protocol_auth_headers.json",
+      "covers": [
+        "不同协议认证 Header"
+      ],
+      "requests": [
+        {
+          "model": "ocswitch/auth-openai",
+          "protocol": "openai-responses",
+          "path": "/v1/responses",
+          "expected_upstream_auth_header": {
+            "name": "Authorization",
+            "value": "Bearer sk-fake-openai-group"
+          },
+          "expected_group": {
+            "provider": "vendor-multi-proto",
+            "group": "openai-group",
+            "model": "gpt-fake"
+          }
+        },
+        {
+          "model": "ocswitch/auth-anthropic",
+          "protocol": "anthropic-messages",
+          "path": "/v1/messages",
+          "expected_upstream_auth_header": {
+            "name": "X-Api-Key",
+            "value": "sk-fake-anthropic-group"
+          },
+          "expected_default_headers": {
+            "Anthropic-Version": "2023-06-01"
+          },
+          "expected_group": {
+            "provider": "vendor-multi-proto",
+            "group": "anthropic-group",
+            "model": "claude-fake"
+          }
+        }
+      ]
+    },
+    {
+      "id": "group_key_pool_retry_isolation",
+      "file": "group_key_pool_retry_isolation.json",
+      "covers": [
+        "每 Group Key 池/轮换/401/429/5xx 重试隔离"
+      ],
+      "request": {
+        "model": "ocswitch/key-pool-iso",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "groups": {
+          "pool-a": {
+            "provider": "vendor-keys",
+            "effective_api_keys": [
+              "sk-fake-pool-a-1",
+              "sk-fake-pool-a-2"
+            ],
+            "retry_statuses": [
+              401,
+              429,
+              500,
+              502,
+              503
+            ],
+            "notes": "401/429/5xx retries rotate only within pool-a keys before next alias target."
+          },
+          "pool-b": {
+            "provider": "vendor-keys",
+            "effective_api_keys": [
+              "sk-fake-pool-b-1",
+              "sk-fake-pool-b-2",
+              "sk-fake-pool-b-3"
+            ],
+            "retry_statuses": [
+              401,
+              429,
+              500,
+              502,
+              503
+            ],
+            "notes": "pool-b key pool is fully isolated; failures in pool-a must not consume pool-b keys."
+          }
+        },
+        "candidate_order": [
+          {
+            "provider": "vendor-keys",
+            "group": "pool-a",
+            "model": "model-k"
+          },
+          {
+            "provider": "vendor-keys",
+            "group": "pool-b",
+            "model": "model-k"
+          }
+        ]
+      }
+    },
+    {
+      "id": "circuit_breaker_isolation",
+      "file": "circuit_breaker_isolation.json",
+      "covers": [
+        "熔断隔离"
+      ],
+      "request": {
+        "model": "ocswitch/cb-iso",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "routing": {
+          "strategy": "circuit-breaker",
+          "failureThreshold": 1,
+          "baseCooldownMs": 60000
+        },
+        "candidate_order": [
+          {
+            "provider": "vendor-cb",
+            "group": "fragile",
+            "model": "model-cb"
+          },
+          {
+            "provider": "vendor-cb",
+            "group": "stable",
+            "model": "model-cb"
+          }
+        ],
+        "notes": "Opening circuit for (vendor-cb, fragile) must not open or skip (vendor-cb, stable). State keys must include group id."
+      }
+    },
+    {
+      "id": "sibling_group_not_listed",
+      "file": "sibling_group_not_listed.json",
+      "covers": [
+        "未列兄弟 Group 禁止尝试"
+      ],
+      "request": {
+        "model": "ocswitch/no-sibling",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "candidate_order": [
+          {
+            "provider": "vendor-sib",
+            "group": "listed",
+            "model": "model-sib"
+          }
+        ],
+        "must_not_attempt": [
+          {
+            "provider": "vendor-sib",
+            "group": "unlisted",
+            "model": "model-sib",
+            "reason": "present on provider with same model but not in alias targets"
+          }
+        ],
+        "notes": "After listed group key/base retries exhaust, fail closed; never search unlisted sibling."
+      }
+    },
+    {
+      "id": "missing_group_no_fallback",
+      "file": "missing_group_no_fallback.json",
+      "covers": [
+        "缺失 Group 禁止 fallback"
+      ],
+      "request": {
+        "model": "ocswitch/missing-group",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "candidate_order": [],
+        "must_not_attempt": [
+          {
+            "provider": "vendor-fb",
+            "group": "default",
+            "model": "model-fb",
+            "reason": "target group missing-group-id does not exist; no fallback to default"
+          },
+          {
+            "provider": "vendor-fb",
+            "group": "other",
+            "model": "model-fb",
+            "reason": "no fallback to other enabled group"
+          }
+        ],
+        "error": {
+          "status": 404,
+          "code": "model_not_found"
+        }
+      }
+    },
+    {
+      "id": "disabled_group_no_fallback",
+      "file": "disabled_group_no_fallback.json",
+      "covers": [
+        "禁用 Group 禁止 fallback"
+      ],
+      "request": {
+        "model": "ocswitch/disabled-group",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "candidate_order": [],
+        "must_not_attempt": [
+          {
+            "provider": "vendor-fb",
+            "group": "active",
+            "model": "model-fb",
+            "reason": "alias only targets disabled group; no fallback to active sibling"
+          },
+          {
+            "provider": "vendor-fb",
+            "group": "paused",
+            "model": "model-fb",
+            "reason": "target group is disabled"
+          }
+        ],
+        "error": {
+          "status": 404,
+          "code": "model_not_found"
+        }
+      }
+    },
+    {
+      "id": "protocol_mismatch_no_fallback",
+      "file": "protocol_mismatch_no_fallback.json",
+      "covers": [
+        "协议不匹配 Group 禁止 fallback"
+      ],
+      "request": {
+        "model": "ocswitch/proto-mismatch",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "candidate_order": [],
+        "must_not_attempt": [
+          {
+            "provider": "vendor-fb",
+            "group": "anthropic-only",
+            "model": "model-fb",
+            "reason": "group protocol anthropic-messages mismatches alias openai-responses"
+          },
+          {
+            "provider": "vendor-fb",
+            "group": "openai-match",
+            "model": "model-fb",
+            "reason": "must not fallback to protocol-matching sibling not listed as usable target"
+          }
+        ],
+        "error": {
+          "status": 404,
+          "code": "model_not_found"
+        }
+      }
+    },
+    {
+      "id": "model_not_found_no_direct",
+      "file": "model_not_found_no_direct.json",
+      "covers": [
+        "未命中 Alias model-not-found 且无 direct 候选"
+      ],
+      "request": {
+        "model": "ocswitch/not-an-alias",
+        "protocol": "openai-responses",
+        "path": "/v1/responses"
+      },
+      "expected": {
+        "candidate_order": [],
+        "must_not_attempt": [
+          {
+            "provider": "vendor-direct",
+            "group": "default",
+            "model": "not-an-alias",
+            "reason": "provider group catalog contains the model name but direct provider-native routing is forbidden"
+          },
+          {
+            "provider": "vendor-direct",
+            "group": "extra",
+            "model": "not-an-alias",
+            "reason": "no direct candidate generation from group models"
+          }
+        ],
+        "error": {
+          "status": 404,
+          "code": "model_not_found",
+          "message_contains": "alias \"not-an-alias\" not found"
+        }
+      }
+    }
+  ]
+}

@@ -14,9 +14,13 @@ export function BindTarget(arg1:app.AliasTargetInput):Promise<app.AliasView>;
 
 export function Bindings():Promise<desktop.Bindings>;
 
+export function CreateProviderGroup(arg1:app.ProviderGroupCreateInput):Promise<app.ProviderGroupView>;
+
 export function DeleteAlias(arg1:string):Promise<void>;
 
 export function DeleteProvider(arg1:string):Promise<void>;
+
+export function DeleteProviderGroup(arg1:app.ProviderGroupDeleteInput):Promise<void>;
 
 export function DeleteRewriteRule(arg1:app.RequestRewriteRuleRemoveInput):Promise<app.RequestRewriteRuleRemoveResult>;
 
@@ -40,6 +44,8 @@ export function ImportConfigHTTP(arg1:context.Context,arg2:app.ConfigImportInput
 
 export function ImportProviders(arg1:app.ProviderImportInput):Promise<app.ProviderImportResult>;
 
+export function ListProviderGroups(arg1:string):Promise<Array<app.ProviderGroupView>>;
+
 export function Meta():Promise<Record<string, string>>;
 
 export function OpenExternalURL(arg1:string):Promise<void>;
@@ -47,6 +53,8 @@ export function OpenExternalURL(arg1:string):Promise<void>;
 export function Overview():Promise<app.Overview>;
 
 export function PingProviderBaseURL(arg1:app.ProviderPingInput):Promise<app.ProviderPingResult>;
+
+export function PingProviderGroupBaseURL(arg1:app.ProviderGroupPingInput):Promise<app.ProviderPingResult>;
 
 export function PreviewLifecycle(arg1:app.LifecyclePreviewInput):Promise<app.APIEnvelope>;
 
@@ -59,6 +67,8 @@ export function Providers():Promise<Array<app.ProviderView>>;
 export function ProxySettings():Promise<app.ProxySettingsView>;
 
 export function ProxyStatus():Promise<app.ProxyStatusView>;
+
+export function RefreshProviderGroupModels(arg1:app.ProviderGroupRefreshModelsInput):Promise<app.ProviderSaveResult>;
 
 export function RefreshProviderModels(arg1:app.ProviderRefreshModelsInput):Promise<app.ProviderSaveResult>;
 
@@ -111,5 +121,7 @@ export function TraceDetail(arg1:number):Promise<app.RequestTrace>;
 export function TraceList(arg1:app.RequestTraceListInput):Promise<app.RequestTraceListResult>;
 
 export function UnbindTarget(arg1:app.AliasTargetInput):Promise<app.AliasView>;
+
+export function UpdateProviderGroup(arg1:app.ProviderGroupUpdateInput):Promise<app.ProviderGroupView>;
 
 export function UpgradeAutoAlias(arg1:app.AliasLockInput):Promise<app.AliasView>;

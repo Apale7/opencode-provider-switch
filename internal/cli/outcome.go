@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Apale7/opencode-provider-switch/internal/app"
+	"github.com/Apale7/opencode-provider-switch/internal/config"
 	"github.com/Apale7/opencode-provider-switch/internal/lifecycle"
 )
 
@@ -233,6 +234,153 @@ func previewRemoveProvider(cmd *cobra.Command, id string) (app.ConfigRevision, a
 		Operation: lifecycle.Operation{Kind: lifecycle.OpProviderRemove, Payload: payload},
 	})
 	return rev, plan, err
+}
+
+func previewRemoveProviderGroup(cmd *cobra.Command, providerID, groupID string) (app.ConfigRevision, app.LifecyclePlanView, lifecycle.Operation, error) {
+	rev, plan, op, _, err := previewRemoveProviderGroupWithSelections(cmd, providerID, groupID, groupRemoveSelectionOpts{})
+	return rev, plan, op, err
+}
+
+// groupRemoveSelectionOpts configures convenience selections for group.delete.
+type groupRemoveSelectionOpts struct {
+	// OnProtected is remove_target (default), delete_alias, or rebind_target.
+	OnProtected string
+	// Rebind is provider/group/model when OnProtected=rebind_target (or when --rebind is set).
+	RebindProvider string
+	RebindGroup    string
+	RebindModel    string
+	// OnRewrite is keep_dormant (default), disable_rule, delete_rule, or replace_provider_groups.
+	OnRewrite string
+	// ReplaceProviderGroups when OnRewrite=replace_provider_groups.
+	ReplaceProviderGroups []config.ProviderGroupSelector
+}
+
+func previewRemoveProviderGroupWithSelections(
+	cmd *cobra.Command,
+	providerID, groupID string,
+	opts groupRemoveSelectionOpts,
+) (app.ConfigRevision, app.LifecyclePlanView, lifecycle.Operation, []lifecycle.Selection, error) {
+	svc := appService()
+	rev, err := svc.GetConfigRevision(cmd.Context())
+	if err != nil {
+		return "", app.LifecyclePlanView{}, lifecycle.Operation{}, nil, err
+	}
+	payload, err := marshalPayload(lifecycle.GroupRemovePayload{ProviderID: providerID, GroupID: groupID})
+	if err != nil {
+		return "", app.LifecyclePlanView{}, lifecycle.Operation{}, nil, err
+	}
+	op := lifecycle.Operation{Kind: lifecycle.OpGroupRemove, Payload: payload}
+	basePlan, err := svc.PreviewLifecycle(cmd.Context(), app.LifecyclePreviewInput{
+		Revision:  rev,
+		Operation: op,
+	})
+	if err != nil {
+		return rev, basePlan, op, nil, err
+	}
+	selections := buildGroupRemoveSelections(basePlan, providerID, groupID, opts)
+	if len(selections) == 0 {
+		return rev, basePlan, op, nil, nil
+	}
+	plan, err := svc.PreviewLifecycle(cmd.Context(), app.LifecyclePreviewInput{
+		Revision:   rev,
+		Operation:  op,
+		Selections: selections,
+	})
+	return rev, plan, op, selections, err
+}
+
+// previewGroupIDChangeWithSelections plans a stable group id rename and applies the same
+// safe-default selection flags as group delete when choices exist (so confirm cannot fail).
+func previewGroupIDChangeWithSelections(
+	cmd *cobra.Command,
+	providerID, oldGroupID, newGroupID string,
+	opts groupRemoveSelectionOpts,
+) (app.ConfigRevision, app.LifecyclePlanView, lifecycle.Operation, []lifecycle.Selection, error) {
+	svc := appService()
+	rev, err := svc.GetConfigRevision(cmd.Context())
+	if err != nil {
+		return "", app.LifecyclePlanView{}, lifecycle.Operation{}, nil, err
+	}
+	payload, err := marshalPayload(lifecycle.GroupIDChangePayload{
+		ProviderID: providerID,
+		OldGroupID: oldGroupID,
+		NewGroupID: newGroupID,
+	})
+	if err != nil {
+		return "", app.LifecyclePlanView{}, lifecycle.Operation{}, nil, err
+	}
+	op := lifecycle.Operation{Kind: lifecycle.OpGroupIDChange, Payload: payload}
+	basePlan, err := svc.PreviewLifecycle(cmd.Context(), app.LifecyclePreviewInput{
+		Revision:  rev,
+		Operation: op,
+	})
+	if err != nil {
+		return rev, basePlan, op, nil, err
+	}
+	// Reuse delete defaults for any future protected/rewrite choices on id_change.
+	selections := buildGroupRemoveSelections(basePlan, providerID, oldGroupID, opts)
+	if len(selections) == 0 {
+		return rev, basePlan, op, nil, nil
+	}
+	plan, err := svc.PreviewLifecycle(cmd.Context(), app.LifecyclePreviewInput{
+		Revision:   rev,
+		Operation:  op,
+		Selections: selections,
+	})
+	return rev, plan, op, selections, err
+}
+
+func buildGroupRemoveSelections(plan app.LifecyclePlanView, providerID, groupID string, opts groupRemoveSelectionOpts) []lifecycle.Selection {
+	onProtected := strings.TrimSpace(opts.OnProtected)
+	if onProtected == "" {
+		if strings.TrimSpace(opts.RebindProvider) != "" || strings.TrimSpace(opts.RebindGroup) != "" || strings.TrimSpace(opts.RebindModel) != "" {
+			onProtected = lifecycle.OptionRebindTarget
+		}
+	}
+	onRewrite := strings.TrimSpace(opts.OnRewrite)
+	if onRewrite == "" {
+		if len(opts.ReplaceProviderGroups) > 0 {
+			onRewrite = lifecycle.OptionReplaceProviderGroups
+		}
+	}
+	selections := make([]lifecycle.Selection, 0, len(plan.Choices))
+	for _, ch := range plan.Choices {
+		switch ch.Code {
+		case lifecycle.ReasonProtectedTarget:
+			if onProtected == "" {
+				continue
+			}
+			sel := lifecycle.Selection{ChoiceID: ch.ID, OptionID: onProtected}
+			if onProtected == lifecycle.OptionRebindTarget {
+				provider := strings.TrimSpace(opts.RebindProvider)
+				group := strings.TrimSpace(opts.RebindGroup)
+				model := strings.TrimSpace(opts.RebindModel)
+				sel.Params = map[string]any{
+					"providerId": provider,
+					"groupId":    group,
+					"model":      model,
+				}
+			}
+			selections = append(selections, sel)
+		case lifecycle.ReasonSingletonRewrite:
+			if onRewrite == "" {
+				continue
+			}
+			sel := lifecycle.Selection{ChoiceID: ch.ID, OptionID: onRewrite}
+			if onRewrite == lifecycle.OptionReplaceProviderGroups {
+				groups := opts.ReplaceProviderGroups
+				if len(groups) > 0 {
+					raw := make([]map[string]any, 0, len(groups))
+					for _, g := range groups {
+						raw = append(raw, map[string]any{"provider": g.Provider, "group": g.Group})
+					}
+					sel.Params = map[string]any{"providerGroups": raw}
+				}
+			}
+			selections = append(selections, sel)
+		}
+	}
+	return selections
 }
 
 func previewRemoveAliasWithSelections(cmd *cobra.Command, name string) (app.ConfigRevision, app.LifecyclePlanView, []lifecycle.Selection, error) {

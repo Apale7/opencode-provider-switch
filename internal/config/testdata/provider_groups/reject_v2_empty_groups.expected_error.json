@@ -1,0 +1,8 @@
+{
+  "error_code": "empty_provider_groups",
+  "message_contains": [
+    "group",
+    "vendor-a"
+  ],
+  "notes": "schema_version 2 requires each Provider to explicitly contain at least one Group; empty groups array is a structural load error"
+}
