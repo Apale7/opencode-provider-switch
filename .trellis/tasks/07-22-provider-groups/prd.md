@@ -27,7 +27,7 @@ Provider 经常由多个上游业务分组组成。各分组共用相同的服�
 
 1. 单个 Provider 可以配置一个或多个 Group。
 2. `protocol`、`api_key/api_keys`、`models/models_source` 下放到 Group。
-3. 每个 Group 支持多个上游 API Key，并保持现有轮换与失败重试语义。
+3. 每个 Group 支持多个上游 API Key；请求始终按配置顺序使用 Key，只有响应明确表示额度或余额耗尽时才切换到下一个 Key。
 4. Alias Target 使用稳定 Group ID 精确引用目标。
 5. 路由、模型发现、能力探测、自动 Alias、熔断、Trace 和健康统计按 Group 隔离。
 6. 旧配置无感加载为一个 `default` Group，迁移前后路由结果、模型可见性和 Key 顺序一致。
@@ -189,8 +189,8 @@ func (c *Config) FindProviderGroup(providerID, groupID string) (*Provider, *Prov
 
 1. 请求模型必须先命中已启用 Alias，再将 Alias 解析为有序 Target；未命中 Alias 直接返回既有 model-not-found 错误，不按 Provider/Group 模型目录生成 direct 候选。
 2. 路由候选必须携带 Provider ID、Group ID、协议、模型、Base URLs 和该 Group 的 Key 集合。
-3. Base URL 顺序沿用 Provider 策略；每个 Base URL 内只轮换当前 Group 的 Key。
-4. API Key 轮换起点继续由 request/trace ID 决定，但不同 Group 的 Key 池完全隔离。
+3. Base URL 顺序沿用 Provider 策略；非额度类可重试错误可继续使用同一 Key 尝试其他 Base URL，但不得切换 Key。
+4. API Key 始终从当前 Group 配置的第一个 Key 开始；只有上游响应体明确表示 5h/weekly limit、配额或余额耗尽时，才按配置顺序切换到下一个 Key。普通限流、鉴权失败、传输错误、超时和 5xx 均不得触发 Key 切换，不同 Group 的 Key 池完全隔离。
 5. 协议路径、认证头和默认头均来自 Group 协议。
 6. 熔断和失败状态键至少包含 Provider ID 与 Group ID，防止同 Provider 的不同 Group 互相污染。
 7. Trace Attempt 记录 Group ID；Provider 健康页提供 Group 明细和 Provider 汇总。
@@ -308,7 +308,7 @@ type ProviderGroupView struct {
 2. 旧配置加载后在内存中得到唯一 `default` Group，启动不改盘，正常保存后输出 canonical 新格式。
 3. 旧 Alias Target 自动绑定 `default`，迁移前后候选顺序与路由行为一致。
 4. 无效、禁用或协议不匹配的 Group 不可路由且不会回退其他 Group。
-5. 同 Provider 两个 Group 的 Key 轮换、失败重试和熔断状态互不影响。
+5. 同 Provider 两个 Group 的 Key 固定顺序、额度耗尽切换、失败重试和熔断状态互不影响。
 6. 模型发现、Ping、能力探测和自动 Alias 始终使用精确 Group。
 7. Group 删除和 ID 变更不会产生未诊断的悬空引用或自动重绑。
 8. Trace 和健康视图可以区分 Provider Group，并兼容历史无 Group 数据。
@@ -327,7 +327,7 @@ type ProviderGroupView struct {
 - `npm run build`（`frontend`）
 - Golden fixture：旧配置加载不改盘、首次保存输出新格式、二次 round-trip 幂等。
 - ConfigStore 测试：legacy 只读加载 revision 不变；首次 v2 保存生成备份；备份失败保持原文件和运行时快照。
-- Proxy 集成测试：同 Provider 多 Group、不同协议、Key 轮换、失败重试、熔断隔离和禁止 fallback。
+- Proxy 集成测试：同 Provider 多 Group、不同协议、Key 固定顺序、仅额度耗尽切换、失败重试、熔断隔离和禁止 fallback。
 - 管理 API 测试：`apiKeysChanged` 保留/替换/清空、掩码输入拒绝、所有 list/create/update 响应无明文 Key。
 - UI 手工验证：桌面与 HTTP Web 模式下完成 Provider Group CRUD、模型刷新和 Alias Target 绑定。
 

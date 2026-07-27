@@ -30,8 +30,8 @@ func TestProviderGroups_AliasDualGroupOrder(t *testing.T) {
 		seenKeys = append(seenKeys, key)
 		n := len(seenKeys)
 		mu.Unlock()
-		// Exhaust premium key pool (2 keys) regardless of rotation start, then succeed.
-		if n <= 2 {
+		// Ordinary rate limits do not advance the key; the next alias target is tried.
+		if n == 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
 			_, _ = w.Write([]byte(`{"error":{"message":"rate limit"}}`))
@@ -54,11 +54,11 @@ func TestProviderGroups_AliasDualGroupOrder(t *testing.T) {
 	mu.Unlock()
 	premiumPool := []string{"sk-fake-premium-primary", "sk-fake-premium-backup"}
 	standardPool := []string{"sk-fake-standard-primary", "sk-fake-standard-backup"}
-	if len(got) != 3 {
-		t.Fatalf("upstream attempts = %d, want 3 (premium pool then standard): %#v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("upstream attempts = %d, want 2 (premium then standard): %#v", len(got), got)
 	}
-	assertGroupKeyPhase(t, got[:2], premiumPool, "premium")
-	assertGroupKeyPhase(t, got[2:], standardPool, "standard")
+	assertGroupKeyPhase(t, got[:1], premiumPool, "premium")
+	assertGroupKeyPhase(t, got[1:], standardPool, "standard")
 	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "vendor-a" {
 		t.Fatalf("X-OCSWITCH-Provider = %q, want vendor-a", got)
 	}
@@ -72,7 +72,7 @@ func TestProviderGroups_AliasDualGroupOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryAll() error = %v", err)
 	}
-	if len(traces) != 1 || traces[0].FinalGroup != "standard" || len(traces[0].Attempts) != 3 || traces[0].Attempts[0].Group != "premium" || traces[0].Attempts[1].Group != "premium" || traces[0].Attempts[2].Group != "standard" {
+	if len(traces) != 1 || traces[0].FinalGroup != "standard" || len(traces[0].Attempts) != 2 || traces[0].Attempts[0].Group != "premium" || traces[0].Attempts[1].Group != "standard" {
 		t.Fatalf("group trace = %#v", traces)
 	}
 }
@@ -88,9 +88,8 @@ func TestProviderGroups_SameModelAliasTargetsOnly(t *testing.T) {
 		seenKeys = append(seenKeys, key)
 		n := len(seenKeys)
 		mu.Unlock()
-		// Exhaust beta key pool so alpha is tried; gamma must never appear.
-		// Request-id rotation may start either key first within a group.
-		if n <= 2 {
+		// Ordinary rate limits keep the first beta key; alpha is tried next.
+		if n == 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
 			_, _ = w.Write([]byte(`{"error":{"message":"rate limit"}}`))
@@ -113,12 +112,12 @@ func TestProviderGroups_SameModelAliasTargetsOnly(t *testing.T) {
 	mu.Unlock()
 	betaPool := []string{"sk-fake-beta-1", "sk-fake-beta-2"}
 	alphaPool := []string{"sk-fake-alpha-1", "sk-fake-alpha-2"}
-	if len(got) != 3 {
-		t.Fatalf("upstream attempts = %d, want 3 (beta pool then alpha): %#v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("upstream attempts = %d, want 2 (beta then alpha): %#v", len(got), got)
 	}
 	// Candidate order is beta then alpha; only listed targets.
-	assertGroupKeyPhase(t, got[:2], betaPool, "beta")
-	assertGroupKeyPhase(t, got[2:], alphaPool, "alpha")
+	assertGroupKeyPhase(t, got[:1], betaPool, "beta")
+	assertGroupKeyPhase(t, got[1:], alphaPool, "alpha")
 	for _, key := range got {
 		if strings.Contains(key, "gamma") {
 			t.Fatalf("unlisted sibling gamma key used: %#v", got)
@@ -127,8 +126,7 @@ func TestProviderGroups_SameModelAliasTargetsOnly(t *testing.T) {
 }
 
 // assertGroupKeyPhase checks that attempts stay inside one group's key pool.
-// Rotation may start at any offset; every key must belong to the pool, and a full
-// pool phase must cover the whole set exactly once.
+// Every attempted key must belong to the target group's configured pool.
 func assertGroupKeyPhase(t *testing.T, got []string, pool []string, groupName string) {
 	t.Helper()
 	allowed := map[string]bool{}
@@ -234,18 +232,14 @@ func TestProviderGroups_KeyPoolRetryIsolation(t *testing.T) {
 		seenKeys = append(seenKeys, key)
 		n := len(seenKeys)
 		mu.Unlock()
-		// Exhaust pool-a across both base URLs (2 keys × 2 base URLs = 4) then succeed on pool-b.
-		if n <= 4 {
+		// Non-quota failures use both base URLs with the same first key, then pool-b.
+		if n <= 2 {
 			status := http.StatusTooManyRequests
 			switch n {
 			case 1:
 				status = http.StatusUnauthorized
 			case 2:
 				status = http.StatusTooManyRequests
-			case 3:
-				status = http.StatusInternalServerError
-			case 4:
-				status = http.StatusBadGateway
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(status)
@@ -273,20 +267,20 @@ func TestProviderGroups_KeyPoolRetryIsolation(t *testing.T) {
 	mu.Lock()
 	got := slices.Clone(seenKeys)
 	mu.Unlock()
-	if len(got) < 5 {
-		t.Fatalf("upstream attempts = %d, want at least 5: %#v", len(got), got)
+	if len(got) < 3 {
+		t.Fatalf("upstream attempts = %d, want at least 3: %#v", len(got), got)
 	}
-	// First four attempts must stay inside pool-a.
-	for i := 0; i < 4; i++ {
-		if !strings.HasPrefix(got[i], "sk-fake-pool-a-") {
-			t.Fatalf("attempt %d key = %q, want pool-a only; full=%#v", i+1, got[i], got)
+	// Both base URLs must reuse pool-a's first configured key.
+	for i := 0; i < 2; i++ {
+		if got[i] != "sk-fake-pool-a-1" {
+			t.Fatalf("attempt %d key = %q, want pool-a-1; full=%#v", i+1, got[i], got)
 		}
 	}
 	// Next target starts pool-b and must not re-enter pool-a.
-	if !strings.HasPrefix(got[4], "sk-fake-pool-b-") {
-		t.Fatalf("attempt 5 key = %q, want pool-b; full=%#v", got[4], got)
+	if !strings.HasPrefix(got[2], "sk-fake-pool-b-") {
+		t.Fatalf("attempt 3 key = %q, want pool-b; full=%#v", got[2], got)
 	}
-	for _, key := range got[4:] {
+	for _, key := range got[2:] {
 		if strings.HasPrefix(key, "sk-fake-pool-a-") {
 			t.Fatalf("pool-a key leaked after failover: %#v", got)
 		}
@@ -385,8 +379,8 @@ func TestProviderAPIKeyOptionsGroupIsolation(t *testing.T) {
 		APIKeys: []string{"sk-b-2", "sk-b-3"},
 	}
 
-	keysA := providerAPIKeyOptions(groupA, 1)
-	keysB := providerAPIKeyOptions(groupB, 1)
+	keysA := providerAPIKeyOptions(groupA)
+	keysB := providerAPIKeyOptions(groupB)
 	if len(keysA) != 2 || keysA[0].Value != "sk-a-1" || keysA[1].Value != "sk-a-2" {
 		t.Fatalf("group A keys = %#v", keysA)
 	}
@@ -398,12 +392,97 @@ func TestProviderAPIKeyOptionsGroupIsolation(t *testing.T) {
 			t.Fatalf("group A leaked group B key: %#v", keysA)
 		}
 	}
-	rotated := providerAPIKeyOptions(groupB, 2)
-	if rotated[0].Value != "sk-b-2" || rotated[1].Value != "sk-b-3" || rotated[2].Value != "sk-b-1" {
-		t.Fatalf("rotated group B keys = %#v", rotated)
-	}
-	if len(providerAPIKeyOptions(nil, 1)) != 1 || providerAPIKeyOptions(nil, 1)[0].Value != "" {
+	if len(providerAPIKeyOptions(nil)) != 1 || providerAPIKeyOptions(nil)[0].Value != "" {
 		t.Fatalf("nil group should yield empty key option")
+	}
+}
+
+func TestIsQuotaExhaustedResponse(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"five hour", `{"error":{"message":"5h limit reached"}}`, true},
+		{"five hour long", `{"error":{"message":"5-hour limit reached"}}`, true},
+		{"weekly", `{"error":{"message":"weekly limit reached"}}`, true},
+		{"structured quota", `{"error":{"code":"insufficient_quota"}}`, true},
+		{"billing hard limit", `{"error":{"code":"billing_hard_limit_reached"}}`, true},
+		{"credit balance", `{"error":{"message":"credit balance is too low"}}`, true},
+		{"insufficient balance", `{"error":{"message":"insufficient balance"}}`, true},
+		{"chinese balance", `{"error":{"message":"余额不足"}}`, true},
+		{"invalid key", `{"error":{"code":"invalid_api_key"}}`, false},
+		{"plain rate limit", `{"error":{"message":"rate limit"}}`, false},
+		{"server error", `{"error":{"message":"internal failure"}}`, false},
+		{"transport text", `transport error`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isQuotaExhaustedResponse([]byte(tt.body)); got != tt.want {
+				t.Fatalf("isQuotaExhaustedResponse(%q) = %v, want %v", tt.body, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProviderGroupQuotaExhaustionOnHTTP400AdvancesKey(t *testing.T) {
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		if len(seen) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"insufficient_quota"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: ok\n\n"))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID: "p1", BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-first", APIKeys: []string{"sk-second"}}},
+		}},
+		Aliases: []config.Alias{{Alias: "quota-400", Enabled: true, Targets: []config.Target{{Provider: "p1", Group: config.DefaultGroupID, Model: "up-1", Enabled: true}}}},
+	}
+	rr := postOpenAIResponses(t, New(cfg), "ocswitch/quota-400")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !slices.Equal(seen, []string{"Bearer sk-first", "Bearer sk-second"}) {
+		t.Fatalf("seen auth headers = %#v", seen)
+	}
+}
+
+func TestProviderGroupInvalidAPIKeyHTTP400DoesNotAdvanceKey(t *testing.T) {
+	var seen []string
+	const responseBody = `{"error":{"code":"invalid_api_key"}}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(responseBody))
+	}))
+	defer upstream.Close()
+
+	cfg := &config.Config{
+		Server: config.Server{APIKey: config.DefaultLocalAPIKey},
+		Providers: []config.Provider{{
+			ID: "p1", BaseURL: upstream.URL + "/v1",
+			Groups: []config.ProviderGroup{{ID: config.DefaultGroupID, Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-first", APIKeys: []string{"sk-second"}}},
+		}},
+		Aliases: []config.Alias{{Alias: "invalid-key-400", Enabled: true, Targets: []config.Target{{Provider: "p1", Group: config.DefaultGroupID, Model: "up-1", Enabled: true}}}},
+	}
+	rr := postOpenAIResponses(t, New(cfg), "ocswitch/invalid-key-400")
+	if rr.Code != http.StatusBadRequest || rr.Body.String() != responseBody {
+		t.Fatalf("response = (%d, %q), want (%d, %q)", rr.Code, rr.Body.String(), http.StatusBadRequest, responseBody)
+	}
+	if !slices.Equal(seen, []string{"Bearer sk-first"}) {
+		t.Fatalf("seen auth headers = %#v", seen)
 	}
 }
 

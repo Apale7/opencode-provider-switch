@@ -1042,7 +1042,7 @@ func TestHandleResponsesClientCancelLeavesHalfOpenStateNeutral(t *testing.T) {
 	}
 }
 
-func TestHandleResponsesRotatesProviderAPIKeys(t *testing.T) {
+func TestHandleResponsesUsesFirstProviderAPIKeyInConfiguredOrder(t *testing.T) {
 	atomic.StoreUint64(&reqCounter, 0)
 
 	seen := make([]string, 0, 2)
@@ -1081,15 +1081,15 @@ func TestHandleResponsesRotatesProviderAPIKeys(t *testing.T) {
 		}
 	}
 
-	if !slices.Equal(seen, []string{"Bearer sk-first", "Bearer sk-second"}) {
+	if !slices.Equal(seen, []string{"Bearer sk-first", "Bearer sk-first"}) {
 		t.Fatalf("seen auth headers = %#v", seen)
 	}
 	traces, err := srv.traces.List(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("traces.List() error = %v", err)
 	}
-	if got := traces[0].Attempts[0].APIKeyIndex; got != 2 {
-		t.Fatalf("latest api key index = %d, want 2", got)
+	if got := traces[0].Attempts[0].APIKeyIndex; got != 1 {
+		t.Fatalf("latest api key index = %d, want 1", got)
 	}
 	if got := traces[0].Attempts[0].APIKeyMasked; got == "" || strings.Contains(got, "second") {
 		t.Fatalf("latest masked api key = %q", got)
@@ -1105,7 +1105,7 @@ func TestHandleResponsesRetriesNextAPIKeyForSameProvider(t *testing.T) {
 		if len(seen) == 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = w.Write([]byte(`{"error":{"message":"rate limit"}}`))
+			_, _ = w.Write([]byte(`{"error":{"code":"insufficient_quota"}}`))
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")

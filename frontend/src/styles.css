@@ -3383,6 +3383,7 @@ html[data-theme='dark'] .detail-empty-card {
   min-height: 0;
   width: 100%;
   padding: 0;
+  overflow-x: clip;
 }
 
 .provider-group-layout-narrow {
@@ -3421,10 +3422,11 @@ html[data-theme='dark'] .detail-empty-card {
 
 .provider-group-split {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  grid-template-columns: 17rem minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
   min-width: 0;
+  overflow-x: clip;
 }
 
 .provider-group-split-narrow {
@@ -3531,6 +3533,7 @@ html[data-theme='dark'] .detail-empty-card {
   gap: 0.9rem;
   min-width: 0;
   padding: 0;
+  overflow-x: clip;
 }
 
 .provider-group-detail-header {
@@ -3585,9 +3588,24 @@ html[data-theme='dark'] .detail-empty-card {
 
 .provider-group-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.85rem;
   min-width: 0;
+}
+
+.provider-group-form-section {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+
+.provider-group-form-section-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 700;
 }
 
 .provider-group-form-field {
@@ -3637,6 +3655,7 @@ html[data-theme='dark'] .detail-empty-card {
   display: grid;
   gap: 0.65rem;
   min-width: 0;
+  grid-column: 1 / -1;
 }
 
 .provider-group-models-list {
@@ -3678,6 +3697,7 @@ html[data-theme='dark'] .detail-empty-card {
   border-radius: 6px;
   background: transparent;
   min-width: 0;
+  grid-column: 1 / -1;
 }
 
 .provider-group-upstream-keys-header {
@@ -4053,10 +4073,6 @@ html[data-theme='dark'] .detail-empty-card {
 
 @media (max-width: 1080px) {
   .provider-group-split {
-    grid-template-columns: 1fr;
-  }
-
-  .provider-group-form-grid {
     grid-template-columns: 1fr;
   }
 

@@ -6929,12 +6929,18 @@ export default function App() {
                   <div className={groupCss.split}>
                     <div className={groupCss.list} aria-label={t(groupKey.listRegionLabel)}>
                       <div className={groupCss.listBody}>
-                        {(selectedProvider.groups || []).map((group) => (
-                          <button key={group.id} type="button" className={`${groupCss.listItem} ${selectedProviderGroupId === group.id ? groupCss.listItemActive : ''} ${group.disabled ? groupCss.listItemDisabled : ''}`} onClick={() => selectProviderGroup(group)}>
-                            <strong>{group.name || group.id}</strong>
-                            <span className={groupCss.listItemMeta}>{group.id} · {protocolLabel(group.protocol)} · {t(groupKey.modelsCount, { count: group.models?.length || 0 })}</span>
-                          </button>
-                        ))}
+                         {(selectedProvider.groups || []).map((group) => (
+                           <button key={group.id} type="button" className={`${groupCss.listItem} ${selectedProviderGroupId === group.id ? groupCss.listItemActive : ''} ${group.disabled ? groupCss.listItemDisabled : ''}`} onClick={() => selectProviderGroup(group)}>
+                             <strong>{group.name || group.id}</strong>
+                             <span className={groupCss.listItemMeta}>
+                               <span>{t(groupKey.listCardId)}: {group.id}</span>
+                               <span>{t(groupKey.listCardProtocol)}: {protocolLabel(group.protocol)}</span>
+                               <span>{t(groupKey.listCardModels)}: {t(groupKey.modelsCount, { count: group.models?.length || 0 })}</span>
+                               <span>{t(groupKey.listCardUpstreamKeys)}: {t(groupKey.upstreamKeysCount, { count: group.apiKeyCount })}</span>
+                               <span>{t(groupKey.listCardStatus)}: {t(group.disabled ? groupKey.badgeDisabled : groupKey.badgeEnabled)}</span>
+                             </span>
+                           </button>
+                         ))}
                         {(selectedProvider.groups || []).length === 0 ? <p className={groupCss.listEmpty}>{t(groupKey.listEmpty)}</p> : null}
                       </div>
                     </div>
@@ -6944,33 +6950,33 @@ export default function App() {
                         {selectedProviderGroup ? <span className={`${groupCss.statusBadge} ${selectedProviderGroup.disabled ? groupCss.statusBadgeDisabled : groupCss.statusBadgeEnabled}`}>{t(selectedProviderGroup.disabled ? groupKey.badgeDisabled : groupKey.badgeEnabled)}</span> : null}
                       </div>
                       {providerGroupStatus ? <p className={groupCss.statusBanner}>{providerGroupStatus}</p> : null}
-                      <div className={groupCss.formGrid}>
-                        <label className={groupCss.formField}>
-                          <span>{t(groupKey.fieldId)}</span>
-                          <input
-                            value={providerGroupForm.id}
-                            required
-                            onChange={(event) => setProviderGroupForm((current) => ({ ...current, id: event.target.value }))}
-                            placeholder={t(groupKey.placeholderId)}
-                          />
-                          {providerGroupMode === 'edit' && selectedProviderGroupId && providerGroupForm.id.trim() !== selectedProviderGroupId ? (
-                            <span className="subtle">{t(groupKey.lifecycleIdChangeHint)}</span>
-                          ) : (
-                            <span className="subtle">{t(groupKey.fieldIdHint)}</span>
-                          )}
-                        </label>
-                        <label className={groupCss.formField}><span>{t(groupKey.fieldName)}</span><input value={providerGroupForm.name || ''} onChange={(event) => setProviderGroupForm((current) => ({ ...current, name: event.target.value }))} placeholder={t(groupKey.placeholderName)} /></label>
-                        <label className={groupCss.protocolField}><span>{t(groupKey.fieldProtocol)}</span><select value={providerGroupForm.protocol} onChange={(event) => setProviderGroupForm((current) => ({ ...current, protocol: event.target.value as ProviderProtocol }))}>{protocolOptions.map((protocol) => <option key={protocol} value={protocol}>{protocolLabel(protocol)}</option>)}</select></label>
-                        <label className={groupCss.modelsField}><span>{t(groupKey.fieldModels)}</span><textarea value={(providerGroupForm.models || []).join('\n')} rows={4} onChange={(event) => setProviderGroupForm((current) => ({ ...current, models: event.target.value.split('\n') }))} placeholder={t(groupKey.placeholderModel)} /></label>
-                        <fieldset className={groupCss.upstreamKeysFieldset}>
-                          <legend>{t(groupKey.upstreamKeysLabel)}</legend>
-                          <p className={groupCss.upstreamKeysSummary}>{selectedProviderGroup?.apiKeyCount ? t(groupKey.upstreamKeysCount, { count: selectedProviderGroup.apiKeyCount }) : t(groupKey.upstreamKeysNotSet)}</p>
-                          <p className={groupCss.upstreamKeysMaskHint}>{t(groupKey.upstreamKeysMaskHint)}</p>
-                          <label className="checkbox-row"><input type="checkbox" checked={providerGroupForm.apiKeysChanged} onChange={(event) => setProviderGroupForm((current) => ({ ...current, apiKeysChanged: event.target.checked, apiKeysText: event.target.checked ? current.apiKeysText : '' }))} /><span>{t(groupKey.upstreamKeysReplace)}</span></label>
-                          {providerGroupForm.apiKeysChanged ? <textarea value={providerGroupForm.apiKeysText} rows={3} onChange={(event) => setProviderGroupForm((current) => ({ ...current, apiKeysText: event.target.value }))} placeholder={t(groupKey.placeholderUpstreamKey)} /> : <p className={groupCss.upstreamKeysHint}>{t(groupKey.upstreamKeysKeepHint)}</p>}
-                        </fieldset>
-                        <label className="checkbox-row"><input type="checkbox" checked={Boolean(providerGroupForm.disabled)} onChange={(event) => setProviderGroupForm((current) => ({ ...current, disabled: event.target.checked }))} /><span>{t(groupKey.fieldDisabled)}</span></label>
-                      </div>
+                       <div className={groupCss.formGrid}>
+                         <section className={groupCss.formSection}>
+                           <h5 className={groupCss.formSectionTitle}>{t(groupKey.sectionIdentityStatus)}</h5>
+                           <label className={groupCss.formField}>
+                             <span>{t(groupKey.fieldId)}</span>
+                             <input value={providerGroupForm.id} required onChange={(event) => setProviderGroupForm((current) => ({ ...current, id: event.target.value }))} placeholder={t(groupKey.placeholderId)} />
+                             {providerGroupMode === 'edit' && selectedProviderGroupId && providerGroupForm.id.trim() !== selectedProviderGroupId ? <span className="subtle">{t(groupKey.lifecycleIdChangeHint)}</span> : <span className="subtle">{t(groupKey.fieldIdHint)}</span>}
+                           </label>
+                           <label className={groupCss.formField}><span>{t(groupKey.fieldName)}</span><input value={providerGroupForm.name || ''} onChange={(event) => setProviderGroupForm((current) => ({ ...current, name: event.target.value }))} placeholder={t(groupKey.placeholderName)} /></label>
+                           <label className="checkbox-row"><input type="checkbox" checked={Boolean(providerGroupForm.disabled)} onChange={(event) => setProviderGroupForm((current) => ({ ...current, disabled: event.target.checked }))} /><span>{t(groupKey.fieldDisabled)}</span></label>
+                         </section>
+                         <section className={groupCss.formSection}>
+                           <h5 className={groupCss.formSectionTitle}>{t(groupKey.sectionProtocolModels)}</h5>
+                           <label className={groupCss.protocolField}><span>{t(groupKey.fieldProtocol)}</span><select value={providerGroupForm.protocol} onChange={(event) => setProviderGroupForm((current) => ({ ...current, protocol: event.target.value as ProviderProtocol }))}>{protocolOptions.map((protocol) => <option key={protocol} value={protocol}>{protocolLabel(protocol)}</option>)}</select></label>
+                           <label className={groupCss.modelsField}><span>{t(groupKey.fieldModels)}</span><textarea value={(providerGroupForm.models || []).join('\n')} rows={4} onChange={(event) => setProviderGroupForm((current) => ({ ...current, models: event.target.value.split('\n') }))} placeholder={t(groupKey.placeholderModel)} /></label>
+                         </section>
+                         <section className={groupCss.formSection}>
+                           <h5 className={groupCss.formSectionTitle}>{t(groupKey.sectionUpstreamKeys)}</h5>
+                           <fieldset className={groupCss.upstreamKeysFieldset}>
+                             <legend>{t(groupKey.upstreamKeysLabel)}</legend>
+                             <p className={groupCss.upstreamKeysSummary}>{selectedProviderGroup?.apiKeyCount ? t(groupKey.upstreamKeysCount, { count: selectedProviderGroup.apiKeyCount }) : t(groupKey.upstreamKeysNotSet)}</p>
+                             <p className={groupCss.upstreamKeysMaskHint}>{t(groupKey.upstreamKeysMaskHint)}</p>
+                             <label className="checkbox-row"><input type="checkbox" checked={providerGroupForm.apiKeysChanged} onChange={(event) => setProviderGroupForm((current) => ({ ...current, apiKeysChanged: event.target.checked, apiKeysText: event.target.checked ? current.apiKeysText : '' }))} /><span>{t(groupKey.upstreamKeysReplace)}</span></label>
+                             {providerGroupForm.apiKeysChanged ? <textarea value={providerGroupForm.apiKeysText} rows={3} onChange={(event) => setProviderGroupForm((current) => ({ ...current, apiKeysText: event.target.value }))} placeholder={t(groupKey.placeholderUpstreamKey)} /> : <p className={groupCss.upstreamKeysHint}>{t(groupKey.upstreamKeysKeepHint)}</p>}
+                           </fieldset>
+                         </section>
+                       </div>
                       <div className={groupCss.formActions}>
                         <button type="submit" className="primary" disabled={providerGroupBusy}>{t(groupKey.actionSave)}</button>
                         {selectedProviderGroup ? <><button type="button" disabled={providerGroupBusy} onClick={() => void onRefreshProviderGroupModels()}>{t(groupKey.actionRefreshModels)}</button><button type="button" disabled={providerGroupBusy} onClick={() => void onPingProviderGroup()}>{t(groupKey.actionPing)}</button><button type="button" className="danger ghost-danger" disabled={providerGroupBusy} onClick={() => void onDeleteProviderGroup()}>{t(groupKey.actionDelete)}</button></> : null}

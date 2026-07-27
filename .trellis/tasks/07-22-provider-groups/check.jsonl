@@ -1,0 +1,2 @@
+{"check":"go test ./internal/proxy","expect":"PASS"}
+{"check":"go test ./internal/config ./internal/routing","expect":"PASS"}

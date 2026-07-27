@@ -33,9 +33,10 @@ type anthropicErrorEnvelope struct {
 }
 
 type upstreamFailure struct {
-	status int
-	header http.Header
-	body   []byte
+	status         int
+	header         http.Header
+	body           []byte
+	quotaExhausted bool
 }
 
 type openAIError struct {
@@ -766,11 +767,11 @@ func (s *Server) tryProviderBaseURLs(
 	if group != nil {
 		groupProtocol = config.NormalizeProviderProtocol(group.Protocol)
 	}
-	apiKeys := providerAPIKeyOptions(group, traceID(trace))
+	apiKeys := providerAPIKeyOptions(group)
 	var lastRetryable *upstreamFailure
 	var lastErr error
-	for baseURLIndex, baseURL := range baseURLs {
-		for apiKeyPosition, apiKey := range apiKeys {
+	for apiKeyPosition, apiKey := range apiKeys {
+		for baseURLIndex, baseURL := range baseURLs {
 			if clientRequestCanceled(clientReq) {
 				cancelErr := clientRequestCancelError(clientReq)
 				if baseURLIndex > 0 || apiKeyPosition > 0 {
@@ -815,14 +816,20 @@ func (s *Server) tryProviderBaseURLs(
 			if failure != nil {
 				lastRetryable = failure
 			}
-			if baseURLIndex == len(baseURLs)-1 && apiKeyPosition == len(apiKeys)-1 {
-				break
+			quotaExhausted := failure != nil && failure.quotaExhausted
+			if baseURLIndex == len(baseURLs)-1 {
+				if !quotaExhausted {
+					return false, false, true, lastErr, lastRetryable
+				}
 			}
 			if attemptTrace != nil && trace != nil {
 				failedAttempt := *attemptTrace
 				failedAttempt.Attempt = len(trace.Attempts) + 1
 				failedAttempt.DurationMs = time.Since(failedAttempt.StartedAt).Milliseconds()
 				trace.Attempts = append(trace.Attempts, failedAttempt)
+			}
+			if quotaExhausted {
+				break
 			}
 		}
 	}
@@ -856,9 +863,9 @@ type providerAPIKeyOption struct {
 	Value string
 }
 
-// providerAPIKeyOptions returns the target group's key pool with optional
-// request-id rotation. Keys never cross group boundaries.
-func providerAPIKeyOptions(group *config.ProviderGroup, requestID uint64) []providerAPIKeyOption {
+// providerAPIKeyOptions returns the target group's keys in configured order.
+// A key is only advanced after an explicit quota-exhaustion response.
+func providerAPIKeyOptions(group *config.ProviderGroup) []providerAPIKeyOption {
 	if group == nil {
 		return []providerAPIKeyOption{{}}
 	}
@@ -870,11 +877,7 @@ func providerAPIKeyOptions(group *config.ProviderGroup, requestID uint64) []prov
 	for index, key := range keys {
 		items = append(items, providerAPIKeyOption{Index: index + 1, Value: key})
 	}
-	if len(items) <= 1 || requestID == 0 {
-		return items
-	}
-	offset := int((requestID - 1) % uint64(len(items)))
-	return append(items[offset:], items[:offset]...)
+	return items
 }
 
 // resolveTargetGroupID trims the runtime target group. Empty values fail closed
@@ -966,18 +969,20 @@ func (s *Server) tryOnce(
 		attemptTrace.ResponseHeaders = sanitizeHeaderMap(resp.Header, append(providerHeaderSecrets, apiKey)...)
 	}
 
-	if isRetryableStatusCode(resp.StatusCode, state.cfg.Server.FailoverStatusCodes) {
-		failure = captureRetryableFailure(resp)
-		sanitizedBody := sanitizeResponseBody(resp.Header.Get("Content-Type"), failure.body, append(providerHeaderSecrets, apiKey)...)
-		if attemptTrace != nil {
-			attemptTrace.Retryable = true
-			attemptTrace.Result = "retryable_failure"
-			attemptTrace.Error = fmt.Sprintf("upstream %d: %s", resp.StatusCode, sanitizedBody)
-			attemptTrace.ResponseBody = sanitizedBody
-		}
-		return false, false, true, fmt.Errorf("upstream %d: %s", resp.StatusCode, sanitizedBody), failure
-	}
 	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		quotaExhausted := isQuotaExhaustedResponse(bodyBytes)
+		if quotaExhausted || isRetryableStatusCode(resp.StatusCode, state.cfg.Server.FailoverStatusCodes) {
+			failure = captureRetryableFailure(resp, bodyBytes)
+			sanitizedBody := sanitizeResponseBody(resp.Header.Get("Content-Type"), failure.body, append(providerHeaderSecrets, apiKey)...)
+			if attemptTrace != nil {
+				attemptTrace.Retryable = true
+				attemptTrace.Result = "retryable_failure"
+				attemptTrace.Error = fmt.Sprintf("upstream %d: %s", resp.StatusCode, sanitizedBody)
+				attemptTrace.ResponseBody = sanitizedBody
+			}
+			return false, false, true, fmt.Errorf("upstream %d: %s", resp.StatusCode, sanitizedBody), failure
+		}
 		s.logger.Printf("alias=%s attempt=%d provider=%s remote_model=%s upstream_status=%d", aliasName, attempt, provider.ID, target.Model, resp.StatusCode)
 		if attemptTrace != nil {
 			attemptTrace.Result = "final_failure"
@@ -985,7 +990,6 @@ func (s *Server) tryOnce(
 		s.writeDebugHeaders(w, aliasName, provider.ID, target.Group, target.Model, attempt, failoverCount)
 		copyResponseHeaders(w.Header(), resp.Header)
 		w.WriteHeader(resp.StatusCode)
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		if attemptTrace != nil {
 			attemptTrace.ResponseBody = sanitizeResponseBody(resp.Header.Get("Content-Type"), bodyBytes, append(providerHeaderSecrets, apiKey)...)
 		}
@@ -1573,13 +1577,36 @@ func readChunkWithContext(ctx context.Context, r io.Reader, buf []byte, timeout 
 	}
 }
 
-func captureRetryableFailure(resp *http.Response) *upstreamFailure {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
+func captureRetryableFailure(resp *http.Response, body []byte) *upstreamFailure {
 	return &upstreamFailure{
-		status: resp.StatusCode,
-		header: cloneHeaderSubset(resp.Header, "Content-Type", "Retry-After"),
-		body:   body,
+		status:         resp.StatusCode,
+		header:         cloneHeaderSubset(resp.Header, "Content-Type", "Retry-After"),
+		body:           body,
+		quotaExhausted: isQuotaExhaustedResponse(body),
 	}
+}
+
+// isQuotaExhaustedResponse deliberately requires a provider-specific code or
+// an unambiguous balance/period-limit phrase. HTTP status alone is not enough.
+func isQuotaExhaustedResponse(body []byte) bool {
+	message := strings.ToLower(string(body))
+	for _, marker := range []string{
+		"insufficient_quota",
+		"billing_hard_limit_reached",
+		"5h limit",
+		"5-hour limit",
+		"weekly limit",
+		"credit balance is too low",
+		"insufficient balance",
+		"余额不足",
+		"额度不足",
+		"配额不足",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneHeaderSubset(src http.Header, names ...string) http.Header {

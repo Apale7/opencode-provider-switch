@@ -1,0 +1,5 @@
+{"tip":"Key 必须始终按配置顺序从第一个开始，不再按 request/trace ID 轮转"}
+{"tip":"只有响应体明确表示额度/余额耗尽时才允许尝试组内下一个 Key；仅凭 401/403/429/5xx 不足以切 Key"}
+{"tip":"区分 Key 切换资格与既有 Base URL/Alias Target failover，避免误伤其他路由容灾语义"}
+{"tip":"覆盖 5h limit、weekly limit、余额不足等正例，以及 invalid key、普通 rate limit、5xx、传输错误等反例"}
+{"tip":"Trace 中 APIKeyIndex 仍使用配置顺序的 1-based 索引，且不得泄漏明文 Key"}

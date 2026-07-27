@@ -1,0 +1,6 @@
+{"file":".trellis/tasks/07-22-provider-groups/prd.md","reason":"Provider Group 产品需求与原始 Key 轮换语义；本次用户要求覆盖原轮换规则"}
+{"file":"docs/design-plans/provider-groups.md","reason":"已实施的 Provider Group 详细设计与代理路由步骤"}
+{"file":"internal/proxy/server.go","reason":"上游 Key 顺序、Base URL 重试、响应分类与切换逻辑"}
+{"file":"internal/proxy/server_test.go","reason":"代理 Key 切换、Trace 和协议响应集成测试"}
+{"file":"internal/proxy/provider_groups_test.go","reason":"Provider Group Key 池顺序与隔离测试"}
+{"file":"internal/config/config.go","reason":"上游失败状态码默认值与规范化配置"}

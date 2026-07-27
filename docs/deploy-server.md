@@ -190,3 +190,9 @@ ssh -p 16256 root@149.30.172.66 "python3 -c \"import json; c=json.load(open('/ro
 - Provider 应配置 IP 白名单（当前仅允许 `149.30.172.66`）。
 - 旧 traces 数据不迁移；新服务器自行创建全新 `traces.db`。
 - `ocswitch server` 命令行参数 `--host`/`--port` 仅控制管理端；模型代理端口从配置文件读取。
+
+## 12 OpenCode Go Alias 维护
+
+官方模型列表更新后的双协议分组、模型目录和手动 Alias 维护流程见：
+
+- [OpenCode Go 模型与 Alias 维护流程](./opencode-go-alias-maintenance.md)

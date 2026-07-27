@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,89 @@ func TestV2ProviderGroupRequiresExplicitProtocol(t *testing.T) {
 	}`)
 	if _, err := LoadFromBytes(filepath.Join(t.TempDir(), "config.json"), raw); err == nil || !strings.Contains(err.Error(), "missing protocol") {
 		t.Fatalf("LoadFromBytes() error = %v, want missing protocol", err)
+	}
+}
+
+func TestLegacyProvidersMergeBySharedConnectionAndRemapReferences(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{
+		"server": {"host":"127.0.0.1","port":9982,"api_key":"test"},
+		"providers": [
+		{"id":"p1","name":"Primary","protocol":"openai-responses","base_url":"https://shared.example/v1/","base_urls":["https://shared.example/alt/"],"base_url_strategy":"latency","headers":{"X-Tenant":"a"},"models":["m1"],"models_source":"manual","disabled":true},
+		{"id":"p2","name":"Secondary","protocol":"anthropic-messages","base_url":" https://shared.example/v1 ","base_urls":["https://shared.example/alt"],"base_url_strategy":" latency ","headers":{"x-tenant":"a"},"api_key":"sk-2","models":["m2"]},
+			{"id":"p3","name":"Different Headers","protocol":"openai-responses","base_url":"https://shared.example/v1","base_urls":["https://shared.example/alt"],"base_url_strategy":"latency","headers":{"X-Tenant":"b"},"models":["m3"]},
+			{"id":"p4","name":"Different URLs","protocol":"openai-responses","base_url":"https://other.example/v1","headers":{"X-Tenant":"a"},"models":["m4"]}
+		],
+		"aliases": [{"alias":"chat","enabled":true,"targets":[{"provider":"p2","model":"m2","enabled":true},{"provider":"p1","model":"m1","enabled":true},{"provider":"p3","model":"m3","enabled":true}]}],
+		"request_rewrite_rules": [{"name":"rewrite","alias":"chat","providers":["p2","p1","p2","p3"],"enabled":true}],
+		"provider_priority": ["p2","p1","p3","p2","p4"]
+	}`)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read legacy config: %v", err)
+	}
+	infoBefore, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat before load: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	infoAfter, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after load: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after load: %v", err)
+	}
+	if !bytes.Equal(before, after) || infoBefore.ModTime() != infoAfter.ModTime() {
+		t.Fatal("legacy Load() modified the on-disk config")
+	}
+
+	if len(cfg.Providers) != 3 {
+		t.Fatalf("providers = %#v, want merged p1 plus p3 and p4", cfg.Providers)
+	}
+	merged := cfg.FindProvider("p1")
+	if merged == nil || len(merged.Groups) != 2 {
+		t.Fatalf("merged provider = %#v, want two groups", merged)
+	}
+	if merged.Disabled {
+		t.Fatal("merged provider should keep legacy disabled state at the group level")
+	}
+	if merged.Groups[0].ID != DefaultGroupID || merged.Groups[0].Name != "Primary" || !merged.Groups[0].Disabled {
+		t.Fatalf("first merged group = %#v", merged.Groups[0])
+	}
+	if merged.Groups[1].ID != "p2" || merged.Groups[1].Name != "Secondary" || merged.Groups[1].Disabled {
+		t.Fatalf("second merged group = %#v", merged.Groups[1])
+	}
+	if cfg.FindProvider("p2") != nil {
+		t.Fatal("merged provider p2 should no longer be retained")
+	}
+	if cfg.FindProvider("p3") == nil || cfg.FindProvider("p4") == nil {
+		t.Fatal("incompatible providers must remain independent")
+	}
+
+	targets := cfg.Aliases[0].Targets
+	wantTargets := []Target{{Provider: "p1", Group: "p2", Model: "m2", Enabled: true}, {Provider: "p1", Group: DefaultGroupID, Model: "m1", Enabled: true}, {Provider: "p3", Group: DefaultGroupID, Model: "m3", Enabled: true}}
+	if !reflect.DeepEqual(targets, wantTargets) {
+		t.Fatalf("alias targets = %#v, want %#v", targets, wantTargets)
+	}
+	rule := cfg.RequestRewriteRules[0]
+	wantSelectors := []ProviderGroupSelector{{Provider: "p1", Group: "p2"}, {Provider: "p1", Group: DefaultGroupID}, {Provider: "p3", Group: DefaultGroupID}}
+	if !reflect.DeepEqual(rule.ProviderGroups, wantSelectors) {
+		t.Fatalf("rewrite selectors = %#v, want %#v", rule.ProviderGroups, wantSelectors)
+	}
+	if !reflect.DeepEqual(cfg.ProviderPriority, []string{"p1", "p3", "p4"}) {
+		t.Fatalf("provider priority = %#v, want [p1 p3 p4]", cfg.ProviderPriority)
 	}
 }
 
