@@ -331,6 +331,8 @@ export type ProviderModelHealthView = {
   cacheReadTokens: number
   totalTokens: number
   totalDurationMs: number
+  outputTokenRate: number
+  outputTokenRateWithoutFirstTokenLatency: number
   cacheHitRate: number
   successRate: number
   tokenShare: number

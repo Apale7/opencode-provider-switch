@@ -100,19 +100,21 @@ type ProviderHealthView struct {
 // provider/group/model route. Token totals include cached input tokens while
 // InputTokens and OutputTokens remain the non-cached input/output counters.
 type ProviderModelHealthView struct {
-	Provider        string  `json:"provider"`
-	Group           string  `json:"group,omitempty"`
-	Model           string  `json:"model"`
-	RequestCount    int     `json:"requestCount"`
-	Success         int     `json:"success"`
-	InputTokens     int64   `json:"inputTokens"`
-	OutputTokens    int64   `json:"outputTokens"`
-	CacheReadTokens int64   `json:"cacheReadTokens"`
-	TotalTokens     int64   `json:"totalTokens"`
-	TotalDurationMs int64   `json:"totalDurationMs"`
-	CacheHitRate    float64 `json:"cacheHitRate"`
-	SuccessRate     float64 `json:"successRate"`
-	TokenShare      float64 `json:"tokenShare"`
+	Provider                                string  `json:"provider"`
+	Group                                   string  `json:"group,omitempty"`
+	Model                                   string  `json:"model"`
+	RequestCount                            int     `json:"requestCount"`
+	Success                                 int     `json:"success"`
+	InputTokens                             int64   `json:"inputTokens"`
+	OutputTokens                            int64   `json:"outputTokens"`
+	CacheReadTokens                         int64   `json:"cacheReadTokens"`
+	TotalTokens                             int64   `json:"totalTokens"`
+	TotalDurationMs                         int64   `json:"totalDurationMs"`
+	OutputTokenRate                         float64 `json:"outputTokenRate"`
+	OutputTokenRateWithoutFirstTokenLatency float64 `json:"outputTokenRateWithoutFirstTokenLatency"`
+	CacheHitRate                            float64 `json:"cacheHitRate"`
+	SuccessRate                             float64 `json:"successRate"`
+	TokenShare                              float64 `json:"tokenShare"`
 }
 
 type ProviderHealthAlias struct {
@@ -189,7 +191,11 @@ func (s *Service) QueryProviderHealth(ctx context.Context, in ProviderHealthInpu
 
 func providerModelHealthViews(traces []proxy.RequestTrace, providerFilter map[string]bool) []ProviderModelHealthView {
 	type modelHealthAccum struct {
-		view ProviderModelHealthView
+		view                             ProviderModelHealthView
+		outputRateTokens                 int64
+		outputRateDurationMs             int64
+		outputRateWithoutFirstTokens     int64
+		outputRateWithoutFirstDurationMs int64
 	}
 	accums := map[string]*modelHealthAccum{}
 
@@ -218,6 +224,16 @@ func providerModelHealthViews(traces []proxy.RequestTrace, providerFilter map[st
 			accum.view.CacheReadTokens += *trace.Usage.CacheReadTokens
 		}
 		accum.view.TotalTokens += trace.InputTokens + trace.OutputTokens + traceCacheReadTokens(trace)
+		if outputTokens := traceGeneratedOutputTokens(trace); outputTokens > 0 {
+			if durationMs := traceRateDurationMs(trace, false); durationMs > 0 {
+				accum.outputRateTokens += outputTokens
+				accum.outputRateDurationMs += durationMs
+			}
+			if durationMs := traceRateDurationMs(trace, true); durationMs > 0 {
+				accum.outputRateWithoutFirstTokens += outputTokens
+				accum.outputRateWithoutFirstDurationMs += durationMs
+			}
+		}
 		if trace.DurationMs > 0 {
 			accum.view.TotalDurationMs += trace.DurationMs
 		} else {
@@ -234,6 +250,8 @@ func providerModelHealthViews(traces []proxy.RequestTrace, providerFilter map[st
 
 	items := make([]ProviderModelHealthView, 0, len(accums))
 	for _, accum := range accums {
+		accum.view.OutputTokenRate = tokenRate(accum.outputRateTokens, accum.outputRateDurationMs)
+		accum.view.OutputTokenRateWithoutFirstTokenLatency = tokenRate(accum.outputRateWithoutFirstTokens, accum.outputRateWithoutFirstDurationMs)
 		accum.view.CacheHitRate = cacheHitRate(accum.view.CacheReadTokens, accum.view.InputTokens)
 		accum.view.SuccessRate = ratio(accum.view.Success, accum.view.RequestCount)
 		items = append(items, accum.view)
@@ -292,6 +310,46 @@ func traceCacheReadTokens(trace proxy.RequestTrace) int64 {
 		return 0
 	}
 	return *trace.Usage.CacheReadTokens
+}
+
+func traceGeneratedOutputTokens(trace proxy.RequestTrace) int64 {
+	if trace.GeneratedOutputTokens > 0 {
+		return trace.GeneratedOutputTokens
+	}
+	if trace.Usage.RawOutputTokens != nil && *trace.Usage.RawOutputTokens > 0 {
+		return *trace.Usage.RawOutputTokens
+	}
+	outputTokens := trace.OutputTokens
+	if trace.Usage.OutputTokens != nil {
+		outputTokens = *trace.Usage.OutputTokens
+	}
+	if trace.Usage.ReasoningTokens != nil {
+		outputTokens += *trace.Usage.ReasoningTokens
+	}
+	if outputTokens > 0 {
+		return outputTokens
+	}
+	return 0
+}
+
+func traceRateDurationMs(trace proxy.RequestTrace, excludeFirstTokenLatency bool) int64 {
+	if trace.DurationMs <= 0 {
+		return 0
+	}
+	if !excludeFirstTokenLatency {
+		return trace.DurationMs
+	}
+	if trace.FirstTokenMs <= 0 || trace.DurationMs <= trace.FirstTokenMs {
+		return 0
+	}
+	return trace.DurationMs - trace.FirstTokenMs
+}
+
+func tokenRate(tokens int64, durationMs int64) float64 {
+	if tokens <= 0 || durationMs <= 0 {
+		return 0
+	}
+	return float64(tokens) * 1000 / float64(durationMs)
 }
 
 type providerHealthTraceStore interface {

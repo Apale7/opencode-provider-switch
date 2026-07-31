@@ -123,8 +123,8 @@ func TestQueryProviderHealthAggregatesModelHealthByProviderGroupModel(t *testing
 	cacheStandard := int64(400)
 	traces := []proxy.RequestTrace{
 		{
-			ID: 1, StartedAt: now, DurationMs: 3_600_000, Alias: "chat", Success: true,
-			FinalProvider: "vendor", FinalGroup: "premium", FinalModel: "gpt-5.5", InputTokens: 100, OutputTokens: 50,
+			ID: 1, StartedAt: now, DurationMs: 3_600_000, FirstTokenMs: 600_000, Alias: "chat", Success: true,
+			FinalProvider: "vendor", FinalGroup: "premium", FinalModel: "gpt-5.5", InputTokens: 100, OutputTokens: 50, GeneratedOutputTokens: 60,
 			Usage: proxy.TraceUsage{CacheReadTokens: &cachePremium},
 		},
 		{
@@ -163,6 +163,8 @@ func TestQueryProviderHealthAggregatesModelHealthByProviderGroupModel(t *testing
 	assertFloatNear(t, premium.CacheHitRate, 850.0/950.0)
 	assertFloatNear(t, premium.SuccessRate, 0.5)
 	assertFloatNear(t, standard.SuccessRate, 1)
+	assertFloatNear(t, premium.OutputTokenRate, 60.0*1000.0/3_600_000.0)
+	assertFloatNear(t, premium.OutputTokenRateWithoutFirstTokenLatency, 60.0*1000.0/3_000_000.0)
 }
 
 func TestProviderModelHealthViewsSortsByProviderTotalTokensThenModelShare(t *testing.T) {

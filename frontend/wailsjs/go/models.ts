@@ -1444,6 +1444,8 @@ export namespace app {
 	    cacheReadTokens: number;
 	    totalTokens: number;
 	    totalDurationMs: number;
+	    outputTokenRate: number;
+	    outputTokenRateWithoutFirstTokenLatency: number;
 	    cacheHitRate: number;
 	    successRate: number;
 	    tokenShare: number;
@@ -1464,6 +1466,8 @@ export namespace app {
 	        this.cacheReadTokens = source["cacheReadTokens"];
 	        this.totalTokens = source["totalTokens"];
 	        this.totalDurationMs = source["totalDurationMs"];
+	        this.outputTokenRate = source["outputTokenRate"];
+	        this.outputTokenRateWithoutFirstTokenLatency = source["outputTokenRateWithoutFirstTokenLatency"];
 	        this.cacheHitRate = source["cacheHitRate"];
 	        this.successRate = source["successRate"];
 	        this.tokenShare = source["tokenShare"];

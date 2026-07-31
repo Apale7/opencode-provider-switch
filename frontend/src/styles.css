@@ -1821,9 +1821,12 @@ html[data-theme='dark'] .resource-meta-item {
 
 html[data-theme='dark'] .trace-table,
 html[data-theme='dark'] .trace-table-header,
-html[data-theme='dark'] .health-model-provider-label,
 html[data-theme='dark'] .trace-info-card {
 	background: color-mix(in srgb, var(--panel) 94%, #09111f);
+}
+
+html[data-theme='dark'] .health-model-provider-label {
+	background: color-mix(in srgb, var(--panel-muted) 74%, #09111f);
 }
 
 html[data-theme='dark'] .trace-mini-tag {
@@ -2519,11 +2522,18 @@ input[type='file']::file-selector-button {
 
 .health-model-table .trace-table-header,
 .health-model-table .trace-table-row {
-	grid-template-columns: minmax(16rem, 1.35fr) minmax(9rem, 0.72fr) minmax(8rem, 0.6fr) minmax(9rem, 0.75fr) minmax(13rem, 0.9fr) minmax(9rem, max-content);
+	grid-template-columns: minmax(15rem, 1.55fr) minmax(7.5rem, 0.72fr) minmax(6.5rem, 0.58fr) minmax(7.5rem, 0.68fr) minmax(10.5rem, 0.9fr) minmax(7rem, 0.62fr) minmax(8rem, max-content);
 }
 
 .health-model-table {
-	--trace-table-min-width: 74rem;
+	--trace-table-gap: clamp(0.35rem, 0.45vw, 0.6rem);
+	--trace-table-min-width: 68rem;
+}
+
+.health-model-table .trace-table-head {
+	font-size: 0.76rem;
+	font-weight: 800;
+	letter-spacing: 0.055em;
 }
 
 .health-model-provider-group {
@@ -2536,17 +2546,60 @@ input[type='file']::file-selector-button {
 .health-model-provider-label {
 	display: flex;
 	align-items: center;
-	min-height: 2rem;
-	padding: 0.45rem 0 0.2rem;
-	background: #fff;
+	justify-content: space-between;
+	gap: 0.8rem;
+	width: 100%;
+	min-height: 2.35rem;
+	padding: 0.45rem 0.6rem;
+	border: 0;
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--panel-muted) 78%, #fff);
 	color: var(--text-muted);
-	font-size: 0.8rem;
+	font-size: 0.92rem;
+	font-weight: 700;
+	cursor: pointer;
+	text-align: left;
+}
+
+.health-model-provider-label:hover {
+	background: color-mix(in srgb, var(--accent-softer) 32%, var(--panel-muted));
+	color: var(--text);
+}
+
+.health-model-provider-main {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.38rem;
+	min-width: 0;
+}
+
+.health-model-provider-main strong {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.health-model-provider-chevron {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1rem;
+	color: var(--accent);
+}
+
+.health-model-provider-meta {
+	flex-shrink: 0;
+	color: var(--text-muted);
+	font-size: 0.78rem;
+	font-weight: 700;
+	white-space: nowrap;
 }
 
 .health-model-row {
 	cursor: default;
-	min-height: 3rem;
-	padding-block: 0.44rem;
+	min-height: 3.15rem;
+	padding-block: 0.5rem;
 }
 
 .health-table-row {
@@ -2561,6 +2614,16 @@ input[type='file']::file-selector-button {
 
 .health-model-table .trace-table-cell {
 	align-self: center;
+	font-size: 0.96rem;
+}
+
+.health-model-table .trace-model-name {
+	font-size: 1rem;
+	font-weight: 800;
+}
+
+.health-model-table .trace-mono {
+	font-size: 0.95rem;
 }
 
 .health-table .trace-model-cell {
@@ -2598,7 +2661,7 @@ input[type='file']::file-selector-button {
 }
 
 .health-model-table .trace-table-muted {
-	font-size: 0.74rem;
+	font-size: 0.82rem;
 	line-height: 1.25;
 }
 
@@ -3197,8 +3260,19 @@ html[data-theme='dark'] .detail-empty-card {
 
   .health-model-provider-label {
     min-height: 0;
-    padding: 0.15rem 0.2rem 0;
-    background: transparent;
+    padding: 0.55rem 0.65rem;
+    align-items: flex-start;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  }
+
+  .health-model-provider-main,
+  .health-model-provider-meta {
+    width: 100%;
+  }
+
+  .health-model-provider-meta {
+    white-space: normal;
+    font-size: 0.76rem;
   }
 
   .health-table .trace-table-cell,
