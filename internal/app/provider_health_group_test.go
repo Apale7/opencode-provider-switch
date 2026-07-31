@@ -93,6 +93,99 @@ func TestQueryProviderHealthSeparatesGroupsAndPreservesProviderSummary(t *testin
 	}
 }
 
+func TestQueryProviderHealthAggregatesModelHealthByProviderGroupModel(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "ocswitch.json")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.Providers = []config.Provider{modelHealthTestProvider("vendor", []config.ProviderGroup{
+		{ID: "standard", Name: "Standard", Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-fake-standard", Models: []string{"gpt-5.5"}},
+		{ID: "premium", Name: "Premium", Protocol: config.ProtocolOpenAIResponses, APIKey: "sk-fake-premium", Models: []string{"gpt-5.5", "gpt-4.1"}},
+	})}
+	cfg.Aliases = []config.Alias{{
+		Alias: "chat", Protocol: config.ProtocolOpenAIResponses, Enabled: true,
+		Targets: []config.Target{
+			{Provider: "vendor", Group: "premium", Model: "gpt-5.5", Enabled: true},
+			{Provider: "vendor", Group: "standard", Model: "gpt-5.5", Enabled: true},
+		},
+	}}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("cfg.Save() error = %v", err)
+	}
+
+	svc := NewService(path)
+	svc.traces = proxy.NewTraceStore(10)
+	now := time.Now().UTC()
+	cachePremium := int64(850)
+	cacheStandard := int64(400)
+	traces := []proxy.RequestTrace{
+		{
+			ID: 1, StartedAt: now, DurationMs: 3_600_000, Alias: "chat", Success: true,
+			FinalProvider: "vendor", FinalGroup: "premium", FinalModel: "gpt-5.5", InputTokens: 100, OutputTokens: 50,
+			Usage: proxy.TraceUsage{CacheReadTokens: &cachePremium},
+		},
+		{
+			ID: 2, StartedAt: now.Add(time.Second), DurationMs: 1_800_000, Alias: "chat", Success: true,
+			FinalProvider: "vendor", FinalGroup: "standard", FinalModel: "gpt-5.5", InputTokens: 80, OutputTokens: 20,
+			Usage: proxy.TraceUsage{CacheReadTokens: &cacheStandard},
+		},
+		{
+			ID: 3, StartedAt: now.Add(2 * time.Second), DurationMs: 1_000, Alias: "chat", Success: false,
+			Attempts: []proxy.TraceAttempt{{Attempt: 1, Provider: "vendor", Group: "premium", Model: "gpt-5.5", StatusCode: http.StatusBadGateway, Retryable: true, Result: "retryable_failure"}},
+		},
+	}
+	for _, trace := range traces {
+		if err := svc.traces.Add(context.Background(), trace); err != nil {
+			t.Fatalf("traces.Add(%d) error = %v", trace.ID, err)
+		}
+	}
+
+	result, err := svc.QueryProviderHealth(context.Background(), ProviderHealthInput{})
+	if err != nil {
+		t.Fatalf("QueryProviderHealth() error = %v", err)
+	}
+	premium := providerModelHealthByRoute(result.Models, "vendor", "premium", "gpt-5.5")
+	standard := providerModelHealthByRoute(result.Models, "vendor", "standard", "gpt-5.5")
+	if premium == nil || standard == nil {
+		t.Fatalf("model health rows = %#v", result.Models)
+	}
+	if premium.RequestCount != 2 || premium.Success != 1 || premium.InputTokens != 100 || premium.OutputTokens != 50 || premium.CacheReadTokens != 850 || premium.TotalTokens != 1000 || premium.TotalDurationMs != 3_601_000 {
+		t.Fatalf("premium model health = %#v", premium)
+	}
+	if standard.RequestCount != 1 || standard.Success != 1 || standard.InputTokens != 80 || standard.OutputTokens != 20 || standard.CacheReadTokens != 400 || standard.TotalTokens != 500 || standard.TotalDurationMs != 1_800_000 {
+		t.Fatalf("standard model health = %#v", standard)
+	}
+	assertFloatNear(t, premium.TokenShare, 2.0/3.0)
+	assertFloatNear(t, standard.TokenShare, 1.0/3.0)
+	assertFloatNear(t, premium.CacheHitRate, 850.0/950.0)
+	assertFloatNear(t, premium.SuccessRate, 0.5)
+	assertFloatNear(t, standard.SuccessRate, 1)
+}
+
+func modelHealthTestProvider(id string, groups []config.ProviderGroup) config.Provider {
+	return config.Provider{ID: id, Name: "Vendor", BaseURL: "https://vendor.example/v1", Groups: groups}
+}
+
+func providerModelHealthByRoute(items []ProviderModelHealthView, providerID, groupID, model string) *ProviderModelHealthView {
+	for i := range items {
+		if items[i].Provider == providerID && items[i].Group == groupID && items[i].Model == model {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func assertFloatNear(t *testing.T, got, want float64) {
+	t.Helper()
+	const tolerance = 0.000001
+	if got < want-tolerance || got > want+tolerance {
+		t.Fatalf("float = %v, want %v", got, want)
+	}
+}
+
 func providerGroupHealthByID(groups []ProviderHealthView, groupID string) *ProviderHealthView {
 	for i := range groups {
 		if groups[i].Group == groupID {

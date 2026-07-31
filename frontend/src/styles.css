@@ -1821,6 +1821,7 @@ html[data-theme='dark'] .resource-meta-item {
 
 html[data-theme='dark'] .trace-table,
 html[data-theme='dark'] .trace-table-header,
+html[data-theme='dark'] .health-model-provider-label,
 html[data-theme='dark'] .trace-info-card {
 	background: color-mix(in srgb, var(--panel) 94%, #09111f);
 }
@@ -2455,8 +2456,35 @@ input[type='file']::file-selector-button {
 }
 
 .health-table-panel .panel-header {
+	align-items: center;
 	margin-bottom: 0.38rem;
 	padding-bottom: 0;
+}
+
+.health-subtabs {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.2rem;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--panel-muted);
+}
+
+.health-subtabs button {
+	min-height: 34px;
+	padding: 0.42rem 0.72rem;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--text-muted);
+	font-weight: 700;
+}
+
+.health-subtabs button.active {
+	background: var(--panel);
+	color: var(--text);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .health-table-panel .list-pagination {
@@ -2489,6 +2517,38 @@ input[type='file']::file-selector-button {
 	--trace-table-min-width: 82rem;
 }
 
+.health-model-table .trace-table-header,
+.health-model-table .trace-table-row {
+	grid-template-columns: minmax(16rem, 1.35fr) minmax(9rem, 0.72fr) minmax(8rem, 0.6fr) minmax(9rem, 0.75fr) minmax(13rem, 0.9fr) minmax(9rem, max-content);
+}
+
+.health-model-table {
+	--trace-table-min-width: 74rem;
+}
+
+.health-model-provider-group {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	width: 100%;
+	min-width: 0;
+}
+
+.health-model-provider-label {
+	display: flex;
+	align-items: center;
+	min-height: 2rem;
+	padding: 0.45rem 0 0.2rem;
+	background: #fff;
+	color: var(--text-muted);
+	font-size: 0.8rem;
+}
+
+.health-model-row {
+	cursor: default;
+	min-height: 3rem;
+	padding-block: 0.44rem;
+}
+
 .health-table-row {
 	cursor: default;
 	min-height: 3.25rem;
@@ -2499,7 +2559,15 @@ input[type='file']::file-selector-button {
 	align-self: center;
 }
 
+.health-model-table .trace-table-cell {
+	align-self: center;
+}
+
 .health-table .trace-model-cell {
+	gap: 0;
+}
+
+.health-model-table .trace-model-cell {
 	gap: 0;
 }
 
@@ -2525,6 +2593,11 @@ input[type='file']::file-selector-button {
 }
 
 .health-table .trace-table-muted {
+	font-size: 0.74rem;
+	line-height: 1.25;
+}
+
+.health-model-table .trace-table-muted {
 	font-size: 0.74rem;
 	line-height: 1.25;
 }
@@ -3086,7 +3159,8 @@ html[data-theme='dark'] .detail-empty-card {
 }
 
 @media (max-width: 1200px) {
-  .health-table {
+  .health-table,
+  .health-model-table {
     --trace-table-min-width: 0;
   }
 
@@ -3095,15 +3169,18 @@ html[data-theme='dark'] .detail-empty-card {
     overflow-y: auto;
   }
 
-  .health-table .trace-table-header {
+  .health-table .trace-table-header,
+  .health-model-table .trace-table-header {
     display: none;
   }
 
-  .health-table .trace-table-body {
+  .health-table .trace-table-body,
+  .health-model-table .trace-table-body {
     gap: 0.75rem;
   }
 
-  .health-table .trace-table-row {
+  .health-table .trace-table-row,
+  .health-model-table .trace-table-row {
     display: grid;
     grid-template-columns: 1fr;
     gap: 0.72rem;
@@ -3114,19 +3191,33 @@ html[data-theme='dark'] .detail-empty-card {
     background: var(--panel-muted);
   }
 
-  .health-table .trace-table-cell {
+  .health-model-provider-group {
+    gap: 0.75rem;
+  }
+
+  .health-model-provider-label {
+    min-height: 0;
+    padding: 0.15rem 0.2rem 0;
+    background: transparent;
+  }
+
+  .health-table .trace-table-cell,
+  .health-model-table .trace-table-cell {
     display: grid;
     gap: 0.3rem;
     align-items: start;
     justify-content: stretch;
   }
 
-  .health-table .trace-table-cell[data-label]::before {
+  .health-table .trace-table-cell[data-label]::before,
+  .health-model-table .trace-table-cell[data-label]::before {
     display: block;
   }
 
   .health-table .trace-status-cell,
-  .health-table .trace-status-stack {
+  .health-table .trace-status-stack,
+  .health-model-table .trace-status-cell,
+  .health-model-table .trace-status-stack {
     justify-content: start;
     justify-items: start;
   }
@@ -3134,7 +3225,11 @@ html[data-theme='dark'] .detail-empty-card {
   .health-table .trace-table-muted,
   .health-table .trace-table-ellipsis,
   .health-table .trace-model-name,
-  .health-table .trace-mono {
+  .health-table .trace-mono,
+  .health-model-table .trace-table-muted,
+  .health-model-table .trace-table-ellipsis,
+  .health-model-table .trace-model-name,
+  .health-model-table .trace-mono {
     white-space: normal;
     overflow: visible;
     text-overflow: clip;

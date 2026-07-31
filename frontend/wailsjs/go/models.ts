@@ -1,10 +1,10 @@
 export namespace app {
-	
+
 	export class TransportOutcome {
 	    code: string;
 	    params: Record<string, any>;
 	    retryable: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TransportOutcome(source);
 	    }
@@ -1433,6 +1433,42 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class ProviderModelHealthView {
+	    provider: string;
+	    group?: string;
+	    model: string;
+	    requestCount: number;
+	    success: number;
+	    inputTokens: number;
+	    outputTokens: number;
+	    cacheReadTokens: number;
+	    totalTokens: number;
+	    totalDurationMs: number;
+	    cacheHitRate: number;
+	    successRate: number;
+	    tokenShare: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ProviderModelHealthView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.group = source["group"];
+	        this.model = source["model"];
+	        this.requestCount = source["requestCount"];
+	        this.success = source["success"];
+	        this.inputTokens = source["inputTokens"];
+	        this.outputTokens = source["outputTokens"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.totalTokens = source["totalTokens"];
+	        this.totalDurationMs = source["totalDurationMs"];
+	        this.cacheHitRate = source["cacheHitRate"];
+	        this.successRate = source["successRate"];
+	        this.tokenShare = source["tokenShare"];
+	    }
+	}
 	export class ProviderHealthSummary {
 	    requestCount: number;
 	    attemptCount: number;
@@ -1490,6 +1526,7 @@ export namespace app {
 	export class ProviderHealthResult {
 	    summary: ProviderHealthSummary;
 	    providers: ProviderHealthView[];
+	    models: ProviderModelHealthView[];
 	    availableAliases?: string[];
 	    availableProviders?: string[];
 	    warnings?: string[];
@@ -1502,6 +1539,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.summary = this.convertValues(source["summary"], ProviderHealthSummary);
 	        this.providers = this.convertValues(source["providers"], ProviderHealthView);
+	        this.models = this.convertValues(source["models"], ProviderModelHealthView);
 	        this.availableAliases = source["availableAliases"];
 	        this.availableProviders = source["availableProviders"];
 	        this.warnings = source["warnings"];

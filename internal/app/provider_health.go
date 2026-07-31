@@ -21,11 +21,12 @@ type ProviderHealthInput struct {
 }
 
 type ProviderHealthResult struct {
-	Summary            ProviderHealthSummary `json:"summary"`
-	Providers          []ProviderHealthView  `json:"providers"`
-	AvailableAliases   []string              `json:"availableAliases,omitempty"`
-	AvailableProviders []string              `json:"availableProviders,omitempty"`
-	Warnings           []string              `json:"warnings,omitempty"`
+	Summary            ProviderHealthSummary     `json:"summary"`
+	Providers          []ProviderHealthView      `json:"providers"`
+	Models             []ProviderModelHealthView `json:"models"`
+	AvailableAliases   []string                  `json:"availableAliases,omitempty"`
+	AvailableProviders []string                  `json:"availableProviders,omitempty"`
+	Warnings           []string                  `json:"warnings,omitempty"`
 }
 
 type ProviderHealthSummary struct {
@@ -95,6 +96,25 @@ type ProviderHealthView struct {
 	Groups               []ProviderHealthView  `json:"groups,omitempty"`
 }
 
+// ProviderModelHealthView is the request-level health aggregate for one
+// provider/group/model route. Token totals include cached input tokens while
+// InputTokens and OutputTokens remain the non-cached input/output counters.
+type ProviderModelHealthView struct {
+	Provider        string  `json:"provider"`
+	Group           string  `json:"group,omitempty"`
+	Model           string  `json:"model"`
+	RequestCount    int     `json:"requestCount"`
+	Success         int     `json:"success"`
+	InputTokens     int64   `json:"inputTokens"`
+	OutputTokens    int64   `json:"outputTokens"`
+	CacheReadTokens int64   `json:"cacheReadTokens"`
+	TotalTokens     int64   `json:"totalTokens"`
+	TotalDurationMs int64   `json:"totalDurationMs"`
+	CacheHitRate    float64 `json:"cacheHitRate"`
+	SuccessRate     float64 `json:"successRate"`
+	TokenShare      float64 `json:"tokenShare"`
+}
+
 type ProviderHealthAlias struct {
 	Alias       string `json:"alias"`
 	Model       string `json:"model,omitempty"`
@@ -153,16 +173,120 @@ func (s *Service) QueryProviderHealth(ctx context.Context, in ProviderHealthInpu
 	}
 	items := providerHealthViews(accums, groupAccums, providerFilter)
 	summary := summarizeProviderHealth(items, traces, accums, providerFilter)
+	models := providerModelHealthViews(traces, providerFilter)
 	warnings := []string{
 		"Observed from routed traffic only. Backup providers can have low sample counts because aliases try earlier targets first.",
 	}
 	return ProviderHealthResult{
 		Summary:            summary,
 		Providers:          items,
+		Models:             models,
 		AvailableAliases:   aliases,
 		AvailableProviders: providers,
 		Warnings:           warnings,
 	}, nil
+}
+
+func providerModelHealthViews(traces []proxy.RequestTrace, providerFilter map[string]bool) []ProviderModelHealthView {
+	type modelHealthAccum struct {
+		view ProviderModelHealthView
+	}
+	accums := map[string]*modelHealthAccum{}
+
+	for _, trace := range traces {
+		provider, group, model, ok := traceModelHealthTarget(trace)
+		if !ok || (len(providerFilter) > 0 && !providerFilter[provider]) {
+			continue
+		}
+		key := provider + "\x00" + group + "\x00" + model
+		accum := accums[key]
+		if accum == nil {
+			accum = &modelHealthAccum{view: ProviderModelHealthView{
+				Provider: provider,
+				Group:    group,
+				Model:    model,
+			}}
+			accums[key] = accum
+		}
+		accum.view.RequestCount++
+		if trace.Success {
+			accum.view.Success++
+		}
+		accum.view.InputTokens += trace.InputTokens
+		accum.view.OutputTokens += trace.OutputTokens
+		if trace.Usage.CacheReadTokens != nil {
+			accum.view.CacheReadTokens += *trace.Usage.CacheReadTokens
+		}
+		accum.view.TotalTokens += trace.InputTokens + trace.OutputTokens + traceCacheReadTokens(trace)
+		if trace.DurationMs > 0 {
+			accum.view.TotalDurationMs += trace.DurationMs
+		} else {
+			for _, attempt := range trace.Attempts {
+				if attemptIsClientCanceled(attempt) {
+					continue
+				}
+				if attempt.DurationMs > 0 {
+					accum.view.TotalDurationMs += attempt.DurationMs
+				}
+			}
+		}
+	}
+
+	items := make([]ProviderModelHealthView, 0, len(accums))
+	for _, accum := range accums {
+		accum.view.CacheHitRate = cacheHitRate(accum.view.CacheReadTokens, accum.view.InputTokens)
+		accum.view.SuccessRate = ratio(accum.view.Success, accum.view.RequestCount)
+		items = append(items, accum.view)
+	}
+	totalTokens := int64(0)
+	for _, item := range items {
+		totalTokens += item.TotalTokens
+	}
+	for index := range items {
+		if totalTokens > 0 {
+			items[index].TokenShare = float64(items[index].TotalTokens) / float64(totalTokens)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Provider != items[j].Provider {
+			return items[i].Provider < items[j].Provider
+		}
+		if items[i].TotalTokens != items[j].TotalTokens {
+			return items[i].TotalTokens > items[j].TotalTokens
+		}
+		if items[i].Group != items[j].Group {
+			return items[i].Group < items[j].Group
+		}
+		return items[i].Model < items[j].Model
+	})
+	return items
+}
+
+func traceModelHealthTarget(trace proxy.RequestTrace) (string, string, string, bool) {
+	if provider := strings.TrimSpace(trace.FinalProvider); provider != "" {
+		if model := strings.TrimSpace(trace.FinalModel); model != "" {
+			return provider, proxy.NormalizeTraceGroup(trace.FinalGroup), model, true
+		}
+	}
+	for index := len(trace.Attempts) - 1; index >= 0; index-- {
+		attempt := trace.Attempts[index]
+		if attemptIsClientCanceled(attempt) {
+			continue
+		}
+		provider := strings.TrimSpace(attempt.Provider)
+		model := strings.TrimSpace(attempt.Model)
+		if provider != "" && model != "" {
+			return provider, proxy.NormalizeTraceGroup(attempt.Group), model, true
+		}
+	}
+	return "", "", "", false
+}
+
+func traceCacheReadTokens(trace proxy.RequestTrace) int64 {
+	if trace.Usage.CacheReadTokens == nil || *trace.Usage.CacheReadTokens < 0 {
+		return 0
+	}
+	return *trace.Usage.CacheReadTokens
 }
 
 type providerHealthTraceStore interface {

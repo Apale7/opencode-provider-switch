@@ -320,9 +320,26 @@ export type ProviderHealthView = {
   groups?: ProviderHealthView[]
 }
 
+export type ProviderModelHealthView = {
+  provider: string
+  group?: string
+  model: string
+  requestCount: number
+  success: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  totalTokens: number
+  totalDurationMs: number
+  cacheHitRate: number
+  successRate: number
+  tokenShare: number
+}
+
 export type ProviderHealthResult = {
   summary: ProviderHealthSummary
   providers: ProviderHealthView[]
+  models: ProviderModelHealthView[]
   availableAliases?: string[]
   availableProviders?: string[]
   warnings?: string[]

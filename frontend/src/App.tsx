@@ -78,6 +78,7 @@ import type {
   ProviderHealthResult,
   ProviderHealthSummary,
   ProviderHealthView,
+  ProviderModelHealthView,
   ProviderBaseURLStrategy,
   ProviderPingInput,
   ProviderPingResult,
@@ -487,6 +488,7 @@ const emptyProviderHealthSummary: ProviderHealthSummary = {
 const emptyProviderHealth: ProviderHealthResult = {
 	summary: emptyProviderHealthSummary,
 	providers: [],
+	models: [],
 	availableAliases: [],
 	availableProviders: [],
 	warnings: [],
@@ -518,6 +520,7 @@ type TraceCatalogState = {
 }
 
 type TracePageKind = 'log' | 'network'
+type HealthTabKey = 'provider' | 'model'
 
 const emptyTraceQuery: TraceQueryState = {
 	page: 1,
@@ -2020,6 +2023,26 @@ function formatCompactDuration(value?: number): string {
 	return `${Math.round(value)} ms`
 }
 
+function formatHealthDuration(value?: number): string {
+	if (value == null) {
+		return '-'
+	}
+	let seconds = Math.max(0, Math.round(value / 1000))
+	const hours = Math.floor(seconds / 3600)
+	seconds %= 3600
+	const minutes = Math.floor(seconds / 60)
+	seconds %= 60
+	const parts: string[] = []
+	if (hours > 0) {
+		parts.push(`${hours}h`)
+	}
+	if (minutes > 0 || hours > 0) {
+		parts.push(`${minutes}m`)
+	}
+	parts.push(`${seconds}s`)
+	return parts.join('')
+}
+
 function formatTokenCount(value?: number): string {
   if (value == null) {
     return '-'
@@ -2055,6 +2078,20 @@ function formatPercent(value?: number): string {
 		return '-'
 	}
 	return `${Math.round(value * 100)}%`
+}
+
+function formatHealthPercent(value?: number): string {
+	if (value == null || Number.isNaN(value)) {
+		return '-'
+	}
+	return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value * 100)}%`
+}
+
+function formatTokenMillions(value?: number): string {
+	if (value == null || Number.isNaN(value)) {
+		return '-'
+	}
+	return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value / 1_000_000)}M`
 }
 
 function formatHealthRole(role: string): string {
@@ -2099,6 +2136,48 @@ function isProviderProtocol(value?: string): value is ProviderProtocol {
 
 function providerHealthProtocol(provider: ProviderHealthView): ProviderProtocol | null {
 	return isProviderProtocol(provider.protocol) ? provider.protocol : null
+}
+
+function modelHealthDisplay(model: ProviderModelHealthView, providers: ProviderView[]): { label: string; title: string } {
+	const group = model.group || 'default'
+	return {
+		label: providerModelDisplay(model.provider, model.model, providers),
+		title: `${model.provider}/${group}/${model.model}`,
+	}
+}
+
+function modelHealthInputOutputTokens(model: ProviderModelHealthView): number {
+	return model.inputTokens + model.outputTokens
+}
+
+type ProviderModelHealthGroup = {
+	provider: string
+	label: string
+	title?: string
+	totalTokens: number
+	items: ProviderModelHealthView[]
+}
+
+function groupProviderModelHealth(items: ProviderModelHealthView[], providers: ProviderView[]): ProviderModelHealthGroup[] {
+	const groups: ProviderModelHealthGroup[] = []
+	const byProvider = new Map<string, ProviderModelHealthGroup>()
+	for (const item of items) {
+		let group = byProvider.get(item.provider)
+		if (!group) {
+			group = {
+				provider: item.provider,
+				label: providerDisplayLabel(item.provider, providers),
+				title: providerDisplayTitle(item.provider, providers),
+				totalTokens: 0,
+				items: [],
+			}
+			byProvider.set(item.provider, group)
+			groups.push(group)
+		}
+		group.totalTokens += item.totalTokens
+		group.items.push(item)
+	}
+	return groups
 }
 
 function usageSourceLabel(source?: string): string {
@@ -2682,7 +2761,9 @@ export default function App() {
   const [providerHealthQuery, setProviderHealthQuery] = useState<ProviderHealthQueryState>(emptyProviderHealthQuery)
   const [providerHealthLoaded, setProviderHealthLoaded] = useState(false)
   const [providerHealthStatus, setProviderHealthStatus] = useState('')
+  const [activeHealthTab, setActiveHealthTab] = useState<HealthTabKey>('provider')
   const [healthPage, setHealthPage] = useState(1)
+  const [healthModelPage, setHealthModelPage] = useState(1)
   const [healthPageSize, setHealthPageSize] = useState(defaultTracePageSize)
   const [logTraceLoaded, setLogTraceLoaded] = useState(false)
   const [networkTraceLoaded, setNetworkTraceLoaded] = useState(false)
@@ -2993,6 +3074,11 @@ export default function App() {
   const healthPageCount = tracePageCount(providerHealth.providers.length, healthPageSize)
   const visibleHealthPage = Math.min(healthPage, healthPageCount)
   const visibleHealthProviders = providerHealth.providers.slice((visibleHealthPage - 1) * healthPageSize, visibleHealthPage * healthPageSize)
+  const providerHealthModels = providerHealth.models || []
+  const healthModelPageCount = tracePageCount(providerHealthModels.length, healthPageSize)
+  const visibleHealthModelPage = Math.min(healthModelPage, healthModelPageCount)
+  const visibleHealthModels = providerHealthModels.slice((visibleHealthModelPage - 1) * healthPageSize, visibleHealthModelPage * healthPageSize)
+  const visibleHealthModelGroups = groupProviderModelHealth(visibleHealthModels, providers)
   const providerHealthAliasOptions = providerHealth.availableAliases || []
   const providerHealthProviderOptions = providerHealth.availableProviders || []
   const desktopPrefsAvailable = meta.capabilities?.desktopPrefs ?? meta.shell !== 'server'
@@ -3110,6 +3196,10 @@ export default function App() {
 		setHealthPage((current) => Math.min(current, healthPageCount))
 	}, [healthPageCount])
 
+	useEffect(() => {
+		setHealthModelPage((current) => Math.min(current, healthModelPageCount))
+	}, [healthModelPageCount])
+
 	useLayoutEffect(() => {
 		if (activeTab !== 'log') {
 			return
@@ -3168,6 +3258,7 @@ export default function App() {
 		if (activeTab !== 'health') {
 			return
 		}
+		const healthItemCount = activeHealthTab === 'provider' ? providerHealth.providers.length : providerHealthModels.length
 		const syncPageSize = () => {
 			const nextPageSize = measureTraceTablePageSize(healthTraceListRef.current)
 			if (!nextPageSize) {
@@ -3177,7 +3268,11 @@ export default function App() {
 				if (currentPageSize === nextPageSize) {
 					return currentPageSize
 				}
-				setHealthPage((currentPage) => preserveTracePage(currentPage, currentPageSize, nextPageSize, providerHealth.providers.length))
+				if (activeHealthTab === 'provider') {
+					setHealthPage((currentPage) => preserveTracePage(currentPage, currentPageSize, nextPageSize, healthItemCount))
+				} else {
+					setHealthModelPage((currentPage) => preserveTracePage(currentPage, currentPageSize, nextPageSize, healthItemCount))
+				}
 				return nextPageSize
 			})
 		}
@@ -3186,7 +3281,7 @@ export default function App() {
 		return () => {
 			window.removeEventListener('resize', syncPageSize)
 		}
-	}, [activeTab, healthPage, healthPageSize, providerHealth.providers])
+	}, [activeHealthTab, activeTab, healthPage, healthModelPage, healthPageSize, providerHealth.providers.length, providerHealthModels.length])
 
   useEffect(() => {
     if (activeTab === 'providers' && providerDetailOpen) {
@@ -6030,7 +6125,13 @@ export default function App() {
                     <span className="subtle small-text">{t('health.biasDescription')}</span>
                   </TraceInfoPopover>
                   <div className="health-warning-actions">
-                    <span className="subtle list-status-text">{providerHealthLoaded ? t('health.count', { count: providerHealth.providers.length }) : t('messages.loading')}</span>
+                    <span className="subtle list-status-text">
+                      {providerHealthLoaded
+                        ? activeHealthTab === 'provider'
+                          ? t('health.count', { count: providerHealth.providers.length })
+                          : t('health.modelCount', { count: providerHealthModels.length })
+                        : t('messages.loading')}
+                    </span>
                     <button type="button" onClick={() => void loadProviderHealth(providerHealthQuery, traceTimeFilter, proxyStartedAt)}>
                       {t('actions.refresh')}
                     </button>
@@ -6039,48 +6140,70 @@ export default function App() {
               </div>
             </article>
 
-            <section className="health-summary-grid panel-full" aria-label={t('health.summaryTitle')}>
-              <div className="trace-stat-card trace-stat-success">
-                <span className="stat-label">{t('health.summaryRequests')}</span>
-                <strong title={providerHealth.summary.requestCount.toLocaleString()}>{formatCompactCount(providerHealth.summary.requestCount)}</strong>
-              </div>
-              <div className="trace-stat-card">
-                <span className="stat-label">{t('health.summaryAttempts')}</span>
-                <strong title={providerHealth.summary.attemptCount.toLocaleString()}>{formatCompactCount(providerHealth.summary.attemptCount)}</strong>
-              </div>
-              <div className="trace-stat-card trace-stat-failover">
-                <span className="stat-label">{t('health.summaryFailover')}</span>
-                <strong title={providerHealth.summary.failover.toLocaleString()}>{formatCompactCount(providerHealth.summary.failover)}</strong>
-              </div>
-              <div className="trace-stat-card trace-stat-failed">
-                <span className="stat-label">{t('health.summaryRetryable')}</span>
-                <strong title={providerHealth.summary.retryableFailures.toLocaleString()}>{formatCompactCount(providerHealth.summary.retryableFailures)}</strong>
-              </div>
-              <div className="trace-stat-card">
-                <span className="stat-label">{t('health.summaryP95Ttfb')}</span>
-                <strong>{formatCompactDuration(providerHealth.summary.firstByteP95Ms)}</strong>
-              </div>
-              <div className="trace-stat-card">
-                <span className="stat-label">{t('health.summaryTokens')}</span>
-                <strong title={formatTokenCount(providerHealth.summary.totalTokens)}>{formatCompactCount(providerHealth.summary.totalTokens)}</strong>
-              </div>
-            </section>
+            {activeHealthTab === 'provider' ? (
+              <section className="health-summary-grid panel-full" aria-label={t('health.summaryTitle')}>
+                <div className="trace-stat-card trace-stat-success">
+                  <span className="stat-label">{t('health.summaryRequests')}</span>
+                  <strong title={providerHealth.summary.requestCount.toLocaleString()}>{formatCompactCount(providerHealth.summary.requestCount)}</strong>
+                </div>
+                <div className="trace-stat-card">
+                  <span className="stat-label">{t('health.summaryAttempts')}</span>
+                  <strong title={providerHealth.summary.attemptCount.toLocaleString()}>{formatCompactCount(providerHealth.summary.attemptCount)}</strong>
+                </div>
+                <div className="trace-stat-card trace-stat-failover">
+                  <span className="stat-label">{t('health.summaryFailover')}</span>
+                  <strong title={providerHealth.summary.failover.toLocaleString()}>{formatCompactCount(providerHealth.summary.failover)}</strong>
+                </div>
+                <div className="trace-stat-card trace-stat-failed">
+                  <span className="stat-label">{t('health.summaryRetryable')}</span>
+                  <strong title={providerHealth.summary.retryableFailures.toLocaleString()}>{formatCompactCount(providerHealth.summary.retryableFailures)}</strong>
+                </div>
+                <div className="trace-stat-card">
+                  <span className="stat-label">{t('health.summaryP95Ttfb')}</span>
+                  <strong>{formatCompactDuration(providerHealth.summary.firstByteP95Ms)}</strong>
+                </div>
+                <div className="trace-stat-card">
+                  <span className="stat-label">{t('health.summaryTokens')}</span>
+                  <strong title={formatTokenCount(providerHealth.summary.totalTokens)}>{formatCompactCount(providerHealth.summary.totalTokens)}</strong>
+                </div>
+              </section>
+            ) : null}
 
             <article className="panel panel-full health-table-panel">
               <div className="panel-header compact-header">
                 <div>
-                  <h3>{t('health.tableTitle')}</h3>
-                  <p className="subtle">{t('health.tableSubtitle')}</p>
+                  <h3>{activeHealthTab === 'provider' ? t('health.tableTitle') : t('health.modelTableTitle')}</h3>
+                  <p className="subtle">{activeHealthTab === 'provider' ? t('health.tableSubtitle') : t('health.modelTableSubtitle')}</p>
+                </div>
+                <div className="health-subtabs" role="tablist" aria-label={t('health.tabListLabel')}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeHealthTab === 'provider'}
+                    className={activeHealthTab === 'provider' ? 'active' : ''}
+                    onClick={() => setActiveHealthTab('provider')}
+                  >
+                    {t('health.providerTab')}
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeHealthTab === 'model'}
+                    className={activeHealthTab === 'model' ? 'active' : ''}
+                    onClick={() => setActiveHealthTab('model')}
+                  >
+                    {t('health.modelTab')}
+                  </button>
                 </div>
               </div>
               <div className="scroll-list compact-list trace-scroll-list health-scroll-list" ref={healthTraceListRef}>
-                {providerHealthLoaded && providerHealth.providers.length === 0 ? (
+                {providerHealthLoaded && (activeHealthTab === 'provider' ? providerHealth.providers.length : providerHealthModels.length) === 0 ? (
                   <article className="empty-card compact-empty">
-                    <h4>{t('health.empty')}</h4>
-                    <p className="subtle">{t('health.emptyHint')}</p>
+                    <h4>{activeHealthTab === 'provider' ? t('health.empty') : t('health.modelEmpty')}</h4>
+                    <p className="subtle">{activeHealthTab === 'provider' ? t('health.emptyHint') : t('health.modelEmptyHint')}</p>
                   </article>
                 ) : null}
-                {providerHealth.providers.length > 0 ? (
+                {activeHealthTab === 'provider' && providerHealth.providers.length > 0 ? (
                   <div className="trace-table health-table" role="table" aria-label={t('health.tableTitle')}>
                     <div className="trace-table-header" role="row">
                       <span className="trace-table-head" role="columnheader">{t('health.tableProvider')}</span>
@@ -6152,13 +6275,79 @@ export default function App() {
                     </div>
                   </div>
                 ) : null}
+                {activeHealthTab === 'model' && providerHealthModels.length > 0 ? (
+                  <div className="trace-table health-model-table" role="table" aria-label={t('health.modelTableTitle')}>
+                    <div className="trace-table-header" role="row">
+                      <span className="trace-table-head" role="columnheader">{t('health.modelTableModel')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.modelTableTotalTokens')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.modelTableShare')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.modelTableDuration')}</span>
+                      <span className="trace-table-head" role="columnheader">{t('health.modelTableInputOutput')}</span>
+                      <span className="trace-table-head trace-table-head-end" role="columnheader">{t('health.modelTableRequests')}</span>
+                    </div>
+                    <div className="trace-table-body">
+                      {visibleHealthModelGroups.map((group) => (
+                        <div className="health-model-provider-group" key={group.provider}>
+                          <div className="health-model-provider-label" title={group.title}>
+                            <strong>{group.label}</strong>
+                          </div>
+                          {group.items.map((model) => {
+                            const display = modelHealthDisplay(model, providers)
+                            const inputOutput = modelHealthInputOutputTokens(model)
+                            return (
+                              <article className="trace-table-row health-model-row" role="row" key={`${model.provider}/${model.group || 'default'}/${model.model}`}>
+                                <div className="trace-table-cell" role="cell" data-label={t('health.modelTableModel')}>
+                                  <div className="trace-model-cell">
+                                    <strong className="trace-model-name" title={display.title}>{display.label}</strong>
+                                  </div>
+                                </div>
+                                <div className="trace-table-cell" role="cell" data-label={t('health.modelTableTotalTokens')}>
+                                  <span className="trace-mono" title={formatTokenCount(model.totalTokens)}>{formatTokenMillions(model.totalTokens)}</span>
+                                </div>
+                                <div className="trace-table-cell" role="cell" data-label={t('health.modelTableShare')}>
+                                  <span className="trace-mono">{formatHealthPercent(model.tokenShare)}</span>
+                                </div>
+                                <div className="trace-table-cell" role="cell" data-label={t('health.modelTableDuration')}>
+                                  <span className="trace-mono">{formatHealthDuration(model.totalDurationMs)}</span>
+                                </div>
+                                <div className="trace-table-cell" role="cell" data-label={t('health.modelTableInputOutput')}>
+                                  <span className="trace-mono" title={t('health.modelInputOutputHint', { input: formatTokenCount(model.inputTokens), output: formatTokenCount(model.outputTokens), cache: formatTokenCount(model.cacheReadTokens) })}>
+                                    {formatTokenMillions(inputOutput)} / {model.inputTokens + model.cacheReadTokens > 0 ? formatHealthPercent(model.cacheHitRate) : '-'}
+                                  </span>
+                                </div>
+                                <div className="trace-table-cell trace-status-cell" role="cell" data-label={t('health.modelTableRequests')}>
+                                  <span className="trace-mono" title={t('health.modelRequestsHint', { requests: model.requestCount, success: model.success })}>
+                                    {model.requestCount.toLocaleString()} / {formatHealthPercent(model.successRate)}
+                                  </span>
+                                </div>
+                              </article>
+                            )
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div className="list-pagination">
-                <button type="button" disabled={visibleHealthPage <= 1} onClick={() => setHealthPage(visibleHealthPage - 1)}>
+                <button
+                  type="button"
+                  disabled={(activeHealthTab === 'provider' ? visibleHealthPage : visibleHealthModelPage) <= 1}
+                  onClick={() => activeHealthTab === 'provider' ? setHealthPage(visibleHealthPage - 1) : setHealthModelPage(visibleHealthModelPage - 1)}
+                >
                   {t('trace.prevPage')}
                 </button>
-                <span className="subtle">{t('trace.pageStatus', { page: visibleHealthPage, total: healthPageCount })}</span>
-                <button type="button" disabled={visibleHealthPage >= healthPageCount} onClick={() => setHealthPage(visibleHealthPage + 1)}>
+                <span className="subtle">
+                  {t('trace.pageStatus', {
+                    page: activeHealthTab === 'provider' ? visibleHealthPage : visibleHealthModelPage,
+                    total: activeHealthTab === 'provider' ? healthPageCount : healthModelPageCount,
+                  })}
+                </span>
+                <button
+                  type="button"
+                  disabled={(activeHealthTab === 'provider' ? visibleHealthPage >= healthPageCount : visibleHealthModelPage >= healthModelPageCount)}
+                  onClick={() => activeHealthTab === 'provider' ? setHealthPage(visibleHealthPage + 1) : setHealthModelPage(visibleHealthModelPage + 1)}
+                >
                   {t('trace.nextPage')}
                 </button>
               </div>
