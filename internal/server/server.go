@@ -420,6 +420,10 @@ func (s appService) ReorderAliasTargets(ctx context.Context, in app.AliasTargetR
 	return s.service.ReorderAliasTargets(ctx, in)
 }
 
+func (s appService) ResetAliasTargetOrder(ctx context.Context, in app.AliasLockInput) (app.AliasView, error) {
+	return s.service.ResetAliasTargetOrder(ctx, in)
+}
+
 func (s appService) ListRequestRewriteRules(ctx context.Context) ([]app.RequestRewriteRuleView, error) {
 	return s.service.ListRequestRewriteRules(ctx)
 }

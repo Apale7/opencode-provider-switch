@@ -9,6 +9,8 @@ import (
 	"github.com/Apale7/opencode-provider-switch/internal/config"
 )
 
+const legacyActionUpgradeAlias Action = "upgrade_alias"
+
 func TestNormalizeJSONAndSensitiveParams(t *testing.T) {
 	issue, err := Normalize(Issue{Code: CodeAliasDisabled, Severity: SeverityInfo, Path: "/config/aliases/0", Source: Source{"alias", "a", "/config/aliases/0"}, Reason: ReasonDisabled, Params: Params{"alias": "a"}})
 	if err != nil {
@@ -156,7 +158,7 @@ func TestScanConfigWildcardAndOwnershipActions(t *testing.T) {
 		if issue.Code == CodeRewriteProviderMissing {
 			t.Fatal("wildcard emitted missing selector")
 		}
-		if issue.Code == CodeAliasTargetProviderMissing && (contains(issue.AllowedActions, ActionRemoveTarget) || !contains(issue.AllowedActions, ActionUpgradeAlias)) {
+		if issue.Code == CodeAliasTargetProviderMissing && (contains(issue.AllowedActions, ActionRemoveTarget) || contains(issue.AllowedActions, legacyActionUpgradeAlias) || !contains(issue.AllowedActions, ActionRebindTarget)) {
 			t.Fatalf("unsafe auto actions: %v", issue.AllowedActions)
 		}
 	}
@@ -244,7 +246,7 @@ func TestScanConfigLockedZeroTargetAndAmbiguousProvider(t *testing.T) {
 	for _, issue := range issues {
 		switch {
 		case issue.Code == CodeAliasTargetProviderMissing && issue.Params["alias"] == "locked":
-			if contains(issue.AllowedActions, ActionRemoveTarget) || !contains(issue.AllowedActions, ActionUpgradeAlias) {
+			if contains(issue.AllowedActions, ActionRemoveTarget) || contains(issue.AllowedActions, legacyActionUpgradeAlias) || !contains(issue.AllowedActions, ActionDeleteAlias) {
 				t.Fatalf("locked alias exposed unsafe actions: %v", issue.AllowedActions)
 			}
 		case issue.Code == CodeAliasNoAvailableTarget && issue.Params["alias"] == "empty":

@@ -122,6 +122,8 @@ export function TraceList(arg1:app.RequestTraceListInput):Promise<app.RequestTra
 
 export function UnbindTarget(arg1:app.AliasTargetInput):Promise<app.AliasView>;
 
+export function ResetTargetOrder(arg1:app.AliasLockInput):Promise<app.AliasView>;
+
 export function UpdateProviderGroup(arg1:app.ProviderGroupUpdateInput):Promise<app.ProviderGroupView>;
 
 export function UpgradeAutoAlias(arg1:app.AliasLockInput):Promise<app.AliasView>;

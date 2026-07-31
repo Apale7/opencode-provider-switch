@@ -302,6 +302,12 @@ export function upgradeAutoAlias(input: AliasLockInput): Promise<AliasView> {
     : http<AliasView>('/api/aliases/upgrade-manual', { method: 'POST', body: JSON.stringify(input) })
 }
 
+export function resetAliasTargetOrder(input: AliasLockInput): Promise<AliasView> {
+  return isWails()
+    ? bridge().ResetTargetOrder(input)
+    : http<AliasView>('/api/aliases/reset-target-order', { method: 'POST', body: JSON.stringify(input) })
+}
+
 export function importProviders(input: ProviderImportInput): Promise<ProviderImportResult> {
   return isWails()
     ? bridge().ImportProviders(input)

@@ -129,6 +129,10 @@ func (b *Bindings) ReorderAliasTargets(ctx context.Context, in app.AliasTargetRe
 	return b.service.ReorderAliasTargets(ctx, in)
 }
 
+func (b *Bindings) ResetAliasTargetOrder(ctx context.Context, in app.AliasLockInput) (app.AliasView, error) {
+	return b.service.ResetAliasTargetOrder(ctx, in)
+}
+
 func (b *Bindings) ListRequestRewriteRules(ctx context.Context) ([]app.RequestRewriteRuleView, error) {
 	return b.service.ListRequestRewriteRules(ctx)
 }
@@ -317,6 +321,10 @@ func (b *Bindings) UnbindTarget(in app.AliasTargetInput) (app.AliasView, error) 
 
 func (b *Bindings) ReorderTargets(in app.AliasTargetReorderInput) (app.AliasView, error) {
 	return b.ReorderAliasTargets(context.Background(), in)
+}
+
+func (b *Bindings) ResetTargetOrder(in app.AliasLockInput) (app.AliasView, error) {
+	return b.ResetAliasTargetOrder(context.Background(), in)
 }
 
 func (b *Bindings) RewriteRules() ([]app.RequestRewriteRuleView, error) {

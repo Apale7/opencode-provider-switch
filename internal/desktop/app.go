@@ -276,6 +276,10 @@ func (a *App) ReorderTargets(in app.AliasTargetReorderInput) (app.AliasView, err
 	return a.bindings.ReorderAliasTargets(a.callContext(), in)
 }
 
+func (a *App) ResetTargetOrder(in app.AliasLockInput) (app.AliasView, error) {
+	return a.bindings.ResetAliasTargetOrder(a.callContext(), in)
+}
+
 func (a *App) RewriteRules() ([]app.RequestRewriteRuleView, error) {
 	return a.bindings.ListRequestRewriteRules(a.callContext())
 }

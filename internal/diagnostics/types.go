@@ -35,7 +35,6 @@ const (
 	ReasonLegacy             Reason = "legacy"
 	ReasonDrift              Reason = "drift"
 
-	ActionUpgradeAlias        Action = "upgrade_alias"
 	ActionEnableAlias         Action = "enable_alias"
 	ActionEnableProvider      Action = "enable_provider"
 	ActionEnableGroup         Action = "enable_group"
@@ -128,7 +127,7 @@ type Issue struct {
 }
 
 var actionOrder = []Action{
-	ActionUpgradeAlias, ActionEnableAlias, ActionEnableProvider, ActionEnableGroup, ActionEnableTarget,
+	ActionEnableAlias, ActionEnableProvider, ActionEnableGroup, ActionEnableTarget,
 	ActionRebindTarget, ActionAlignProtocol, ActionRefreshCatalog,
 	ActionRetryRuntime, ActionReloadRuntime, ActionRestartRuntime,
 	ActionSelectRoutableAlias, ActionResyncOpenCode, ActionMigrateRewriteRule,

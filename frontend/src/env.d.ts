@@ -39,6 +39,7 @@ declare global {
           SetTargetState: (input: import('./types').AliasTargetInput) => Promise<import('./types').AliasView>
           UnbindTarget: (input: import('./types').AliasTargetInput) => Promise<import('./types').AliasView>
           ReorderTargets: (input: import('./types').AliasTargetReorderInput) => Promise<import('./types').AliasView>
+          ResetTargetOrder: (input: import('./types').AliasLockInput) => Promise<import('./types').AliasView>
           RewriteRules: () => Promise<import('./types').RequestRewriteRuleView[]>
           SaveRewriteRule: (input: import('./types').RequestRewriteRuleInput) => Promise<import('./types').RequestRewriteRuleView>
           SetRewriteRuleState: (input: import('./types').RequestRewriteRuleStateInput) => Promise<import('./types').RequestRewriteRuleView>

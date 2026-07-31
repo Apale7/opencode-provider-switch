@@ -3470,8 +3470,19 @@ func TestHandleRequest_AutoAliasDisabled(t *testing.T) {
 	var hitCount atomic.Int32
 	autoOnly := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hitCount.Add(1)
-		t.Fatal("auto alias must be ignored when AutoAliasEnabled=false")
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-auto-only" {
+			t.Errorf("authorization = %q, want Bearer sk-auto-only", got)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode upstream payload: %v", err)
+		}
+		if got := payload["model"]; got != "should-not-use" {
+			t.Errorf("upstream model = %v, want should-not-use", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"resp_auto","object":"response","output":[]}`))
 	}))
 	defer autoOnly.Close()
 
@@ -3510,14 +3521,15 @@ func TestHandleRequest_AutoAliasDisabled(t *testing.T) {
 
 	srv.handleResponses(rr, req)
 
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusNotFound, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	if hitCount.Load() != 0 {
-		t.Fatalf("upstream hits = %d, want 0", hitCount.Load())
+	if hitCount.Load() != 1 {
+		t.Fatalf("upstream hits = %d, want 1", hitCount.Load())
 	}
-	assertOpenAIError(t, rr.Body.Bytes(), "model_not_found", "invalid_request_error", `alias "disabled-auto-model" not found`)
-	assertLocalTrace(t, srv, "disabled-auto-model", http.StatusNotFound, "alias_missing", `alias "disabled-auto-model" not found`)
+	if got := rr.Header().Get("X-OCSWITCH-Provider"); got != "p-auto-only" {
+		t.Fatalf("X-OCSWITCH-Provider = %q, want p-auto-only", got)
+	}
 }
 
 func TestHandleRequest_NoDirectFallbackFromGroupCatalog(t *testing.T) {

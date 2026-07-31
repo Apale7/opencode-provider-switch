@@ -36,6 +36,7 @@ type Service interface {
 	SetAliasTargetDisabled(context.Context, appcore.AliasTargetInput) (appcore.AliasView, error)
 	UnbindAliasTarget(context.Context, appcore.AliasTargetInput) (appcore.AliasView, error)
 	ReorderAliasTargets(context.Context, appcore.AliasTargetReorderInput) (appcore.AliasView, error)
+	ResetAliasTargetOrder(context.Context, appcore.AliasLockInput) (appcore.AliasView, error)
 	UpgradeAutoAlias(context.Context, appcore.AliasLockInput) (appcore.AliasView, error)
 	ListRequestRewriteRules(context.Context) ([]appcore.RequestRewriteRuleView, error)
 	UpsertRequestRewriteRule(context.Context, appcore.RequestRewriteRuleInput) (appcore.RequestRewriteRuleView, error)
@@ -444,6 +445,19 @@ func NewHandler(opts Options) (http.Handler, error) {
 			return
 		}
 		data, err := b.UpgradeAutoAlias(r.Context(), in)
+		writeResult(w, data, err)
+	})
+
+	api.HandleFunc("/api/aliases/reset-target-order", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var in appcore.AliasLockInput
+		if !decodeJSONBody(w, r, &in) {
+			return
+		}
+		data, err := b.ResetAliasTargetOrder(r.Context(), in)
 		writeResult(w, data, err)
 	})
 

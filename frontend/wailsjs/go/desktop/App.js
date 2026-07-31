@@ -146,6 +146,10 @@ export function ReorderTargets(arg1) {
   return window['go']['desktop']['App']['ReorderTargets'](arg1);
 }
 
+export function ResetTargetOrder(arg1) {
+  return window['go']['desktop']['App']['ResetTargetOrder'](arg1);
+}
+
 export function RequestTraces(arg1) {
   return window['go']['desktop']['App']['RequestTraces'](arg1);
 }
