@@ -239,8 +239,10 @@ func providerModelHealthViews(traces []proxy.RequestTrace, providerFilter map[st
 		items = append(items, accum.view)
 	}
 	totalTokens := int64(0)
+	providerTokens := map[string]int64{}
 	for _, item := range items {
 		totalTokens += item.TotalTokens
+		providerTokens[item.Provider] += item.TotalTokens
 	}
 	for index := range items {
 		if totalTokens > 0 {
@@ -248,6 +250,9 @@ func providerModelHealthViews(traces []proxy.RequestTrace, providerFilter map[st
 		}
 	}
 	sort.Slice(items, func(i, j int) bool {
+		if providerTokens[items[i].Provider] != providerTokens[items[j].Provider] {
+			return providerTokens[items[i].Provider] > providerTokens[items[j].Provider]
+		}
 		if items[i].Provider != items[j].Provider {
 			return items[i].Provider < items[j].Provider
 		}

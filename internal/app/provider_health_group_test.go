@@ -165,6 +165,51 @@ func TestQueryProviderHealthAggregatesModelHealthByProviderGroupModel(t *testing
 	assertFloatNear(t, standard.SuccessRate, 1)
 }
 
+func TestProviderModelHealthViewsSortsByProviderTotalTokensThenModelShare(t *testing.T) {
+	t.Parallel()
+
+	traces := []proxy.RequestTrace{
+		modelHealthTrace(1, "alpha", "default", "small", 100),
+		modelHealthTrace(2, "zeta", "default", "small", 200),
+		modelHealthTrace(3, "alpha", "default", "large", 700),
+		modelHealthTrace(4, "zeta", "default", "large", 1000),
+	}
+
+	items := providerModelHealthViews(traces, nil)
+	got := make([]string, 0, len(items))
+	for _, item := range items {
+		got = append(got, item.Provider+"/"+item.Group+"/"+item.Model)
+	}
+	want := []string{
+		"zeta/default/large",
+		"zeta/default/small",
+		"alpha/default/large",
+		"alpha/default/small",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("model health order = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("model health order = %v, want %v", got, want)
+		}
+	}
+	assertFloatNear(t, items[0].TokenShare, 0.5)
+	assertFloatNear(t, items[1].TokenShare, 0.1)
+}
+
+func modelHealthTrace(id uint64, provider, group, model string, totalTokens int64) proxy.RequestTrace {
+	return proxy.RequestTrace{
+		ID:            id,
+		StartedAt:     time.Now().UTC().Add(time.Duration(id) * time.Second),
+		Success:       true,
+		FinalProvider: provider,
+		FinalGroup:    group,
+		FinalModel:    model,
+		InputTokens:   totalTokens,
+	}
+}
+
 func modelHealthTestProvider(id string, groups []config.ProviderGroup) config.Provider {
 	return config.Provider{ID: id, Name: "Vendor", BaseURL: "https://vendor.example/v1", Groups: groups}
 }
