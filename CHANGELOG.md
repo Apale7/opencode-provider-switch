@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.6.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.5.0...v1.6.0) (2026-07-31)
+
+
+### Features
+
+* add automatic model alias routing ([48e35e4](https://github.com/Apale7/opencode-provider-switch/commit/48e35e4092fd9d8540d5279397c4111e89eb45ea))
+* add model health view ([2a29c4b](https://github.com/Apale7/opencode-provider-switch/commit/2a29c4b17f17e9012496d3c8f337007c84ea49f3))
+* **config:** 完善引用治理与运行时运维 ([260075c](https://github.com/Apale7/opencode-provider-switch/commit/260075ccdeb2e44f5ba0615cb26c8cf6fdbeb5fa))
+* **config:** 建立 ConfigStore 与引用诊断基础 ([c7457f7](https://github.com/Apale7/opencode-provider-switch/commit/c7457f701df04d65e6906e814684e4ddbf036d85))
+* improve model health metrics UI ([02f5cbe](https://github.com/Apale7/opencode-provider-switch/commit/02f5cbe7c83eb5470c1fff75675e307549c9e893))
+* **proxy:** configure token rate latency ([dd88d91](https://github.com/Apale7/opencode-provider-switch/commit/dd88d91591987c77bf46ac979523268f9e4d4611))
+* support editable auto aliases ([2c86be6](https://github.com/Apale7/opencode-provider-switch/commit/2c86be6dee26456d3ae6416a5add3e8adc7b7780))
+* **sync:** 自动探测模型能力并展示字段级差异 ([972dd02](https://github.com/Apale7/opencode-provider-switch/commit/972dd025aad1a5e95c45ef15848c17f36aa5156f))
+* **ui:** 优化桌面控制台体验 ([c673d6a](https://github.com/Apale7/opencode-provider-switch/commit/c673d6afcd3fee632edd487e8bbf96f04dffa9e2))
+* 实现 Provider Groups 完整功能 ([30ee676](https://github.com/Apale7/opencode-provider-switch/commit/30ee6767d09dae5a2f2a12f922f6a409d1c5f3fe))
+
+
+### Bug Fixes
+
+* **frontend:** 收敛 Provider 展示文案 ([92508e2](https://github.com/Apale7/opencode-provider-switch/commit/92508e280c3a612241dd8c1d91682d0327d26036))
+* **proxy:** harden SSE stream handling ([802627d](https://github.com/Apale7/opencode-provider-switch/commit/802627df0932e3a5d476a43e44dccf6b8220a06b))
+* **proxy:** track first token latency ([3cd355a](https://github.com/Apale7/opencode-provider-switch/commit/3cd355ac65bc910dda5304aac9f4bbc6a41d8cfa))
+* **proxy:** 处理中断请求和熔断状态 ([83b8c31](https://github.com/Apale7/opencode-provider-switch/commit/83b8c3100929535f270e80ae59a81038ebddf0ce))
+* refine model health typography ([8d093be](https://github.com/Apale7/opencode-provider-switch/commit/8d093be70c52cb6a6d6e760964f0b9a17b273fb4))
+* sort model health by token share ([0675190](https://github.com/Apale7/opencode-provider-switch/commit/06751901a1d2ea571cb489ff5c95fc410cebb100))
+* 收敛 Provider Group 迁移与密钥路由 ([6d73935](https://github.com/Apale7/opencode-provider-switch/commit/6d739358fe5e75ad262a46792b25bec46dbeb97f))
+
 ## [1.5.0](https://github.com/Apale7/opencode-provider-switch/compare/v1.4.1...v1.5.0) (2026-05-19)
 
 
