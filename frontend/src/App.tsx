@@ -581,17 +581,40 @@ function selectedTraceModel(providerId: string, providers: ProviderView[], group
 }
 
 function providerDisplayLabel(providerId: string, providers: ProviderView[]): string {
-  const provider = providers.find((item) => item.id === providerId)
-  return provider?.name ? `${providerId} (${provider.name})` : providerId
+  const id = providerId.trim()
+  if (!id) {
+    return ''
+  }
+  const provider = providers.find((item) => item.id === id)
+  return provider?.name?.trim() || id
 }
 
-function aliasTargetDisplay(target: AliasTargetView, autoAlias: boolean): { label: string; title: string } {
+function providerDisplayTitle(providerId: string | undefined, providers: ProviderView[]): string | undefined {
+  const id = (providerId || '').trim()
+  if (!id) {
+    return undefined
+  }
+  const label = providerDisplayLabel(id, providers)
+  return label && label !== id ? `${label} (${id})` : id
+}
+
+function providerModelDisplay(providerId: string | undefined, model: string | undefined, providers: ProviderView[]): string {
+  const provider = providerDisplayLabel(providerId || '', providers)
+  const modelName = (model || '').trim()
+  if (provider && modelName) {
+    return `${provider}/${modelName}`
+  }
+  return provider || modelName || '-'
+}
+
+function aliasTargetDisplay(target: AliasTargetView, autoAlias: boolean, providers: ProviderView[]): { label: string; title: string } {
   const group = target.group || 'default'
   const title = `${target.provider}/${group}/${target.model}`
+  const provider = providerDisplayLabel(target.provider, providers)
   if (autoAlias) {
-    return { label: target.provider, title }
+    return { label: provider, title }
   }
-  return { label: `${target.provider}/${target.model}`, title }
+  return { label: providerModelDisplay(target.provider, target.model, providers), title }
 }
 
 function localDateTimeInputValue(value: string): string {
@@ -1719,7 +1742,7 @@ function withWarnings(base: string, warnings?: string[]): string {
 }
 
 function providerSaveStatus(result: ProviderSaveResult): string {
-  return withWarnings(i18n.t('providers.statusSaved', { id: result.provider.id }), result.warnings)
+  return withWarnings(i18n.t('providers.statusSaved', { id: providerDisplayLabel(result.provider.id, [result.provider]) }), result.warnings)
 }
 
 function providerImportStatus(result: ProviderImportResult): string {
@@ -2385,6 +2408,7 @@ function TraceStringMultiSelectFilter({
 	emptyLabel,
 	values,
 	selectedValues,
+	formatValue = (value) => value,
 	onToggle,
 	onClear,
 }: {
@@ -2395,6 +2419,7 @@ function TraceStringMultiSelectFilter({
 	emptyLabel: string
 	values: string[]
 	selectedValues: string[]
+	formatValue?: (value: string) => ReactNode
 	onToggle: (value: string, selected: boolean) => void
 	onClear: () => void
 }) {
@@ -2421,7 +2446,7 @@ function TraceStringMultiSelectFilter({
 									checked={selectedValues.includes(value)}
 									onChange={(event) => onToggle(value, event.target.checked)}
 								/>
-								<span>{value}</span>
+								<span>{formatValue(value)}</span>
 							</label>
 						)) : <span className="subtle small-text">{emptyLabel}</span>}
 					</div>
@@ -2506,9 +2531,12 @@ function TraceStatsStrip({ stats }: { stats: TraceStats }) {
 	)
 }
 
-function tracePrimaryText(trace: RequestTrace): string {
+function tracePrimaryText(trace: RequestTrace, providers: ProviderView[] = []): string {
   if (trace.finalProvider && trace.finalModel) {
-    return `${trace.finalProvider}/${trace.finalModel}`
+    return providerModelDisplay(trace.finalProvider, trace.finalModel, providers)
+  }
+  if (trace.finalProvider) {
+    return providerDisplayLabel(trace.finalProvider, providers)
   }
   return trace.error || i18n.t('messages.noData')
 }
@@ -2583,11 +2611,11 @@ function providerMatches(provider: ProviderView, query: string, filter: FilterSt
   return haystack.includes(query)
 }
 
-function aliasMatches(alias: AliasView, query: string): boolean {
+function aliasMatches(alias: AliasView, query: string, providers: ProviderView[] = []): boolean {
   if (!query) {
     return true
   }
-  const targets = alias.targets.map((target) => `${target.provider} ${target.model}`).join(' ')
+  const targets = alias.targets.map((target) => `${target.provider} ${providerDisplayLabel(target.provider, providers)} ${target.model}`).join(' ')
   const haystack = [alias.alias, alias.displayName || '', targets].join(' ').toLowerCase()
   return haystack.includes(query)
 }
@@ -2928,7 +2956,7 @@ export default function App() {
 	const aliasSearch = aliasQuery.trim().toLowerCase()
 	const orderedProviders = sortProvidersByPriority(providers, providerPriorityOrder)
 	const filteredProviders = orderedProviders.filter((provider) => providerMatches(provider, providerSearch, providerFilter))
-	const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch))
+	const filteredAliases = aliases.filter((alias) => aliasMatches(alias, aliasSearch, providers))
 		const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null
 		const selectedProviderGroup = selectedProvider?.groups?.find((group) => group.id === selectedProviderGroupId) || null
 	const selectedAlias = aliases.find((alias) => alias.alias === selectedAliasId) || null
@@ -3824,7 +3852,8 @@ export default function App() {
 
   async function onTargetRepairAction(alias: AliasView, target: AliasTargetView, action: string) {
     const targetGroup = (target.group || '').trim() || 'default'
-    setAliasStatus(i18n.t('aliases.statusRepairing', { action, provider: target.provider, model: target.model }))
+    const providerLabel = providerDisplayLabel(target.provider, providers)
+    setAliasStatus(i18n.t('aliases.statusRepairing', { action, provider: providerLabel, model: target.model }))
     try {
       switch (action) {
         case 'enable_target':
@@ -3868,13 +3897,13 @@ export default function App() {
             disabled: !target.enabled,
           })
           setActiveModal('alias-target')
-          setAliasStatus(i18n.t('aliases.statusRebindHint', { provider: target.provider, model: target.model }))
+          setAliasStatus(i18n.t('aliases.statusRebindHint', { provider: providerLabel, model: target.model }))
           return
         default:
           setAliasStatus(i18n.t('aliases.repairUnsupported', { action }))
           return
       }
-      setAliasStatus(i18n.t('aliases.statusRepaired', { action, provider: target.provider, model: target.model }))
+      setAliasStatus(i18n.t('aliases.statusRepaired', { action, provider: providerLabel, model: target.model }))
       await refreshAll()
     } catch (error) {
       setAliasStatus(formatError(error))
@@ -4344,7 +4373,7 @@ export default function App() {
 			setProviderForm(providerFormFromView(result.provider))
 			setProviderDetailMode('edit')
 		}
-		setProviderStatus(withWarnings(i18n.t('providers.statusRefreshedModels', { id: result.provider.id }), result.warnings))
+		setProviderStatus(withWarnings(i18n.t('providers.statusRefreshedModels', { id: providerDisplayLabel(result.provider.id, [result.provider, ...providers]) }), result.warnings))
 		await refreshAll()
 	} catch (error) {
 		setProviderStatus(formatError(error))
@@ -4489,17 +4518,18 @@ export default function App() {
 
   function onEditProvider(provider: ProviderView) {
     selectProviderDetail(provider)
-    setProviderStatus(i18n.t('providers.statusEditing', { id: provider.id }))
+    setProviderStatus(i18n.t('providers.statusEditing', { id: providerDisplayLabel(provider.id, providers) }))
   }
 
   async function onToggleProvider(provider: ProviderView) {
+    const providerLabel = providerDisplayLabel(provider.id, providers)
     setProviderStatus(
-      i18n.t(provider.disabled ? 'providers.statusEnabling' : 'providers.statusDisabling', { id: provider.id }),
+      i18n.t(provider.disabled ? 'providers.statusEnabling' : 'providers.statusDisabling', { id: providerLabel }),
     )
     try {
       await setProviderState({ id: provider.id, disabled: !provider.disabled })
       setProviderStatus(
-        i18n.t(provider.disabled ? 'providers.statusEnabled' : 'providers.statusDisabled', { id: provider.id }),
+        i18n.t(provider.disabled ? 'providers.statusEnabled' : 'providers.statusDisabled', { id: providerLabel }),
       )
       await refreshAll()
     } catch (error) {
@@ -4561,7 +4591,7 @@ export default function App() {
       await bindAliasTarget(input)
       setTargetForm((current) => ({ ...emptyTargetForm, alias: current.alias }))
       closeModal()
-      setAliasStatus(i18n.t('aliases.statusBound', input))
+      setAliasStatus(i18n.t('aliases.statusBound', { ...input, provider: providerDisplayLabel(input.provider, providers) }))
       await refreshAll()
     } catch (error) {
       setAliasStatus(formatError(error))
@@ -4719,10 +4749,11 @@ export default function App() {
 	}
 
   async function onUnbindTarget(alias: string, provider: string, group: string, model: string) {
-    setAliasStatus(i18n.t('aliases.statusRemoving', { alias, provider, model }))
+    const providerLabel = providerDisplayLabel(provider, providers)
+    setAliasStatus(i18n.t('aliases.statusRemoving', { alias, provider: providerLabel, model }))
     try {
       await unbindAliasTarget({ alias, provider, group, model, disabled: false })
-      setAliasStatus(i18n.t('aliases.statusRemoved', { alias, provider, model }))
+      setAliasStatus(i18n.t('aliases.statusRemoved', { alias, provider: providerLabel, model }))
       await refreshAll()
     } catch (error) {
       setAliasStatus(formatError(error))
@@ -4730,13 +4761,14 @@ export default function App() {
   }
 
   async function onToggleTarget(alias: string, provider: string, group: string, model: string, enabled: boolean) {
+    const providerLabel = providerDisplayLabel(provider, providers)
     setAliasStatus(
-      i18n.t(enabled ? 'aliases.statusDisabling' : 'aliases.statusEnabling', { alias, provider, model }),
+      i18n.t(enabled ? 'aliases.statusDisabling' : 'aliases.statusEnabling', { alias, provider: providerLabel, model }),
     )
     try {
       await setAliasTargetState({ alias, provider, group, model, disabled: enabled })
       setAliasStatus(
-        i18n.t(enabled ? 'aliases.statusDisabled' : 'aliases.statusEnabled', { alias, provider, model }),
+        i18n.t(enabled ? 'aliases.statusDisabled' : 'aliases.statusEnabled', { alias, provider: providerLabel, model }),
       )
       await refreshAll()
     } catch (error) {
@@ -5424,8 +5456,8 @@ export default function App() {
                           </div>
                           <code className="resource-card-code">{alias.alias}</code>
                         </div>
-                        <p className="resource-card-subtitle" title={primaryTarget ? aliasTargetDisplay(primaryTarget, isAuto).title : undefined}>
-                          {primaryTarget ? aliasTargetDisplay(primaryTarget, isAuto).label : t('aliases.noTargets')}
+                        <p className="resource-card-subtitle" title={primaryTarget ? aliasTargetDisplay(primaryTarget, isAuto, providers).title : undefined}>
+                          {primaryTarget ? aliasTargetDisplay(primaryTarget, isAuto, providers).label : t('aliases.noTargets')}
                         </p>
                       </div>
                       <div className="resource-card-side">
@@ -5449,8 +5481,8 @@ export default function App() {
                       </div>
                       <div className="resource-meta-item">
                         <span className="resource-meta-label">{t('aliases.cardPrimary')}</span>
-                        <span className="resource-meta-value" title={primaryTarget ? aliasTargetDisplay(primaryTarget, isAuto).title : undefined}>
-                          {primaryTarget ? aliasTargetDisplay(primaryTarget, isAuto).label : t('aliases.noTargets')}
+                        <span className="resource-meta-value" title={primaryTarget ? aliasTargetDisplay(primaryTarget, isAuto, providers).title : undefined}>
+                          {primaryTarget ? aliasTargetDisplay(primaryTarget, isAuto, providers).label : t('aliases.noTargets')}
                         </span>
                       </div>
                     </div>
@@ -5716,7 +5748,9 @@ export default function App() {
 												{trace.stream ? <span className="trace-mini-tag">{t('log.stream')}</span> : null}
 												{trace.failover ? <span className="trace-mini-tag">{t('log.failover')}</span> : null}
 											</div>
-											<span className="trace-table-muted">{trace.finalProvider || tracePrimaryText(trace)}</span>
+											<span className="trace-table-muted" title={trace.finalProvider ? providerDisplayTitle(trace.finalProvider, providers) : undefined}>
+												{trace.finalProvider ? providerDisplayLabel(trace.finalProvider, providers) : tracePrimaryText(trace, providers)}
+											</span>
 										</div>
 									</div>
 									<div className="trace-table-cell" role="cell" data-label={t('log.tablePerformance')}>
@@ -5881,14 +5915,16 @@ export default function App() {
 									<div className="trace-table-cell" role="cell" data-label={t('network.tableTarget')}>
 										<div className="trace-model-cell">
 											<div className="trace-model-line">
-												<strong className="trace-model-name">{trace.finalProvider || trace.alias || `#${trace.id}`}</strong>
+												<strong className="trace-model-name" title={trace.finalProvider ? providerDisplayTitle(trace.finalProvider, providers) : undefined}>
+													{trace.finalProvider ? providerDisplayLabel(trace.finalProvider, providers) : trace.alias || `#${trace.id}`}
+												</strong>
 												<span className={protocolBadgeClass(trace.protocol)}>{protocolLabel(trace.protocol)}</span>
 											</div>
 											<span className="trace-table-muted">{trace.rawModel || '-'}</span>
 										</div>
 									</div>
 									<div className="trace-table-cell" role="cell" data-label={t('network.tableRequest')}>
-										<span className="trace-table-ellipsis">{trace.finalUrl || tracePrimaryText(trace)}</span>
+										<span className="trace-table-ellipsis">{trace.finalUrl || tracePrimaryText(trace, providers)}</span>
 									</div>
 									<div className="trace-table-cell" role="cell" data-label={t('network.tablePerformance')}>
 										<div className="trace-table-metric">
@@ -5978,6 +6014,7 @@ export default function App() {
                   emptyLabel={t('health.providerEmpty')}
                   values={providerHealthProviderOptions}
                   selectedValues={providerHealthQuery.providers}
+                  formatValue={(value) => providerDisplayLabel(value, providers)}
                   onToggle={setProviderHealthProviderFilter}
                   onClear={clearProviderHealthProviderFilter}
                 />
@@ -6057,13 +6094,15 @@ export default function App() {
                     <div className="trace-table-body">
                       {visibleHealthProviders.map((provider) => {
                         const protocol = providerHealthProtocol(provider)
+                        const providerLabel = provider.name?.trim() || providerDisplayLabel(provider.provider, providers)
+                        const providerTitle = provider.name?.trim() ? provider.provider : providerDisplayTitle(provider.provider, providers)
                         return (
                           <article className="trace-table-row health-table-row" role="row" key={provider.provider}>
                             <div className="trace-table-cell" role="cell" data-label={t('health.tableProvider')}>
                               <div className="trace-model-cell">
                                 <div className="trace-model-line health-provider-line">
-                                  <strong className="trace-model-name">{provider.name || provider.provider}</strong>
-                                  <span className="trace-table-muted trace-mono health-provider-id">{provider.provider}</span>
+                                  <strong className="trace-model-name" title={providerTitle}>{providerLabel}</strong>
+                                  {provider.group ? <span className="trace-table-muted trace-mono health-provider-id">{provider.group}</span> : null}
                                   {protocol ? <span className={protocolBadgeClass(protocol)}>{protocolLabel(protocol)}</span> : null}
                                   {provider.disabled ? <span className="badge idle">{t('status.disabled')}</span> : null}
                                 </div>
@@ -7049,7 +7088,7 @@ export default function App() {
                   />
                 </label>
                     <label>
-                      <span>{t('aliases.providerId')}</span>
+                      <span>{t('aliases.provider')}</span>
                   <div className="inline-pills bind-modal-pills">
                     <span className={protocolBadgeClass(targetProtocol)}>{protocolLabel(targetProtocol)}</span>
                     <span className="pill">{t('aliases.bindableProviders', { count: bindableProviders.length })}</span>
@@ -7061,7 +7100,7 @@ export default function App() {
                     <option value="">{t('aliases.placeholderProviderSelect')}</option>
                     {bindableProviders.map((provider) => (
                       <option key={provider.id} value={provider.id}>
-                        {provider.id} · {protocolLabel(targetProtocol)}
+                        {providerDisplayLabel(provider.id, providers)} · {protocolLabel(targetProtocol)}
                       </option>
                     ))}
                   </select>
@@ -7472,7 +7511,7 @@ export default function App() {
                       </article>
                     ) : null}
                     {selectedAlias?.targets.map((target, index) => {
-                      const targetDisplay = aliasTargetDisplay(target, selectedAliasAuto)
+                      const targetDisplay = aliasTargetDisplay(target, selectedAliasAuto, providers)
                       return (
                       <div
                         className={`target-card ${draggingAliasTargetIndex === index ? 'dragging' : ''}`}
@@ -7487,11 +7526,7 @@ export default function App() {
                           <span className="target-card-index">#{index + 1}</span>
                           <div className="target-card-copy">
                             <code title={targetDisplay.title}>{targetDisplay.label}</code>
-                            <span className="subtle target-card-subtitle">
-                              {aliasTargetIsAutoGenerated(target)
-                                ? t('aliases.targetAutoAdded', { provider: target.provider })
-                                : selectedAlias.alias}
-                            </span>
+                            {!aliasTargetIsAutoGenerated(target) ? <span className="subtle target-card-subtitle">{selectedAlias.alias}</span> : null}
                             {target.reason || target.code ? (
                               <p className="subtle target-reason">
                                 {target.code
@@ -7548,25 +7583,23 @@ export default function App() {
                               {t(`diagnostics.action.${action}`, { defaultValue: action })}
                             </button>
                           ))}
-                          {selectedAliasAuto && aliasTargetIsAutoGenerated(target) ? (
-                            <span className="subtle">{t('aliases.systemTargetDisableOnly')}</span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="danger ghost-danger"
-                              onClick={() =>
-                                setConfirmIntent({
-                                  kind: 'unbind-target',
-                                  alias: selectedAlias.alias,
-                                  provider: target.provider,
-								  group: target.group || 'default',
-                                  model: target.model,
-                                })
-                              }
-                            >
-                              {t('actions.unbind')}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className="danger ghost-danger"
+                            disabled={selectedAliasAuto && aliasTargetIsAutoGenerated(target)}
+                            title={selectedAliasAuto && aliasTargetIsAutoGenerated(target) ? t('aliases.systemTargetDisableOnly') : undefined}
+                            onClick={() =>
+                              setConfirmIntent({
+                                kind: 'unbind-target',
+                                alias: selectedAlias.alias,
+                                provider: target.provider,
+                                group: target.group || 'default',
+                                model: target.model,
+                              })
+                            }
+                          >
+                            {t('actions.unbind')}
+                          </button>
                         </div>
                       </div>
                       )
@@ -7720,7 +7753,7 @@ export default function App() {
                   </div>
                   <div>
                     <span className="meta-label">{t('log.finalRoute')}</span>
-                    <strong>{tracePrimaryText(selectedLogTrace)}</strong>
+                    <strong>{tracePrimaryText(selectedLogTrace, providers)}</strong>
                   </div>
                   <div>
                     <span className="meta-label">{t('common.protocol')}</span>
@@ -7841,7 +7874,7 @@ export default function App() {
                         <div className="item-grid">
                           <div>
                             <span className="meta-label">{t('log.provider')}</span>
-                            <span>{attempt.provider || '-'}</span>
+                            <span title={providerDisplayTitle(attempt.provider, providers)}>{providerDisplayLabel(attempt.provider || '', providers) || '-'}</span>
                           </div>
                           <div>
                             <span className="meta-label">{t('log.model')}</span>
@@ -7934,7 +7967,7 @@ export default function App() {
                       <summary>
                         {t('network.attemptTitle', {
                           attempt: attempt.attempt,
-                          provider: attempt.provider || '-',
+                          provider: providerDisplayLabel(attempt.provider || '', providers) || '-',
                           model: attempt.model || '-',
                         })}
                       </summary>

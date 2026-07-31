@@ -379,6 +379,7 @@
     "alias": "别名",
     "displayName": "显示名称",
     "aliasForBinding": "用于绑定的别名",
+    "provider": "提供商",
     "providerId": "提供商 id",
     "model": "模型",
     "createDisabled": "创建或保持为禁用",

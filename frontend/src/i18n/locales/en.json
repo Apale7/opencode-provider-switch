@@ -379,6 +379,7 @@
     "alias": "Alias",
     "displayName": "Display name",
     "aliasForBinding": "Alias for binding",
+    "provider": "Provider",
     "providerId": "Provider id",
     "model": "Model",
     "createDisabled": "Create or keep disabled",
