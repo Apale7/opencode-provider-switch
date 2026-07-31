@@ -4,7 +4,7 @@
 
 Under the hood it is a local compatible-protocol proxy, so it is not limited to OpenCode. Any client that can manually configure an OpenAI / Anthropic compatible base URL, API key, and model name can talk to the `ocswitch` proxy directly. The difference is that non-OpenCode clients are not configured automatically; you must enter the proxy URL, proxy API key, and alias model name yourself.
 
-Supported protocols: OpenAI Responses, Anthropic Messages, and OpenAI-compatible Chat Completions. Streaming, request logs, network traces, upstream API-key rotation, and configurable routing strategies are supported. The default routing strategy is `circuit-breaker`.
+Supported protocols: OpenAI Responses, Anthropic Messages, and OpenAI-compatible Chat Completions. Streaming, request logs, network traces, upstream API-key rotation, and configurable routing strategies are supported. `ocswitch` also supports Provider Groups: one Provider can contain multiple business groups, and each group owns its protocol, model catalog, upstream API keys, and enabled state. Legacy single-layer provider configs are migrated automatically into the `default` group. The default routing strategy is `circuit-breaker`.
 
 ## Compatibility: OpenCode and Other Clients
 
@@ -23,9 +23,11 @@ Automatic sync is OpenCode-only. For non-OpenCode clients, treat `ocswitch` as a
 
 | Mode | Entry point | Best for |
 | --- | --- | --- |
-| CLI only | `ocswitch provider` / `ocswitch alias` / `ocswitch opencode sync` / `ocswitch serve` | No UI, scriptable setup |
+| TUI / CLI only | Bare `ocswitch` interactive TUI, or `ocswitch provider` / `ocswitch alias` / `ocswitch opencode sync` / `ocswitch serve` | Terminal-first interactive management, or fully command/script-driven setup |
 | Server web admin | `ocswitch server` | Long-running host managed from a browser |
 | Desktop app | `ocswitch-desktop.exe` | Windows GUI, tray, notifications, launch-at-login |
+
+Running bare `ocswitch` in an interactive terminal opens the TUI. In scripts, pipes, or other non-interactive environments, the bare command prints short help instead of entering a full-screen UI, so automation does not hang.
 
 ## Install
 
@@ -43,18 +45,18 @@ go run ./cmd/ocswitch --help
 
 Release assets also include a Linux amd64 server archive: `ocswitch-server-linux-amd64.zip`. The `ocswitch-server` binary is the same CLI entrypoint; run `./ocswitch-server server` to start the server web admin.
 
-## Mode 1: CLI Only
+## Mode 1: TUI / CLI Only
 
-CLI-only mode is for users who prefer commands, scripts, or headless environments. It opens no web UI and provides no desktop tray. You manage providers, aliases, and optional OpenCode config with commands, then run `ocswitch serve` to start the local proxy. Non-OpenCode clients can skip `opencode sync` and connect to the proxy manually.
+TUI / CLI-only mode is for users who prefer terminal interaction, scripts, or headless environments. In an interactive terminal, run bare `ocswitch` to open the TUI; you can also use explicit CLI subcommands. It opens no web UI and provides no desktop tray. You manage providers, groups, aliases, and optional OpenCode config with the TUI or commands, then run `ocswitch serve` to start the local proxy. Non-OpenCode clients can skip `opencode sync` and connect to the proxy manually.
 
-Using an agent for this mode is recommended. The CLI flow has several steps and it is easy to miss `doctor`, `opencode sync`, or default-model switching. Give the agent your provider list, target aliases, and OpenCode config target; ask it to inspect `ocswitch --help`, generate commands, run dry-run first, then execute. Do not paste real API keys into public chats; local agents can use environment variables, private files, or interactive input for secrets.
+Using an agent for this mode is recommended. The CLI flow has several steps and it is easy to miss `doctor`, `opencode sync`, or default-model switching. Give the agent your provider/group list, target aliases, and OpenCode config target; ask it to inspect `ocswitch --help`, generate commands, run dry-run first, then execute. Do not paste real API keys into public chats; local agents can use environment variables, private files, or interactive input for secrets.
 
 Example agent prompt:
 
 ```text
-Help me configure ocswitch in CLI-only mode.
-Providers: id/baseURL/protocol/model list below; read API keys from env vars.
-Alias: gpt-5.4 should try provider-a/model-a, then provider-b/model-b.
+Help me configure ocswitch in TUI / CLI-only mode.
+Providers/Groups: provider id/baseURL plus group id/protocol/model list below; read API keys from env vars.
+Alias: gpt-5.4 should try provider-a/default/model-a, then provider-b/premium/model-b.
 Run dry-run first, sync to this OpenCode config file, run doctor, then tell me which model name to select.
 ```
 
@@ -261,6 +263,8 @@ The desktop app is for managing providers, aliases, sync, logs, and desktop pref
 Current desktop capabilities:
 
 - Sidebar tabs: `Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Health` / `Sync` / `Settings`
+- Provider Groups management: maintain multiple groups under one Provider, with group-scoped protocols, model catalogs, and multiple upstream API keys
+- Health page: aggregate provider / group / model health metrics such as success rate, failure categories, cache hit rate, token share, and output speed
 - UI language preference: `en-US` / `zh-CN` / `system`
 - Theme preference: `light` / `dark` / `system`
 - `Settings` can edit proxy timeouts, routing strategy, and strategy-specific parameters
@@ -318,9 +322,11 @@ ocswitch provider add --id <id> --base-url <url-with-/v1> --clear-headers
 ocswitch provider add --id <id> --base-url <url-with-/v1> --skip-models
 ```
 
-To clear a saved upstream API key, pass `--api-key ""`. To clear extra headers, pass `--clear-headers`.
+To clear a saved upstream API key, pass `--api-key ""`. These `provider add --api-key` flags are compatibility entry points that target the `default` group; for multi-group setups, prefer the `provider group` commands below. To clear extra headers, pass `--clear-headers`.
 
-The desktop app and server web admin can store multiple upstream API keys for one provider. In the config file, the first key is stored as `api_key` and additional keys are stored in `api_keys`. The proxy rotates the starting key across requests and, before first byte, may continue with another key from the same provider after a retryable failure. This is for upstream quota spreading or temporary single-key failures; it does not change the local downstream `server.api_key` used by clients.
+In the current config shape, Provider stores shared connection settings such as `base_url`, optional `base_urls`, `base_url_strategy`, extra `headers`, provider enabled state, and auto-alias preference. Protocol, model catalog, upstream API keys, and group enabled state live under Provider Groups. Legacy provider-level `protocol` / `api_key` / `api_keys` / `models` / `models_source` fields are migrated into the `default` group when the config is read, preserving old configs.
+
+The desktop app, server web admin, and CLI can store multiple upstream API keys for each Provider Group. In the config file, the first key lives in that group's `api_key`, and additional keys live in `api_keys`. The proxy rotates the starting key across requests and, before first byte, may continue with another key from the same group after a retryable failure. This is for upstream quota spreading or temporary single-key failures; it does not change the local downstream `server.api_key` used by clients.
 
 ```json
 {
@@ -328,8 +334,25 @@ The desktop app and server web admin can store multiple upstream API keys for on
     {
       "id": "provider-a",
       "base_url": "https://provider-a.example/v1",
-      "api_key": "sk-first",
-      "api_keys": ["sk-second", "sk-third"]
+      "base_urls": ["https://provider-a.example/v1", "https://provider-a-backup.example/v1"],
+      "base_url_strategy": "ordered",
+      "groups": [
+        {
+          "id": "default",
+          "name": "Default",
+          "protocol": "openai-responses",
+          "api_key": "sk-default-first",
+          "api_keys": ["sk-default-second"],
+          "models": ["gpt-5.4"]
+        },
+        {
+          "id": "premium",
+          "name": "Premium pool",
+          "protocol": "anthropic-messages",
+          "api_key": "sk-premium",
+          "models": ["claude-sonnet-4"]
+        }
+      ]
     }
   ]
 }
@@ -345,6 +368,40 @@ ocswitch provider remove <id>
 ```
 
 Removing a provider cleans its automatic targets from unlocked automatic aliases and deletes aliases that become empty. Manual aliases and aliases upgraded to manual are not rewritten automatically; if they still reference the removed provider, `ocswitch doctor` reports an error.
+
+### Provider Groups
+
+A Provider Group is a business group under one Provider. Typical uses include splitting one upstream domain or relay service by plan, protocol, model catalog, or API-key pool. Provider-level `base_url` / `base_urls` / `headers` are shared by all groups under that Provider; group-level `protocol` / `api_key` / `api_keys` / `models` affect only that group.
+
+Common group commands:
+
+```bash
+ocswitch provider group list --provider provider-a
+ocswitch provider group create --provider provider-a --id premium --protocol openai-responses --api-key sk-premium
+ocswitch provider group update --provider provider-a --group premium --name "Premium pool" --api-keys sk-a --api-keys sk-b
+ocswitch provider group refresh-models --provider provider-a --group premium
+ocswitch provider group ping --provider provider-a --group premium
+ocswitch provider group delete --provider provider-a --group premium --dry-run
+```
+
+Group identity is explicit: create, update, delete, model refresh, and ping all require concrete `--provider` and `--group` values. `default` is the compatibility group used for migrated legacy configs and compatibility commands; non-default groups are never silently replaced by same-protocol siblings.
+
+Alias targets are now precise `provider/group/model` tuples. The default group still supports the older shorthand:
+
+```bash
+ocswitch alias bind --alias gpt-5.4 --model provider-a/gpt-5.4
+ocswitch alias bind --alias gpt-5.4 --provider provider-a --group premium --model gpt-5.4
+```
+
+Request rewrite rules can also target exact provider/group pairs:
+
+```bash
+ocswitch rewrite add --name premium-tier --alias gpt-5.4 \
+  --provider-group provider-a/premium \
+  --op 'set:$.service_tier="priority"'
+```
+
+When deleting a group or changing a group id, the CLI, TUI, desktop app, and server web admin preview alias / rewrite reference impact first. You can choose to remove targets, delete aliases, rebind targets, keep/disable/delete rewrite rules, or replace rewrite provider-group selectors.
 
 ### Automatic aliases and zero-config routing
 
@@ -365,7 +422,7 @@ The desktop app and server web admin expose these controls:
 - Global “Auto-generate aliases” in Settings: stops automatic generation and skips automatic aliases during routing. Direct provider fallback is still attempted when no manual alias matches.
 - “Upgrade to Manual” on the Aliases page: converts the automatic alias and its current targets into a manual alias. Later model refreshes, priority changes, and automatic provider cleanup no longer rewrite it.
 
-Automatic aliases are created only when `models_source` is `discovered` and the model list is non-empty. `--skip-models`, an upstream without a model catalog, or failed discovery does not create aliases; configure them manually in those cases.
+Automatic aliases are created only when the group's `models_source` is `discovered` and the model list is non-empty. `--skip-models`, an upstream without a model catalog, or failed discovery does not create aliases; configure them manually in those cases.
 
 Configuration example:
 
@@ -376,12 +433,17 @@ Configuration example:
   "providers": [
     {
       "id": "provider-a",
-      "protocol": "openai-responses",
       "base_url": "https://provider-a.example/v1",
-      "api_key": "sk-example",
-      "models": ["gpt-5.4"],
-      "models_source": "discovered",
-      "auto_alias_enabled": true
+      "auto_alias_enabled": true,
+      "groups": [
+        {
+          "id": "default",
+          "protocol": "openai-responses",
+          "api_key": "sk-example",
+          "models": ["gpt-5.4"],
+          "models_source": "discovered"
+        }
+      ]
     }
   ]
 }

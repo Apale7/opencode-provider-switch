@@ -6,7 +6,7 @@ English README: `README_EN.md`
 
 它本质上是一个本地兼容协议代理，所以不只限于 OpenCode。任何能手动配置 OpenAI / Anthropic 兼容 base URL、API key 和模型名的客户端，都可以直接连到 `ocswitch` 代理使用；区别是非 OpenCode 客户端不会自动写入配置，需要你自己在客户端里填代理地址、代理 API key 和 alias 模型名。
 
-当前支持 OpenAI Responses、Anthropic Messages、OpenAI-compatible Chat Completions 协议，支持流式响应、请求日志、网络 trace、上游多 API key 轮换和可配置路由策略。默认路由策略是 `circuit-breaker`。
+当前支持 OpenAI Responses、Anthropic Messages、OpenAI-compatible Chat Completions 协议，支持流式响应、请求日志、网络 trace、上游多 API key 轮换和可配置路由策略。它还支持 Provider Groups：一个 Provider 下可以配置多个业务分组，每个分组独立管理协议、模型目录、上游 API key 和启停状态；旧版单层 provider 配置会自动迁移到 `default` 分组。默认路由策略是 `circuit-breaker`。
 
 ## 适用范围：OpenCode 与其他客户端
 
@@ -25,9 +25,11 @@ English README: `README_EN.md`
 
 | 模式 | 入口 | 适合场景 |
 | --- | --- | --- |
-| 仅使用 CLI | `ocswitch provider` / `ocswitch alias` / `ocswitch opencode sync` / `ocswitch serve` | 不需要 UI，希望全程用命令管理 |
+| TUI / 仅使用 CLI | 裸 `ocswitch` 交互式 TUI，或 `ocswitch provider` / `ocswitch alias` / `ocswitch opencode sync` / `ocswitch serve` | 需要终端交互管理，或希望全程用命令/脚本管理 |
 | 服务器版 Web | `ocswitch server` | 放在长期运行的服务器上，通过浏览器管理 |
 | 桌面应用 | `ocswitch-desktop.exe` | Windows 本机图形化管理、托盘、通知、开机启动 |
+
+在交互式终端直接运行裸 `ocswitch` 会打开 TUI；在脚本、管道或其他非交互式环境中，裸命令只打印简短帮助，避免自动进入全屏界面导致脚本卡住。
 
 ## 安装
 
@@ -45,18 +47,18 @@ go run ./cmd/ocswitch --help
 
 发布版除桌面 GUI 外，也会提供 Linux amd64 服务器版压缩包：`ocswitch-server-linux-amd64.zip`。压缩包内的 `ocswitch-server` 是同一个 CLI 入口，运行 `./ocswitch-server server` 即可启动服务器版 Web 管理后台。
 
-## 模式一：仅使用 CLI
+## 模式一：TUI / 仅使用 CLI
 
-CLI 模式适合喜欢命令行、脚本化配置或在无桌面环境中运行的人。它不会打开 Web UI，也不会提供桌面托盘；你用命令维护 provider、alias 和可选的 OpenCode 配置，然后用 `ocswitch serve` 启动本地代理。非 OpenCode 客户端可跳过 `opencode sync`，直接手动连接代理。
+TUI / CLI 模式适合喜欢终端交互、脚本化配置或在无桌面环境中运行的人。交互式终端可直接运行裸 `ocswitch` 打开 TUI；也可以使用显式 CLI 子命令。它不会打开 Web UI，也不会提供桌面托盘；你用 TUI 或命令维护 provider、group、alias 和可选的 OpenCode 配置，然后用 `ocswitch serve` 启动本地代理。非 OpenCode 客户端可跳过 `opencode sync`，直接手动连接代理。
 
-推荐让 agent 辅助设置。CLI 模式步骤多，容易漏掉 `doctor`、`opencode sync` 或默认模型切换；可以把 provider 清单、目标 alias 和希望同步到哪个 OpenCode 配置文件告诉 agent，让 agent 先查看 `ocswitch --help`，再生成并执行命令。注意不要把真实 API key 发到公共聊天；本机 agent 可用环境变量、私有配置文件或交互输入处理密钥。
+推荐让 agent 辅助设置。CLI 模式步骤多，容易漏掉 `doctor`、`opencode sync` 或默认模型切换；可以把 provider/group 清单、目标 alias 和希望同步到哪个 OpenCode 配置文件告诉 agent，让 agent 先查看 `ocswitch --help`，再生成并执行命令。注意不要把真实 API key 发到公共聊天；本机 agent 可用环境变量、私有配置文件或交互输入处理密钥。
 
 可给 agent 的任务描述示例：
 
 ```text
-帮我配置 ocswitch CLI-only 模式。
-Provider：id/baseURL/protocol/model 列表如下，API key 用环境变量读取。
-Alias：gpt-5.4 先走 provider-a/model-a，再走 provider-b/model-b。
+帮我配置 ocswitch TUI / CLI 模式。
+Provider/Group：provider id/baseURL 与 group id/protocol/model 列表如下，API key 用环境变量读取。
+Alias：gpt-5.4 先走 provider-a/default/model-a，再走 provider-b/premium/model-b。
 请先 dry-run，同步到指定 OpenCode 配置，再运行 doctor，最后告诉我用哪个模型名。
 ```
 
@@ -263,6 +265,8 @@ ocswitch.example.com {
 当前桌面界面提供：
 
 - 左侧导航页签：`Overview` / `Providers` / `Aliases` / `Log` / `Network` / `Health` / `Sync` / `Settings`
+- Provider Groups 管理：在同一个 Provider 下维护多个分组，并在分组级配置协议、模型目录和多枚上游 API key
+- Health 页面：按 provider / group / model 汇总成功率、失败类型、缓存命中率、token share 和输出速率等健康指标
 - 中英文界面切换：`en-US` / `zh-CN` / `system`
 - 主题偏好：`light` / `dark` / `system`
 - 在 `Settings` 中配置代理超时、路由策略和策略参数
@@ -320,9 +324,11 @@ ocswitch provider add --id <id> --base-url <url-with-/v1> --clear-headers
 ocswitch provider add --id <id> --base-url <url-with-/v1> --skip-models
 ```
 
-如果要清空已保存的上游 API key，显式传 `--api-key ""`。如果要清空额外 header，显式传 `--clear-headers`。
+如果要清空已保存的上游 API key，显式传 `--api-key ""`。这些 `provider add --api-key` 相关参数是兼容入口，作用于 `default` group；多分组场景建议使用下面的 `provider group` 命令。如果要清空额外 header，显式传 `--clear-headers`。
 
-桌面应用和服务器版 Web 的 Provider 页面可以保存多枚上游 API key。配置文件里第一枚保存在 `api_key`，更多 key 保存在 `api_keys` 数组；代理会按请求轮换起始 key，并在首字节前遇到可重试失败时继续尝试同一 provider 的其他 key。这个能力用于上游 key 配额分摊或单个 key 临时异常兜底，不会改变下游客户端使用的本地 `server.api_key`。
+新配置里，Provider 只承载共享连接设置，例如 `base_url`、可选的 `base_urls`、`base_url_strategy`、额外 `headers`、Provider 启停状态和自动 alias 偏好。协议、模型目录、上游 API key 和分组启停状态都在 Provider Group 里维护。旧版 provider 级 `protocol` / `api_key` / `api_keys` / `models` / `models_source` 会在读取时迁移为 `default` 分组，以保持旧配置兼容。
+
+桌面应用、服务器版 Web 和 CLI 都可以为每个 Provider Group 保存多枚上游 API key。配置文件里第一枚保存在该 group 的 `api_key`，更多 key 保存在 `api_keys` 数组；代理会按请求轮换起始 key，并在首字节前遇到可重试失败时继续尝试同一 group 的其他 key。这个能力用于上游 key 配额分摊或单个 key 临时异常兜底，不会改变下游客户端使用的本地 `server.api_key`。
 
 ```json
 {
@@ -330,8 +336,25 @@ ocswitch provider add --id <id> --base-url <url-with-/v1> --skip-models
     {
       "id": "provider-a",
       "base_url": "https://provider-a.example/v1",
-      "api_key": "sk-first",
-      "api_keys": ["sk-second", "sk-third"]
+      "base_urls": ["https://provider-a.example/v1", "https://provider-a-backup.example/v1"],
+      "base_url_strategy": "ordered",
+      "groups": [
+        {
+          "id": "default",
+          "name": "Default",
+          "protocol": "openai-responses",
+          "api_key": "sk-default-first",
+          "api_keys": ["sk-default-second"],
+          "models": ["gpt-5.4"]
+        },
+        {
+          "id": "premium",
+          "name": "Premium pool",
+          "protocol": "anthropic-messages",
+          "api_key": "sk-premium",
+          "models": ["claude-sonnet-4"]
+        }
+      ]
     }
   ]
 }
@@ -347,6 +370,40 @@ ocswitch provider remove <id>
 ```
 
 删除 provider 时，未锁定的自动 alias 会清理该 provider 的自动 target，空 alias 会一并删除。手动 alias 和已经升级为手动的 alias 不会自动改写；其中如果仍引用已删除 provider，`ocswitch doctor` 会报错。
+
+### Provider Groups
+
+Provider Group 是 Provider 下的业务分组。典型用法是在同一个上游域名或中转服务下拆出不同套餐、不同协议、不同模型目录或不同 API key 池。Provider 级 `base_url` / `base_urls` / `headers` 会被同一 Provider 下的所有 group 共享；Group 级 `protocol` / `api_key` / `api_keys` / `models` 只影响该 group。
+
+常用 group 命令：
+
+```bash
+ocswitch provider group list --provider provider-a
+ocswitch provider group create --provider provider-a --id premium --protocol openai-responses --api-key sk-premium
+ocswitch provider group update --provider provider-a --group premium --name "Premium pool" --api-keys sk-a --api-keys sk-b
+ocswitch provider group refresh-models --provider provider-a --group premium
+ocswitch provider group ping --provider provider-a --group premium
+ocswitch provider group delete --provider provider-a --group premium --dry-run
+```
+
+分组身份是显式的：新增、更新、删除、刷新模型和 ping 都需要明确的 `--provider` 与 `--group`。`default` 是旧配置迁移和兼容命令使用的默认分组；非默认分组不会被静默替代为同协议 sibling。
+
+alias target 现在是精确的 `provider/group/model` 三元组。默认分组仍兼容旧写法：
+
+```bash
+ocswitch alias bind --alias gpt-5.4 --model provider-a/gpt-5.4
+ocswitch alias bind --alias gpt-5.4 --provider provider-a --group premium --model gpt-5.4
+```
+
+请求改写规则也可以按精确 provider/group 选择目标：
+
+```bash
+ocswitch rewrite add --name premium-tier --alias gpt-5.4 \
+  --provider-group provider-a/premium \
+  --op 'set:$.service_tier="priority"'
+```
+
+删除 group 或修改 group id 时，CLI、TUI、桌面应用和服务器版 Web 都会先预览 alias / rewrite 引用影响；需要时可选择删除 target、删除 alias、重绑定 target、保留/禁用/删除 rewrite，或替换 rewrite 的 provider group 选择器。
 
 ### 自动 alias 与零配置路由
 
@@ -367,7 +424,7 @@ Provider 保存或刷新模型成功后，`ocswitch` 会为发现到的模型自
 - Settings 页全局“自动生成别名”：关闭后停止自动 alias 生成，并在路由时跳过自动 alias；没有手动 alias 时仍会尝试直接 provider 回退。
 - Alias 页“升级为手动”：把自动 alias 及其现有 targets 转为手动配置，后续模型刷新、优先级重排和 provider 自动清理都不会再改写它。
 
-只有 `models_source` 为 `discovered` 且模型列表非空时才会自动生成 alias。使用 `--skip-models`、上游不提供模型列表或模型发现失败时，不会自动创建 alias；此时可手动配置 alias。
+只有 group 的 `models_source` 为 `discovered` 且模型列表非空时才会自动生成 alias。使用 `--skip-models`、上游不提供模型列表或模型发现失败时，不会自动创建 alias；此时可手动配置 alias。
 
 对应配置示例：
 
@@ -378,12 +435,17 @@ Provider 保存或刷新模型成功后，`ocswitch` 会为发现到的模型自
   "providers": [
     {
       "id": "provider-a",
-      "protocol": "openai-responses",
       "base_url": "https://provider-a.example/v1",
-      "api_key": "sk-example",
-      "models": ["gpt-5.4"],
-      "models_source": "discovered",
-      "auto_alias_enabled": true
+      "auto_alias_enabled": true,
+      "groups": [
+        {
+          "id": "default",
+          "protocol": "openai-responses",
+          "api_key": "sk-example",
+          "models": ["gpt-5.4"],
+          "models_source": "discovered"
+        }
+      ]
     }
   ]
 }
